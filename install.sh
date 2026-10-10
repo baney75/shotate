@@ -41,8 +41,9 @@ asset_url() {
 
 install_linux() {
   case "$(uname -m)" in
-    x86_64|amd64) deb_arch=amd64; rpm_arch=x86_64; ;;
-    aarch64|arm64) deb_arch=arm64; rpm_arch=aarch64; ;;
+    # Tauri names packages amd64/arm64 for .deb, x86_64/aarch64 for .rpm, amd64/aarch64 for AppImage.
+    x86_64|amd64) deb_arch=amd64; rpm_arch=x86_64; appimage_arch=amd64 ;;
+    aarch64|arm64) deb_arch=arm64; rpm_arch=aarch64; appimage_arch=aarch64 ;;
     *) fail "Snapmark for Linux is built for x86_64 and arm64 (this machine is $(uname -m))." ;;
   esac
   WORK=$(mktemp -d)
@@ -65,8 +66,8 @@ install_linux() {
     if command -v dnf >/dev/null 2>&1; then $sudo dnf install -y "$WORK/snapmark.rpm"
     else $sudo zypper --non-interactive install --allow-unsigned-rpm "$WORK/snapmark.rpm"; fi
   else
-    url=$(asset_url "_${deb_arch}\.AppImage$") || true
-    [ -n "${url:-}" ] || fail "no AppImage for $deb_arch in the latest release."
+    url=$(asset_url "_${appimage_arch}\.AppImage$") || true
+    [ -n "${url:-}" ] || fail "no AppImage for $appimage_arch in the latest release."
     step "Downloading $(basename "$url")"
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
     curl -fsSL -o "$HOME/.local/bin/snapmark" "$url"
