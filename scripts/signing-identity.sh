@@ -5,17 +5,28 @@
 # certificate keeps it. The key lives in its own keychain under Application Support. It never
 # touches the login keychain and is not trusted for anything else.
 #   scripts/signing-identity.sh   ->  "Snapmark Local Signing<TAB>/path/to/snapmark-signing.keychain-db"
+# Passwords go through files and stdin, never command-line arguments, so `ps` can't show them.
 set -euo pipefail
 NAME="Snapmark Local Signing"
 DIR="$HOME/Library/Application Support/Snapmark/Signing"
 KC="$DIR/snapmark-signing.keychain-db"
 PASS_FILE="$DIR/keychain-password"
 
-if [ ! -f "$KC" ] || ! security find-identity -p codesigning "$KC" 2>/dev/null | grep -q "$NAME"; then
+# `security -i` reads commands from stdin. The password is base64, so it needs no further quoting.
+keychain() { printf '%s\n' "$1" | security -i >/dev/null; }
+unlock() { keychain "unlock-keychain -p $(cat "$PASS_FILE") \"$KC\""; }
+
+healthy() {
+  [ -f "$KC" ] && [ -s "$PASS_FILE" ] && unlock 2>/dev/null \
+    && security find-identity -p codesigning "$KC" 2>/dev/null | grep -q "$NAME"
+}
+
+if ! healthy; then
+  # Missing, half-made, or the password no longer matches: start over.
+  security delete-keychain "$KC" 2>/dev/null || rm -f "$KC"
   mkdir -p "$DIR" && chmod 700 "$DIR"
-  rm -f "$KC"
   umask 077
-  head -c 24 /dev/urandom | base64 > "$PASS_FILE"
+  head -c 24 /dev/urandom | base64 | tr -d '/+=' > "$PASS_FILE"
   TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
   cat > "$TMP/cfg" <<CFG
 [req]
@@ -31,16 +42,19 @@ extendedKeyUsage=critical,codeSigning
 CFG
   openssl req -x509 -newkey rsa:2048 -nodes -keyout "$TMP/key.pem" -out "$TMP/cert.pem" -days 7300 \
     -config "$TMP/cfg" >/dev/null 2>&1
-  P12PASS=$(head -c 12 /dev/urandom | base64)
+  head -c 12 /dev/urandom | base64 | tr -d '/+=' > "$TMP/p12pass"
   openssl pkcs12 -export -legacy -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -out "$TMP/id.p12" \
-    -passout "pass:$P12PASS" >/dev/null 2>&1 \
+    -passout "file:$TMP/p12pass" >/dev/null 2>&1 \
   || openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -out "$TMP/id.p12" \
-    -passout "pass:$P12PASS" >/dev/null 2>&1
-  security create-keychain -p "$(cat "$PASS_FILE")" "$KC"
-  security set-keychain-settings "$KC"   # no auto-lock timeout
-  security unlock-keychain -p "$(cat "$PASS_FILE")" "$KC"
-  security import "$TMP/id.p12" -k "$KC" -P "$P12PASS" -T /usr/bin/codesign >/dev/null
-  security set-key-partition-list -S apple-tool:,apple: -s -k "$(cat "$PASS_FILE")" "$KC" >/dev/null
+    -passout "file:$TMP/p12pass" >/dev/null 2>&1
+  PW=$(cat "$PASS_FILE")
+  keychain "create-keychain -p $PW \"$KC\""
+  security set-keychain-settings -l -t 300 "$KC"   # locks itself 5 minutes after a build
+  unlock
+  keychain "import \"$TMP/id.p12\" -k \"$KC\" -P $(cat "$TMP/p12pass") -T /usr/bin/codesign"
+  keychain "set-key-partition-list -S apple-tool:,apple: -s -k $PW \"$KC\""
+  unset PW
+  healthy || { echo "could not create the Snapmark signing identity" >&2; exit 1; }
 fi
-security unlock-keychain -p "$(cat "$PASS_FILE")" "$KC"
+security set-keychain-settings -l -t 300 "$KC"   # also tightens keychains made before this setting
 printf '%s\t%s\n' "$NAME" "$KC"

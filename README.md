@@ -12,7 +12,8 @@
 
 <p align="center">
   <b>A fast, free screenshot tool for macOS with the annotation tools you actually use.</b><br>
-  No account, no upsell, no network code. It lives in your menu bar and stays out of the way.
+  No account, no upsell, no network code. It lives in your menu bar and stays out of the way.<br>
+  <sub>Made by <a href="https://dbaney.com">Donovan Baney</a> · <a href="https://x.com/baney75">@baney75</a></sub>
 </p>
 
 <p align="center">
@@ -70,10 +71,13 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | | | | ⌘S | Save a copy elsewhere |
 | | | | ⌘⌫ | Move the capture to the Trash |
 
+Tool letters can be changed in the [config file](#configuration).
+
 ## Permissions
 
 Snapmark needs exactly one permission, **Screen Recording**, and the welcome window asks for it with
-one click. It needs nothing else: no Accessibility, no Input Monitoring. The global shortcut is
+one click. If macOS ever shows the switch as on while Snapmark still can't capture, click **Allow…**
+again: Snapmark clears its own stale entry and asks fresh. It needs nothing else: no Accessibility, no Input Monitoring. The global shortcut is
 registered with `RegisterEventHotKey`, which macOS allows without extra permission.
 
 macOS ties that permission to the app's code signature. Snapmark's installer creates a local signing
@@ -81,22 +85,49 @@ certificate the first time it runs, kept in its own keychain under
 `~/Library/Application Support/Snapmark/Signing`. The certificate stays the same across updates, so
 macOS remembers your choice. It is never added to your login keychain and is trusted for nothing else.
 
-If captures ever come back blank, open the menu bar icon and choose **Allow Screen Recording…**.
+If Screen Recording is ever off, the menu bar menu shows **Allow Screen Recording…** at the top.
 
-## Settings
+## Configuration
 
-Menu bar icon › **Settings…** sets the save folder, the capture shortcut, clipboard behavior, the menu
-bar icon and launch at login.
+Every setting lives in one plain file, **`~/.config/snapmark/config.json`**. Change it in
+**Settings…**, edit the file yourself, or let a script or AI agent edit it. Snapmark reloads the
+moment the file is saved, so there is nothing to restart.
 
-**Command shortcuts** let Snapmark's menu bar process own extra global shortcuts that run a shell
-command, one per line:
-
+```json
+{
+  "saveFolder": "~/Pictures/Screenshots",
+  "copyOnCapture": true,
+  "showMenuBarIcon": true,
+  "shortcuts": {
+    "captureArea": "cmd+shift+s",
+    "captureWindow": "ctrl+shift+2",
+    "captureScreen": ""
+  },
+  "commands": {
+    "cmd+shift+a": "open -a Terminal"
+  },
+  "toolKeys": {
+    "select": "v", "arrow": "a", "box": "r", "ellipse": "o", "highlight": "h",
+    "text": "t", "redact": "b", "step": "n", "crop": "c"
+  }
+}
 ```
-cmd+shift+a = open -a Terminal
-ctrl+option+n = ~/bin/new-note
-```
 
-Everything is scriptable:
+| Key | What it does |
+| --- | --- |
+| `saveFolder` | Where captures are saved. `~` works. |
+| `copyOnCapture` | Put every capture on the clipboard as soon as it's taken. |
+| `showMenuBarIcon` | Show the menu bar icon. URLs and shortcuts work either way. |
+| `shortcuts` | Global shortcuts for `captureArea`, `captureWindow` and `captureScreen`. An empty string turns one off. |
+| `commands` | Extra global shortcuts that run a shell command in your login shell. |
+| `toolKeys` | The single letter that picks each editor tool. A letter already used by another tool is ignored, so every tool stays reachable. |
+
+Shortcuts are written as modifiers plus one key: `cmd`, `shift`, `option` (or `alt`), `ctrl`, and a
+letter, a digit, `space`, `return`, `tab`, `escape` or `f1`–`f12`. Any setting you leave out keeps its
+default. If the file has a JSON error, Snapmark says so and keeps its current settings rather than
+overwriting your file.
+
+Snapmark also responds to URLs:
 
 ```sh
 open snapmark://capture            # area
@@ -104,7 +135,8 @@ open snapmark://capture/window
 open snapmark://capture/screen
 open "snapmark://open?path=$HOME/Desktop/shot.png"
 open snapmark://settings
-defaults write com.baney.snapmark captureShortcut "ctrl+shift+2"
+open snapmark://config             # open the config file
+open snapmark://reload             # reload it now
 ```
 
 ## Uninstall
@@ -134,6 +166,12 @@ the exported PNG share one renderer, so what you see is exactly what gets copied
 Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). For security
 issues, see [SECURITY.md](SECURITY.md).
 
+## Author
+
+Snapmark is designed and built by **Donovan Baney**.
+
+[dbaney.com](https://dbaney.com) · [GitHub @baney75](https://github.com/baney75) · [X @baney75](https://x.com/baney75)
+
 ## License
 
-[MIT](LICENSE) © Donovan Baney
+[MIT](LICENSE) © 2026 Donovan Baney

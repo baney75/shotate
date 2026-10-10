@@ -1,6 +1,9 @@
 import AppKit
+import OSLog
 import ServiceManagement
 import SnapmarkCore
+
+private let log = Logger(subsystem: "com.baney.snapmark", category: "config")
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var editors: [EditorWindowController] = []
@@ -9,18 +12,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsWindow: SettingsWindowController?
     private var welcomeWindow: WelcomeWindowController?
     private var capturing = false
-    var settings = Settings.load()
+    private var configSource: DispatchSourceFileSystemObject?
+    /// Shortcuts that registered (or failed) last time, so a conflict is reported once, not on every change.
+    private var lastShortcuts: [String: String] = [:]
+    var settings = Settings()
 
     func applicationDidFinishLaunching(_ n: Notification) {
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass),
                                                      andEventID: AEEventID(kAEGetURL))
         NSApp.mainMenu = MainMenu.build(target: self)
-        applySettings()
+        settings = loadConfig() ?? settings
+        applySettings(save: !FileManager.default.fileExists(atPath: Settings.configURL.path))
+        watchConfig()
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--open"), i + 1 < args.count { open(URL(fileURLWithPath: args[i + 1])) }
         if args.contains("--capture") { capture(.area) }
-        if !UserDefaults.standard.bool(forKey: "onboarded") || !ScreenRecording.isGranted { showWelcome() }
+        // Only the first launch opens the welcome window. After that a missing permission shows in the
+        // menu bar menu, and the welcome window opens when a capture needs it.
+        if !UserDefaults.standard.bool(forKey: "onboarded") { showWelcome() }
     }
 
     /// ⌘Q, logout and restarts: save what is open before quitting.
@@ -39,7 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         urls.filter(\.isFileURL).forEach(open)
     }
 
-    /// snapmark://capture, snapmark://capture/window, snapmark://capture/screen, snapmark://open?path=/x.png, snapmark://settings
+    /// snapmark://capture, snapmark://capture/window, snapmark://capture/screen, snapmark://open?path=/x.png,
+    /// snapmark://settings, snapmark://config (open the config file), snapmark://reload, snapmark://welcome
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URLComponents(string: s) else { return }
@@ -53,16 +64,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         case "settings": showSettings()
         case "welcome", "permissions": showWelcome()
+        case "config": openConfig()
+        case "reload": reloadConfig()
         default: break
         }
     }
 
-    func applySettings() {
-        settings.save()
+    // MARK: Config file
+
+    /// The config file, or settings migrated from before it existed. A broken file is reported and
+    /// left alone, never overwritten, so a typo can't wipe someone's settings.
+    private func loadConfig() -> Settings? {
+        let url = Settings.configURL
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return Settings.migrated(from: .standard)
+        }
+        do { return try Settings.load(from: url) } catch {
+            Alerts.show("Snapmark couldn't read its config file",
+                        "\((url.path as NSString).abbreviatingWithTildeInPath): \(error.localizedDescription)\n\n"
+                        + "Snapmark keeps its current settings until the file is fixed.")
+            return nil
+        }
+    }
+
+    /// Reloads when the file changes, whoever changed it: a text editor, an agent, `snapmark://reload`.
+    /// A kernel file event wakes Snapmark even while macOS naps it (a timer would stall). Editors that
+    /// save by replacing the file end the watch, so it re-arms on the new file.
+    private func watchConfig() {
+        configSource?.cancel()
+        configSource = nil
+        let fd = Darwin.open(Settings.configURL.path, O_EVTONLY)
+        guard fd >= 0 else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.watchConfig() }
+            return
+        }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.write, .extend, .delete, .rename, .attrib], queue: .main)
+        source.setEventHandler { [weak self, weak source] in
+            let replaced = !(source?.data ?? []).isDisjoint(with: [.delete, .rename])
+            // Let the writer finish before reading.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self?.reloadConfig()
+                if replaced { self?.watchConfig() }
+            }
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        configSource = source
+    }
+
+    @objc func reloadConfig() {
+        guard FileManager.default.fileExists(atPath: Settings.configURL.path),
+              let fresh = loadConfig(), fresh != settings else { return }
+        settings = fresh
+        log.notice("Reloaded \(Settings.configURL.path, privacy: .public)")
+        applySettings(save: false)
+        settingsWindow?.reload()
+    }
+
+    @objc func openConfig() {
+        if !FileManager.default.fileExists(atPath: Settings.configURL.path) { try? settings.save() }
+        // TextEdit, so it opens as text even where .json belongs to an app that can't edit it.
+        NSWorkspace.shared.open([Settings.configURL], withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
+                                configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// Applies settings to the running app; with `save`, also writes the config file.
+    func applySettings(save: Bool = true) {
+        if save {
+            do { try settings.save() } catch {
+                Alerts.show("Snapmark couldn't save its settings", error: error)
+            }
+        }
         hotkeys.removeAll()
-        if settings.captureHotkeyEnabled, let s = Shortcut(settings.captureShortcut),
-           !hotkeys.register(s, { [weak self] in self?.capture(.area) }) {
-            Alerts.show("\(s.displayString) is already in use",
+        let actions: [String: () -> Void] = [
+            "captureArea": { [weak self] in self?.capture(.area) },
+            "captureWindow": { [weak self] in self?.capture(.window) },
+            "captureScreen": { [weak self] in self?.capture(.screen) },
+        ]
+        var taken: [String] = []
+        for name in Settings.actions {
+            guard let keys = settings.shortcuts[name], let s = Shortcut(keys), let action = actions[name] else { continue }
+            if !hotkeys.register(s, action), lastShortcuts[name] != keys { taken.append(s.displayString) }
+        }
+        lastShortcuts = settings.shortcuts
+        if !taken.isEmpty {
+            Alerts.show("\(taken.joined(separator: ", ")) \(taken.count == 1 ? "is" : "are") already in use",
                         "Another app owns that shortcut. Pick a different one in Snapmark Settings.")
         }
         for (keys, command) in settings.commandHotkeys {
@@ -118,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// window activates the app to take keyboard focus, and the hidden main menu still routes ⌘V,
     /// ⌘A and friends to text labels.
     private func edit(_ doc: Document, fileURL: URL, ownsFile: Bool) {
-        let editor = EditorWindowController(document: doc, fileURL: fileURL, ownsFile: ownsFile)
+        let editor = EditorWindowController(document: doc, fileURL: fileURL, ownsFile: ownsFile, settings: settings)
         editor.onClose = { [weak self] e in self?.editors.removeAll { $0 === e } }
         editors.append(editor)
         editor.present()
@@ -153,20 +240,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(fix)
             menu.addItem(.separator())
         }
-        let area = NSMenuItem(title: "Capture Area", action: #selector(captureArea), keyEquivalent: "")
-        if settings.captureHotkeyEnabled, let s = Shortcut(settings.captureShortcut) {
-            // Shown, not bound: the global hotkey does the work.
-            area.keyEquivalent = s.key.count == 1 ? s.key : ""
-            area.keyEquivalentModifierMask = s.modifierFlags
+        func item(_ title: String, _ action: Selector, shortcut name: String) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            if let s = settings.shortcuts[name].flatMap(Shortcut.init), s.key.count == 1 {
+                // Shown, not bound: the global hotkey does the work.
+                i.keyEquivalent = s.key
+                i.keyEquivalentModifierMask = s.modifierFlags
+            }
+            return i
         }
-        for i in [area,
-                  NSMenuItem(title: "Capture Window", action: #selector(captureWindow), keyEquivalent: ""),
-                  NSMenuItem(title: "Capture Full Screen", action: #selector(captureScreen), keyEquivalent: ""),
+        for i in [item("Capture Area", #selector(captureArea), shortcut: "captureArea"),
+                  item("Capture Window", #selector(captureWindow), shortcut: "captureWindow"),
+                  item("Capture Full Screen", #selector(captureScreen), shortcut: "captureScreen"),
                   .separator(),
                   NSMenuItem(title: "Open Image…", action: #selector(openImagePanel), keyEquivalent: ""),
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
                   .separator(),
                   NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","),
+                  NSMenuItem(title: "Edit Config File…", action: #selector(openConfig), keyEquivalent: ""),
+                  NSMenuItem(title: "About Snapmark", action: #selector(showAbout), keyEquivalent: ""),
                   NSMenuItem(title: "Quit Snapmark", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
             if i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
             menu.addItem(i)
@@ -180,6 +272,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? FileManager.default.createDirectory(at: settings.saveFolder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(settings.saveFolder)
     }
+
+    @objc func showAbout() { Credits.showAbout() }
 
     @objc func showWelcome() {
         if welcomeWindow == nil { welcomeWindow = WelcomeWindowController(app: self) }

@@ -22,7 +22,8 @@ sed "s/@VERSION@/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 if [ "${SNAPMARK_ADHOC:-}" != 1 ] && IDENT=$(scripts/signing-identity.sh 2>/dev/null); then
   codesign --force --sign "${IDENT%%$'\t'*}" --keychain "${IDENT#*$'\t'}" --identifier com.baney.snapmark "$APP"
 else
-  echo "note: signing ad-hoc; macOS will ask for Screen Recording again after each update" >&2
+  ADHOC_NOTE="note: signed ad-hoc, so macOS will ask for Screen Recording again after each update"
+  echo "$ADHOC_NOTE" >&2
   codesign --force --sign - --identifier com.baney.snapmark "$APP"
 fi
 codesign --verify "$APP"
@@ -45,3 +46,4 @@ if [ "${1:-}" = "--install" ]; then
   open "$DEST"
   echo "installed $DEST"
 fi
+[ -z "${ADHOC_NOTE:-}" ] || echo "$ADHOC_NOTE"

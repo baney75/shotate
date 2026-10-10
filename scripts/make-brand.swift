@@ -29,7 +29,7 @@ func render(_ w: Int, _ h: Int, iconSize: CGFloat, title: CGFloat, to name: Stri
     text("Snapmark", size: title, weight: .bold, color: .white, at: CGPoint(x: x, y: H / 2 + title * 0.1))
     text("Screenshot. Mark it up. Paste.", size: title * 0.36, weight: .medium,
          color: NSColor(white: 1, alpha: 0.78), at: CGPoint(x: x, y: H / 2 - title * 0.42))
-    text("Free and open source for macOS", size: title * 0.26, weight: .regular,
+    text("Free and open source for macOS  ·  by Donovan Baney (@baney75)", size: title * 0.26, weight: .regular,
          color: NSColor(srgbRed: 0.98, green: 0.55, blue: 0.56, alpha: 1), at: CGPoint(x: x, y: H / 2 - title * 0.85))
     let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "\(out)/\(name)"))

@@ -2,21 +2,36 @@ import AppKit
 import CoreGraphics
 import SnapmarkCore
 
-/// Screen Recording permission. macOS shows its own prompt once; after that the only way to turn it
-/// on is System Settings, and a running app may not see the change until it relaunches.
+/// Screen Recording permission. A running app may not see a change until it relaunches.
+///
+/// macOS stores a grant together with the code signature of the build that asked. If that signature
+/// changes (older Snapmark builds were signed ad hoc, so every build had a new one), the switch in
+/// System Settings can show "on" while macOS still refuses this build, and flipping it doesn't help.
+/// `request()` therefore clears Snapmark's own entry before asking, so macOS records this build.
 enum ScreenRecording {
     static var isGranted: Bool { CGPreflightScreenCaptureAccess() }
 
-    private static let askedKey = "askedScreenRecording"
+    static let askedKey = "askedScreenRecording"
+    static var hasAsked: Bool { UserDefaults.standard.bool(forKey: askedKey) }
 
-    /// First time: the system prompt (which also adds Snapmark to the list in System Settings).
-    /// After that: open the right System Settings pane.
+    /// Shows the system prompt, which also adds Snapmark to the list in System Settings.
     static func request() {
-        if !UserDefaults.standard.bool(forKey: askedKey) {
-            UserDefaults.standard.set(true, forKey: askedKey)
-            if CGRequestScreenCaptureAccess() { return }
-        }
-        openSettings()
+        if hasAsked { resetOwnEntry() }
+        UserDefaults.standard.set(true, forKey: askedKey)
+        _ = CGRequestScreenCaptureAccess()
+    }
+
+    /// Removes only Snapmark's Screen Recording entry (never another app's), so macOS asks again.
+    @discardableResult
+    static func resetOwnEntry() -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        p.arguments = ["reset", "ScreenCapture", Bundle.main.bundleIdentifier ?? "com.baney.snapmark"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        return p.terminationStatus == 0
     }
 
     static func openSettings() {
@@ -56,12 +71,13 @@ enum Alerts {
 }
 
 /// First launch and missing permission: one window that gets Snapmark ready to use.
-final class WelcomeWindowController: NSWindowController {
+final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private weak var app: AppDelegate?
     private let statusLabel = NSTextField(labelWithString: "")
     private let statusIcon = NSImageView()
     private let allowButton = NSButton(title: "Allow…", target: nil, action: nil)
-    private let relaunchButton = NSButton(title: "Relaunch Snapmark", target: nil, action: nil)
+    private let relaunchButton = NSButton(title: "Relaunch", target: nil, action: nil)
+    private let settingsLink = NSButton(title: "Open System Settings", target: nil, action: nil)
     private let shortcutLabel = NSTextField(labelWithString: "")
     private let loginBox = NSButton(checkboxWithTitle: "Open Snapmark when I log in", target: nil, action: nil)
     private let primary = NSButton(title: "Try a Capture", target: nil, action: nil)
@@ -70,7 +86,7 @@ final class WelcomeWindowController: NSWindowController {
 
     init(app: AppDelegate) {
         self.app = app
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 440),
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 480),
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -78,6 +94,7 @@ final class WelcomeWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.title = "Welcome to Snapmark"
         super.init(window: window)
+        window.delegate = self
         build()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -113,6 +130,12 @@ final class WelcomeWindowController: NSWindowController {
         relaunchButton.target = self
         relaunchButton.action = #selector(relaunch)
         relaunchButton.bezelStyle = .rounded
+        settingsLink.target = self
+        settingsLink.action = #selector(openSystemSettings)
+        settingsLink.isBordered = false
+        settingsLink.contentTintColor = .linkColor
+        settingsLink.font = .systemFont(ofSize: 11)
+        settingsLink.alignment = .right
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
         statusLabel.maximumNumberOfLines = 2
@@ -139,7 +162,7 @@ final class WelcomeWindowController: NSWindowController {
         let footer = NSStackView(views: [loginBox, NSView(), done, primary])
         footer.spacing = 10
 
-        let card = NSStackView(views: [permission, separator(), shortcut, separator(), mark])
+        let card = NSStackView(views: [permission, settingsLink, separator(), shortcut, separator(), mark])
         card.orientation = .vertical
         card.alignment = .leading
         card.spacing = 14
@@ -148,7 +171,7 @@ final class WelcomeWindowController: NSWindowController {
         card.layer?.cornerRadius = 10
         card.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.06).cgColor
 
-        let stack = NSStackView(views: [header, card, footer])
+        let stack = NSStackView(views: [header, card, footer, Credits.label(centered: true)])
         stack.orientation = .vertical
         stack.spacing = 22
         stack.edgeInsets = NSEdgeInsets(top: 36, left: 28, bottom: 22, right: 28)
@@ -202,26 +225,28 @@ final class WelcomeWindowController: NSWindowController {
         statusIcon.isHidden = !granted
         allowButton.isHidden = granted
         relaunchButton.isHidden = granted || !openedSettings
-        allowButton.title = UserDefaults.standard.bool(forKey: "askedScreenRecording") ? "Open Settings" : "Allow…"
+        settingsLink.isHidden = granted || !openedSettings
+        allowButton.title = openedSettings ? "Ask Again" : "Allow…"
         statusLabel.stringValue = granted ? "Allowed. Snapmark can capture your screen."
-            : openedSettings ? "Turn on Snapmark in the list, then relaunch."
+            : openedSettings ? "Turn Snapmark on in the macOS prompt or in System Settings, then click Relaunch."
             : "Needed to capture your screen. Snapmark never sends it anywhere."
         let s = app?.settings
-        let keys = Shortcut(s?.captureShortcut ?? Settings.defaultShortcut)?.displayString ?? "⇧⌘S"
-        shortcutLabel.stringValue = s?.captureHotkeyEnabled == false
-            ? "Use the menu bar icon (the shortcut is off in Settings)."
-            : "Press \(keys) and drag. Space switches to a whole window."
+        if let keys = s?.captureShortcut?.displayString {
+            shortcutLabel.stringValue = "Press \(keys) and drag. Space switches to a whole window."
+        } else {
+            shortcutLabel.stringValue = "Use the menu bar icon, or set a shortcut in Settings."
+        }
         loginBox.state = (app?.launchAtLogin ?? false) ? .on : .off
         primary.isEnabled = granted
     }
 
     @objc private func allow() {
-        let firstTime = !UserDefaults.standard.bool(forKey: "askedScreenRecording")
         ScreenRecording.request()
-        // The system prompt only appears once. After that, the user has to flip the switch in Settings.
-        openedSettings = !firstTime || !ScreenRecording.isGranted
+        openedSettings = true
         refresh()
     }
+
+    @objc private func openSystemSettings() { ScreenRecording.openSettings() }
 
     @objc private func doneClicked() { close() }
 
@@ -237,9 +262,9 @@ final class WelcomeWindowController: NSWindowController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak app] in app?.capture(.area) }
     }
 
-    override func close() {
+    /// Every way of closing (Done, Esc, the red button) counts as finishing the welcome.
+    func windowWillClose(_ notification: Notification) {
         timer?.invalidate()
         UserDefaults.standard.set(true, forKey: "onboarded")
-        super.close()
     }
 }

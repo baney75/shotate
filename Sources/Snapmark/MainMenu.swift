@@ -7,7 +7,7 @@ enum MainMenu {
         let main = NSMenu()
 
         let app = NSMenu(title: "Snapmark")
-        app.addItem(withTitle: "About Snapmark", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "About Snapmark", action: #selector(AppDelegate.showAbout), keyEquivalent: "").target = target
         app.addItem(.separator())
         let settings = app.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings), keyEquivalent: ",")
         settings.target = target

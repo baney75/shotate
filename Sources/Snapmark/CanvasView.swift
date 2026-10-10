@@ -206,11 +206,13 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     override func mouseDragged(with e: NSEvent) {
         var p = imagePoint(e)
         if let i = dragHandle, let m = live {
+            let base = selectedMark ?? m
             if e.modifierFlags.contains(.shift) {
-                let anchor = m.tool == .arrow ? (i == 0 ? m.end : m.start) : m.start
-                p = m.tool == .arrow ? Geometry.snap45(from: anchor, to: p) : p
+                // Same as drawing: 45° steps for an arrow, a square for a shape, from the fixed end.
+                let fixed = base.tool == .arrow ? (i == 0 ? base.end : base.start) : base.moving(handle: i, to: p).start
+                p = base.tool == .arrow ? Geometry.snap45(from: fixed, to: p) : Geometry.square(from: fixed, to: p)
             }
-            live = (selectedMark ?? m).moving(handle: i, to: p)
+            live = base.moving(handle: i, to: p)
             return
         }
         if tool == .select, let o = dragOrigin, let m = selectedMark {

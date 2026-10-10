@@ -172,14 +172,61 @@ final class SnapmarkCoreTests: XCTestCase {
         XCTAssertTrue(second.lastPathComponent.hasSuffix(" 2.png"))
     }
 
-    func testSettingsRoundTrip() {
-        let d = UserDefaults(suiteName: "snap-test-\(UUID().uuidString)")!
+    func tempConfig() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("snapmark-\(UUID().uuidString)/config.json")
+    }
+
+    func testConfigFileRoundTrips() throws {
+        let url = tempConfig()
         var s = Settings(saveFolder: URL(fileURLWithPath: "/tmp/snapmark-\(UUID().uuidString)-missing", isDirectory: true))
         s.copyOnCapture = false
         s.commandHotkeys = ["cmd+shift+a": "/usr/bin/true"]
-        s.save(to: d)
-        XCTAssertEqual(Settings.load(from: d), s, "round-trips even when the folder does not exist")
-        XCTAssertEqual(Settings.load(from: UserDefaults(suiteName: "snapmark-empty-\(UUID().uuidString)")!), Settings())
+        s.shortcuts["captureWindow"] = "ctrl+shift+2"
+        s.toolKeys = ["arrow": "w"]
+        try s.save(to: url)
+        var expected = s
+        expected.toolKeys = Dictionary(uniqueKeysWithValues: Tool.allCases.map { ($0.title.lowercased(), s.key(for: $0)) })
+        XCTAssertEqual(try Settings.load(from: url), expected, "round-trips even when the folder does not exist")
+    }
+
+    /// People and agents write partial files by hand: what's missing keeps its default, and bad
+    /// shortcuts turn that action off instead of breaking the whole file.
+    func testHandWrittenPartialConfigKeepsDefaults() throws {
+        let url = tempConfig()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"shortcuts": {"captureScreen": "CMD+SHIFT+9", "captureWindow": "nonsense"}, "extra": 1}"#.utf8).write(to: url)
+        let s = try Settings.load(from: url)
+        XCTAssertEqual(s.shortcuts["captureArea"], Settings.defaultShortcut)
+        XCTAssertEqual(s.shortcuts["captureScreen"], "cmd+shift+9")
+        XCTAssertEqual(s.shortcuts["captureWindow"], "")
+        XCTAssertTrue(s.copyOnCapture)
+        try Data("{ not json".utf8).write(to: url)
+        XCTAssertThrowsError(try Settings.load(from: url))
+    }
+
+    func testToolKeysRemapWithoutLosingAnyTool() {
+        var s = Settings()
+        XCTAssertEqual(s.key(for: .arrow), "a")
+        s.toolKeys = ["arrow": "w", "box": "a", "ellipse": "r"]  // a chain of swaps
+        XCTAssertEqual(s.tool(forKey: "w"), .arrow)
+        XCTAssertEqual(s.tool(forKey: "a"), .box)
+        XCTAssertEqual(s.tool(forKey: "r"), .ellipse)
+        s.toolKeys = ["arrow": "v"]  // clashes with Select's default: ignored
+        XCTAssertEqual(s.key(for: .arrow), "a")
+        XCTAssertEqual(s.tool(forKey: "v"), .select)
+        s.toolKeys = ["arrow": "1"]  // digits pick colors
+        XCTAssertEqual(s.key(for: .arrow), "a")
+        XCTAssertEqual(Set(Tool.allCases.map(s.key(for:))).count, Tool.allCases.count)
+    }
+
+    func testMigratesOldDefaults() {
+        let d = UserDefaults(suiteName: "snapmark-test-\(UUID().uuidString)")!
+        d.set(false, forKey: "captureHotkeyEnabled")
+        d.set(["cmd+shift+a": "x"], forKey: "commandHotkeys")
+        let s = Settings.migrated(from: d)
+        XCTAssertEqual(s.shortcuts["captureArea"], "")
+        XCTAssertNil(s.captureShortcut)
+        XCTAssertEqual(s.commandHotkeys, ["cmd+shift+a": "x"])
     }
 
     /// Captures are read from a temp file that is deleted right away. The image must not depend on
@@ -201,16 +248,6 @@ final class SnapmarkCoreTests: XCTestCase {
         XCTAssertEqual(Shortcut("cmd+shift+s")?.displayString, "⇧⌘S")
         XCTAssertEqual(Shortcut("shift+ctrl+option+cmd+2")?.displayString, "⌃⌥⇧⌘2")
         XCTAssertEqual(Shortcut("ctrl+f5")?.displayString, "⌃F5")
-    }
-
-    func testCaptureShortcutRoundTripsAndRejectsGarbage() {
-        let d = UserDefaults(suiteName: "snapmark-test-\(UUID().uuidString)")!
-        var s = Settings()
-        s.captureShortcut = "ctrl+shift+2"
-        s.save(to: d)
-        XCTAssertEqual(Settings.load(from: d).captureShortcut, "ctrl+shift+2")
-        d.set("not a shortcut", forKey: "captureShortcut")
-        XCTAssertEqual(Settings.load(from: d).captureShortcut, Settings.defaultShortcut)
     }
 
     func testDraggingACornerKeepsTheOppositeCornerFixed() {

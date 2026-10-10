@@ -20,8 +20,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private var finished = false
     private let status = NSTextField(labelWithString: "")
 
-    init(document: Document, fileURL: URL, ownsFile: Bool) {
+    /// For the editor's tool keys and the fallback save folder.
+    let settings: Settings
+
+    init(document: Document, fileURL: URL, ownsFile: Bool, settings: Settings) {
         doc = document
+        self.settings = settings
         self.fileURL = fileURL
         self.ownsFile = ownsFile
         canvas = CanvasView(document: document)
@@ -70,7 +74,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             NSImage(systemSymbolName: $0.symbol, accessibilityDescription: $0.title)!
         }, trackingMode: .selectOne, target: self, action: #selector(toolChanged))
         for (i, t) in Tool.allCases.enumerated() {
-            toolControl.setToolTip("\(t.title) (\(t.rawValue.uppercased()))", forSegment: i)
+            toolControl.setToolTip("\(t.title) (\(settings.key(for: t).uppercased()))", forSegment: i)
         }
         bar.addArrangedSubview(toolControl)
 
@@ -256,7 +260,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         case 126: canvas.nudgeSelection(dx: 0, dy: step); return true
         default: break
         }
-        if let t = Tool(rawValue: chars) { select(tool: t); return true }
+        if let t = settings.tool(forKey: chars) { select(tool: t); return true }
         if let n = Int(chars), (1...RGBA.palette.count).contains(n) { select(colorIndex: n - 1); return true }
         if chars == "[" { select(size: StrokeSize(rawValue: max(1, canvas.size.rawValue - 1))!); return true }
         if chars == "]" { select(size: StrokeSize(rawValue: min(3, canvas.size.rawValue + 1))!); return true }
@@ -299,7 +303,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             try Output.write(image, to: url, dpi: doc.dpi)
         } catch {
             // A read-only folder (a mounted disk image, a locked folder): fall back to the screenshots folder.
-            let fallback = Settings.load().newCaptureURL()
+            let fallback = settings.newCaptureURL()
             do {
                 try Output.write(image, to: fallback, dpi: doc.dpi)
                 url = fallback
