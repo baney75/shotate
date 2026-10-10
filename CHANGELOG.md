@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.0 (2026-10-10)
+
+### Added
+- **Windows and Linux.** A new Tauri app (Rust plus a TypeScript canvas editor) with the same tools,
+  keys and behavior as the macOS app: area, window and full-screen capture from a full-screen picker,
+  canvas-style editing, drawing past the edge, the stepped Esc, a tray icon, global shortcuts, launch
+  at login, and the same `config.json` format, reloaded live.
+- One-line installs: `install.sh` now also installs the `.deb`, `.rpm` or AppImage on Linux, and
+  `install.ps1` installs on Windows without an administrator prompt.
+- Releases ship a Windows installer (.exe and .msi), Linux packages for x64 and arm64 (.deb, .rpm,
+  .AppImage), and the macOS zip.
+- `snapmark --capture` and friends on Windows and Linux, for binding keys on Wayland.
+
+### Changed
+- The macOS app moved to `macos/`. The install command is unchanged.
+
 ## 0.10.0 (2026-10-10)
 
 ### Fixed

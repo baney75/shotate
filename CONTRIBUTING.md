@@ -12,13 +12,18 @@ use, and nothing that phones home.
 ## Working on the code
 
 ```sh
-make test       # unit tests (no window needed)
-make install    # build, sign and run your copy from ~/Applications
-make selftest   # render every annotation onto Tests/Fixtures/sample.png
+cd macos && make test   # macOS unit tests (no window needed)
+make install            # build, sign and run your macOS copy
+make selftest           # render every annotation onto a sample image
+cd ../desktop && npm ci && npm test   # Windows/Linux editor tests
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-- Drawing, geometry and file handling belong in `Sources/SnapmarkCore`, covered by tests in
-  `Tests/SnapmarkCoreTests`. The AppKit layer in `Sources/Snapmark` should stay thin.
+- On macOS, drawing, geometry and file handling belong in `macos/Sources/SnapmarkCore`, covered by
+  tests in `macos/Tests/SnapmarkCoreTests`; the AppKit layer stays thin. On Windows and Linux the
+  same model lives in `desktop/src/core`, with tests beside it, and Rust (`desktop/src-tauri`) owns
+  capture, files, the clipboard, shortcuts and the config file.
+- A behavior change lands on both apps, or the PR says why it is platform-specific.
 - A bug fix comes with a test that fails without it.
 - Match the surrounding style: short functions, comments that say why, no new dependencies.
 - No network code, analytics or telemetry, ever.
