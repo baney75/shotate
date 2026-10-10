@@ -9,8 +9,9 @@ public struct Settings: Equatable {
     /// Extra global shortcuts that run a shell command, e.g. ["cmd+shift+a": "~/bin/open-terminal"].
     public var commandHotkeys: [String: String]
 
-    public static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Pictures/Screenshots")
+    // Always a directory URL, so it compares equal whether or not the folder exists yet.
+    public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
+                                          isDirectory: true)
 
     public init(saveFolder: URL = Settings.defaultFolder, copyOnCapture: Bool = true,
                 captureHotkeyEnabled: Bool = true, showMenuBarIcon: Bool = true,

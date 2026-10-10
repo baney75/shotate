@@ -174,10 +174,11 @@ final class SnapmarkCoreTests: XCTestCase {
 
     func testSettingsRoundTrip() {
         let d = UserDefaults(suiteName: "snap-test-\(UUID().uuidString)")!
-        var s = Settings()
+        var s = Settings(saveFolder: URL(fileURLWithPath: "/tmp/snapmark-\(UUID().uuidString)-missing", isDirectory: true))
         s.copyOnCapture = false
         s.commandHotkeys = ["cmd+shift+a": "/usr/bin/true"]
         s.save(to: d)
-        XCTAssertEqual(Settings.load(from: d), s)
+        XCTAssertEqual(Settings.load(from: d), s, "round-trips even when the folder does not exist")
+        XCTAssertEqual(Settings.load(from: UserDefaults(suiteName: "snapmark-empty-\(UUID().uuidString)")!), Settings())
     }
 }
