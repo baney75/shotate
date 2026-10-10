@@ -127,7 +127,7 @@ public enum Renderer {
         ctx.fillPath()
     }
 
-    /// The finished image: base, redactions, then other marks, cropped if a crop is set.
+    /// The finished image: base then marks in the order they were added, cropped if a crop is set.
     public static func flatten(_ doc: Document, selected: UUID? = nil) -> CGImage? {
         let img = doc.image
         guard let ctx = CGContext(data: nil, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: 0,

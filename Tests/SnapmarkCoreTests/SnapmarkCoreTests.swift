@@ -43,6 +43,17 @@ final class SnapmarkCoreTests: XCTestCase {
         XCTAssertFalse(doc.canRedo, "a new edit clears redo")
     }
 
+    func testRevisionTracksEveryChange() {
+        let doc = Document(image: solidImage())
+        XCTAssertEqual(doc.revision, 0)
+        doc.add(Mark(tool: .box, color: RGBA.palette[0], start: .zero, end: CGPoint(x: 9, y: 9)))
+        let afterAdd = doc.revision
+        doc.undo()
+        XCTAssertGreaterThan(doc.revision, afterAdd, "undo back to clean is still a change since the last save")
+        doc.redo()
+        XCTAssertGreaterThan(doc.revision, afterAdd + 1)
+    }
+
     func testStepsNumberThemselves() {
         let doc = Document(image: solidImage())
         for _ in 0..<3 { doc.add(Mark(tool: .step, color: RGBA.palette[2], start: CGPoint(x: 20, y: 20), end: .zero)) }
@@ -118,6 +129,10 @@ final class SnapmarkCoreTests: XCTestCase {
         let onOutline = CGPoint(x: 600 + r45, y: 600 + r45)
         XCTAssertNotNil(doc.hitTest(onOutline, tolerance: 8))
         XCTAssertNil(doc.hitTest(CGPoint(x: 1090, y: 1090), tolerance: 8), "bounding-box corner is empty space")
+        let thin = Document(image: solidImage(3000, 100))
+        thin.add(Mark(tool: .ellipse, color: RGBA.palette[0], start: CGPoint(x: 0, y: 0), end: CGPoint(x: 2000, y: 20)))
+        XCTAssertNil(thin.hitTest(CGPoint(x: 2400, y: 10), tolerance: 8), "400 px past the tip of a long ellipse")
+        XCTAssertNotNil(thin.hitTest(CGPoint(x: 2001, y: 10), tolerance: 8), "at the tip")
     }
 
     func testRedactionCoversEarlierMarks() {

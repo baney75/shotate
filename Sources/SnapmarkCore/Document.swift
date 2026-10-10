@@ -112,6 +112,8 @@ public final class Document {
     public let dpi: CGFloat
     public private(set) var marks: [Mark] = []
     public private(set) var crop: CGRect?
+    /// Bumps on every change, undo and redo, so callers can tell whether a saved copy is stale.
+    public private(set) var revision = 0
     private var undoStack: [([Mark], CGRect?)] = []
     private var redoStack: [([Mark], CGRect?)] = []
 
@@ -126,6 +128,7 @@ public final class Document {
     public var canRedo: Bool { !redoStack.isEmpty }
 
     private func checkpoint() {
+        revision += 1
         undoStack.append((marks, crop))
         if undoStack.count > 200 { undoStack.removeFirst() }
         redoStack.removeAll()
@@ -160,12 +163,14 @@ public final class Document {
 
     public func undo() {
         guard let last = undoStack.popLast() else { return }
+        revision += 1
         redoStack.append((marks, crop))
         (marks, crop) = last
     }
 
     public func redo() {
         guard let next = redoStack.popLast() else { return }
+        revision += 1
         undoStack.append((marks, crop))
         (marks, crop) = next
     }
@@ -188,9 +193,13 @@ public enum Geometry {
             return m.rect.contains(p) ? 0 : rectDistance(p, m.rect)
         case .ellipse:
             let r = m.rect
+            // First-order distance to the outline: |F| / |∇F| for F = (x/a)² + (y/b)² - 1.
             let a = max(r.width / 2, 1), b = max(r.height / 2, 1)
-            let dx = (p.x - r.midX) / a, dy = (p.y - r.midY) / b
-            return abs(sqrt(dx * dx + dy * dy) - 1) * min(a, b)
+            let x = p.x - r.midX, y = p.y - r.midY
+            let f = (x * x) / (a * a) + (y * y) / (b * b) - 1
+            let gx = 2 * x / (a * a), gy = 2 * y / (b * b)
+            let g = hypot(gx, gy)
+            return g > 0 ? abs(f) / g : min(a, b)
         case .box, .crop, .select:
             let r = m.rect
             if r.insetBy(dx: -1, dy: -1).contains(p) {

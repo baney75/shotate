@@ -25,7 +25,11 @@ if [ "${1:-}" = "--install" ]; then
   DEST="$HOME/Applications/Snapmark.app"
   # Quit by bundle ID (lets open editors save) instead of killing anything with a matching name.
   osascript -e 'tell application id "com.baney.snapmark" to quit' >/dev/null 2>&1 || true
-  sleep 1
+  for _ in $(seq 1 50); do pgrep -f "$DEST/Contents/MacOS/Snapmark" >/dev/null || break; sleep 0.2; done
+  if pgrep -f "$DEST/Contents/MacOS/Snapmark" >/dev/null; then
+    echo "Snapmark is still running; quit it from the menu bar and run this again." >&2
+    exit 1
+  fi
   rm -rf "$DEST"
   mkdir -p "$HOME/Applications"
   cp -R "$APP" "$DEST"

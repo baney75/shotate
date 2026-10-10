@@ -87,7 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.capturing = false
             guard let doc else { return }  // cancelled with Esc
             let url = self.settings.newCaptureURL()
-            Output.write(doc.image, to: url, dpi: doc.dpi)
+            do { try Output.write(doc.image, to: url, dpi: doc.dpi) } catch {
+                NSAlert(error: error).runModal()
+                return
+            }
             if self.settings.copyOnCapture { Output.copy(doc.image, fileURL: url, dpi: doc.dpi) }
             self.edit(doc, fileURL: url, ownsFile: true)
         }

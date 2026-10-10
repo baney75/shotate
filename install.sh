@@ -3,7 +3,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/baney75/snapmark/main/install.sh | bash
 # Building locally means no Gatekeeper download warning and no paid signing certificate.
 set -euo pipefail
-REPO_URL="${SNAP_REPO:-https://github.com/baney75/snapmark.git}"
+REPO_URL="${SNAPMARK_REPO:-https://github.com/baney75/snapmark.git}"
 if ! xcode-select -p >/dev/null 2>&1; then
   echo "Snapmark builds with Apple's command line tools. Installing them opens a system dialog;"
   echo "run this again when it finishes."

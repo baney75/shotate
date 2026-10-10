@@ -89,7 +89,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             bar.addArrangedSubview(b)
         }
 
-        sizeControl = NSSegmentedControl(labels: ["S", "M", "L"], trackingMode: .selectOne, target: self,
+        sizeControl = NSSegmentedControl(labels: ["Small", "Medium", "Large"], trackingMode: .selectOne, target: self,
                                          action: #selector(sizeChanged))
         sizeControl.selectedSegment = 1
         for (i, name) in ["Small", "Medium", "Large"].enumerated() {
@@ -233,22 +233,39 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         return url
     }
     private var savedCopy: URL?
+    private var savedRevision = 0
 
-    /// Saves edits (if any) and returns the file that now holds the finished image.
+    /// Saves changes made since the last save and returns the file that now holds the image.
+    /// Returns nil when the save failed; the user has been told and the window stays open.
     @discardableResult
-    func saveEdits() -> URL {
+    func saveEdits() -> URL? {
         canvas.commitText()
-        guard doc.isEdited, let image = flattened() else { return savedCopy ?? fileURL }
-        let url = outputURL
-        Output.write(image, to: url, dpi: doc.dpi)
-        if !ownsFile { savedCopy = url }
+        guard doc.revision != savedRevision else { return savedCopy ?? fileURL }
+        guard let image = flattened() else { return nil }
+        var url = outputURL
+        do {
+            try Output.write(image, to: url, dpi: doc.dpi)
+        } catch {
+            // A read-only folder (a mounted disk image, a locked folder): fall back to the screenshots folder.
+            let fallback = Settings.load().newCaptureURL()
+            do {
+                try Output.write(image, to: fallback, dpi: doc.dpi)
+                url = fallback
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.messageText = "Snapmark couldn't save this image"
+                if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+                return nil
+            }
+        }
+        savedRevision = doc.revision
+        if !ownsFile || url != fileURL { savedCopy = url }
         return url
     }
 
     /// Return, ⌘C, ⇧⌘C: save edits, copy the image or its path, close.
     func finish(copyImage: Bool, copyPath: Bool = false) {
-        guard !finished else { return }
-        let url = saveEdits()
+        guard !finished, let url = saveEdits() else { return }
         finished = true
         if copyImage, let image = flattened() { Output.copy(image, fileURL: url, dpi: doc.dpi) }
         if copyPath { Output.copyPath(url) }
@@ -258,7 +275,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     /// Esc and the close button: discard unsaved edits only after asking.
     func closeAsking() {
         canvas.commitText()
-        guard doc.isEdited, let window else { finished = true; self.window?.close(); return }
+        guard doc.revision != savedRevision, doc.isEdited || savedRevision != 0, let window else {
+            finished = true
+            self.window?.close()
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "Keep your annotations?"
         alert.informativeText = ownsFile ? "The capture is already saved; this only affects your edits."
@@ -269,8 +290,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         alert.beginSheetModal(for: window) { [weak self] r in
             guard let self else { return }
             switch r {
-            case .alertFirstButtonReturn: self.saveEdits()
-            case .alertSecondButtonReturn: break
+            case .alertFirstButtonReturn: if self.saveEdits() == nil { return }
+            case .alertSecondButtonReturn:
+                // Discard: put an owned capture back to the clean original if a drag-out saved marks.
+                if self.ownsFile, self.savedRevision != 0 {
+                    try? Output.write(self.doc.image, to: self.fileURL, dpi: self.doc.dpi)
+                }
             default: return
             }
             self.finished = true
@@ -284,12 +309,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = fileURL.lastPathComponent
         panel.beginSheetModal(for: window) { [doc] r in
-            if r == .OK, let url = panel.url { Output.write(image, to: url, dpi: doc.dpi) }
+            guard r == .OK, let url = panel.url else { return }
+            do { try Output.write(image, to: url, dpi: doc.dpi) } catch { NSAlert(error: error).runModal() }
         }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if finished || !doc.isEdited { return true }
+        if finished || doc.revision == savedRevision { return true }
         closeAsking()
         return false
     }
@@ -326,8 +352,7 @@ final class DragOutButton: NSButton, NSDraggingSource {
     required init?(coder: NSCoder) { fatalError() }
 
     override func mouseDown(with e: NSEvent) {
-        guard let c = controller else { return }
-        let url = c.saveEdits()
+        guard let c = controller, let url = c.saveEdits() else { return }
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         item.setDraggingFrame(bounds, contents: NSWorkspace.shared.icon(forFile: url.path))
         beginDraggingSession(with: [item], event: e, source: self)
@@ -336,9 +361,10 @@ final class DragOutButton: NSButton, NSDraggingSource {
 }
 
 enum Output {
-    static func write(_ image: CGImage, to url: URL, dpi: CGFloat) {
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = Renderer.pngData(image, dpi: dpi) { try? data.write(to: url, options: .atomic) }
+    static func write(_ image: CGImage, to url: URL, dpi: CGFloat) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard let data = Renderer.pngData(image, dpi: dpi) else { throw CocoaError(.fileWriteUnknown) }
+        try data.write(to: url, options: .atomic)
     }
 
     /// PNG data plus the file: terminals such as Claude Code paste the image with Ctrl+V,

@@ -1,5 +1,7 @@
 # Snapmark
 
+[![CI](https://github.com/baney75/snapmark/actions/workflows/ci.yml/badge.svg)](https://github.com/baney75/snapmark/actions/workflows/ci.yml)
+
 A fast, free screenshot tool for macOS with the annotation you actually use. No account, no
 upsell, no nag screens.
 
@@ -100,6 +102,12 @@ the same drawing code, so what you see is what gets copied. `Sources/Snapmark` i
 
 Contributions are welcome. Open an issue first for anything larger than a fix, keep changes covered
 by tests in `Tests/SnapmarkCoreTests`, and run `swift test` before sending a pull request.
+
+## Status
+
+0.9 is the first public release. The drawing model and renderer are covered by unit tests and CI;
+the editor window has been reviewed but not yet through a full hands-on pass on every macOS
+version. Please [open an issue](https://github.com/baney75/snapmark/issues) if something feels off.
 
 ## License
 
