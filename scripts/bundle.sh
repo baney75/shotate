@@ -18,7 +18,15 @@ swift scripts/make-icon.swift build/Snapmark.iconset >/dev/null
 iconutil -c icns build/Snapmark.iconset -o "$APP/Contents/Resources/Snapmark.icns"
 
 sed "s/@VERSION@/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
-codesign --force --sign - --identifier com.baney.snapmark "$APP"
+# A stable local identity keeps the Screen Recording permission across rebuilds; ad-hoc is the fallback.
+if [ "${SNAPMARK_ADHOC:-}" != 1 ] && IDENT=$(scripts/signing-identity.sh 2>/dev/null); then
+  codesign --force --sign "${IDENT%%$'\t'*}" --keychain "${IDENT#*$'\t'}" --identifier com.baney.snapmark "$APP"
+else
+  ADHOC_NOTE="note: signed ad-hoc, so macOS will ask for Screen Recording again after each update"
+  echo "$ADHOC_NOTE" >&2
+  codesign --force --sign - --identifier com.baney.snapmark "$APP"
+fi
+codesign --verify "$APP"
 echo "built $APP ($VERSION, $(lipo -archs "$APP/Contents/MacOS/Snapmark"))"
 
 if [ "${1:-}" = "--install" ]; then
@@ -38,3 +46,4 @@ if [ "${1:-}" = "--install" ]; then
   open "$DEST"
   echo "installed $DEST"
 fi
+[ -z "${ADHOC_NOTE:-}" ] || echo "$ADHOC_NOTE"

@@ -16,10 +16,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private var colorButtons: [NSButton] = []
     private var undoButton = NSButton()
     private var redoButton = NSButton()
+    private var deleteButton = NSButton()
     private var finished = false
+    private let status = NSTextField(labelWithString: "")
 
-    init(document: Document, fileURL: URL, ownsFile: Bool) {
+    /// For the editor's tool keys and the fallback save folder.
+    let settings: Settings
+
+    init(document: Document, fileURL: URL, ownsFile: Bool, settings: Settings) {
         doc = document
+        self.settings = settings
         self.fileURL = fileURL
         self.ownsFile = ownsFile
         canvas = CanvasView(document: document)
@@ -28,15 +34,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         let scale = NSScreen.main?.backingScaleFactor ?? 2
         var size = CGSize(width: CGFloat(document.image.width) / scale, height: CGFloat(document.image.height) / scale)
         let fit = min(1, screen.width * 0.85 / size.width, (screen.height * 0.85 - 60) / size.height)
-        size = CGSize(width: max(size.width * fit, 640), height: max(size.height * fit, 240) + 52)
+        size = CGSize(width: max(size.width * fit, 720), height: max(size.height * fit, 240) + 76)
 
         let window = EditorWindow(contentRect: CGRect(origin: .zero, size: size),
                                   styleMask: [.titled, .closable, .resizable, .miniaturizable],
                                   backing: .buffered, defer: false)
         window.title = fileURL.deletingPathExtension().lastPathComponent
         window.representedURL = fileURL
-        window.minSize = CGSize(width: 640, height: 300)
+        window.minSize = CGSize(width: 720, height: 320)
         window.isReleasedWhenClosed = false
+        window.collectionBehavior.insert(.moveToActiveSpace)  // open on the Space the user is looking at
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -68,7 +75,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             NSImage(systemSymbolName: $0.symbol, accessibilityDescription: $0.title)!
         }, trackingMode: .selectOne, target: self, action: #selector(toolChanged))
         for (i, t) in Tool.allCases.enumerated() {
-            toolControl.setToolTip("\(t.title) (\(t.rawValue.uppercased()))", forSegment: i)
+            toolControl.setToolTip("\(t.title) (\(settings.key(for: t).uppercased()))", forSegment: i)
         }
         bar.addArrangedSubview(toolControl)
 
@@ -78,19 +85,23 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             b.isBordered = false
             b.wantsLayer = true
             b.layer?.backgroundColor = c.cgColor
-            b.layer?.cornerRadius = 9
-            b.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            b.layer?.cornerRadius = 10
+            b.layer?.borderColor = NSColor.separatorColor.cgColor
+            b.layer?.borderWidth = 1
             let name = ["Red", "Amber", "Blue", "Green", "Purple", "White"][i]
             b.toolTip = "\(name) (\(i + 1))"
             b.setAccessibilityLabel(name)
-            b.widthAnchor.constraint(equalToConstant: 18).isActive = true
-            b.heightAnchor.constraint(equalToConstant: 18).isActive = true
+            b.widthAnchor.constraint(equalToConstant: 20).isActive = true
+            b.heightAnchor.constraint(equalToConstant: 20).isActive = true
             colorButtons.append(b)
             bar.addArrangedSubview(b)
         }
 
-        sizeControl = NSSegmentedControl(labels: ["Small", "Medium", "Large"], trackingMode: .selectOne, target: self,
-                                         action: #selector(sizeChanged))
+        // Three dots of growing size read as stroke weight at a glance.
+        sizeControl = NSSegmentedControl(images: [5.0, 8.0, 11.0].enumerated().map { i, pt in
+            NSImage(systemSymbolName: "circle.fill", accessibilityDescription: ["Small", "Medium", "Large"][i])!
+                .withSymbolConfiguration(.init(pointSize: pt, weight: .regular))!
+        }, trackingMode: .selectOne, target: self, action: #selector(sizeChanged))
         sizeControl.selectedSegment = 1
         for (i, name) in ["Small", "Medium", "Large"].enumerated() {
             sizeControl.setToolTip("\(name) ([ and ] change size)", forSegment: i)
@@ -104,12 +115,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
         undoButton = iconButton("arrow.uturn.backward", "Undo (⌘Z)", #selector(undoClicked))
         redoButton = iconButton("arrow.uturn.forward", "Redo (⇧⌘Z)", #selector(redoClicked))
+        deleteButton = iconButton("trash", "Delete the selected mark (Delete). ⌘⌫ moves the whole capture to the Trash.",
+                                  #selector(deleteClicked))
+        bar.addArrangedSubview(deleteButton)
         bar.addArrangedSubview(undoButton)
         bar.addArrangedSubview(redoButton)
         bar.addArrangedSubview(DragOutButton(controller: self))
         bar.addArrangedSubview(iconButton("doc.on.clipboard", "Copy file path (⇧⌘C), for terminals", #selector(copyPathClicked)))
-        let copy = NSButton(title: "Copy", target: self, action: #selector(copyClicked))
+        bar.addArrangedSubview(iconButton("square.and.arrow.down", "Save a copy as… (⌘S)", #selector(saveCopyClicked)))
+        let copy = NSButton(title: "Copy & Close", target: self, action: #selector(copyClicked))
         copy.bezelStyle = .rounded
+        copy.bezelColor = .controlAccentColor
         // Return is handled in handleKey so it can go to a text label being typed instead.
         copy.toolTip = "Copy the image and close (Return or ⌘C)"
         bar.addArrangedSubview(copy)
@@ -120,11 +136,23 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         bar.translatesAutoresizingMaskIntoConstraints = false
         barBackground.addSubview(bar)
 
+        status.textColor = .secondaryLabelColor
+        status.font = .systemFont(ofSize: 11)
+        status.lineBreakMode = .byTruncatingMiddle
+        status.translatesAutoresizingMaskIntoConstraints = false
+        let hint = NSTextField(labelWithString: "Return or Esc copies and closes · ⌘Z undo")
+        hint.textColor = .tertiaryLabelColor
+        hint.font = .systemFont(ofSize: 11)
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        hint.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         let root = NSView()
         let canvasHolder = NSView()
         canvasHolder.wantsLayer = true
         canvasHolder.layer?.backgroundColor = NSColor.underPageBackgroundColor.cgColor
         for v in [barBackground, canvasHolder] { v.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(v) }
+        root.addSubview(status)
+        root.addSubview(hint)
         canvas.translatesAutoresizingMaskIntoConstraints = false
         canvasHolder.addSubview(canvas)
         NSLayoutConstraint.activate([
@@ -138,7 +166,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             canvasHolder.topAnchor.constraint(equalTo: barBackground.bottomAnchor),
             canvasHolder.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             canvasHolder.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            canvasHolder.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            canvasHolder.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -24),
+            status.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
+            status.centerYAnchor.constraint(equalTo: root.bottomAnchor, constant: -12),
+            status.trailingAnchor.constraint(lessThanOrEqualTo: hint.leadingAnchor, constant: -12),
+            hint.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
+            hint.centerYAnchor.constraint(equalTo: status.centerYAnchor),
             canvas.topAnchor.constraint(equalTo: canvasHolder.topAnchor, constant: 12),
             canvas.bottomAnchor.constraint(equalTo: canvasHolder.bottomAnchor, constant: -12),
             canvas.leadingAnchor.constraint(equalTo: canvasHolder.leadingAnchor, constant: 12),
@@ -164,7 +197,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     func select(colorIndex i: Int) {
         canvas.applyColorToSelection(RGBA.palette[i])
-        for (j, b) in colorButtons.enumerated() { b.layer?.borderWidth = j == i ? 2.5 : 0 }
+        for (j, b) in colorButtons.enumerated() {
+            b.layer?.borderWidth = j == i ? 3 : 1
+            b.layer?.borderColor = (j == i ? NSColor.labelColor : NSColor.separatorColor).cgColor
+        }
     }
 
     func select(size: StrokeSize) {
@@ -173,17 +209,23 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func refresh() {
+        deleteButton.isEnabled = canvas.hasSelection
         undoButton.isEnabled = doc.canUndo
         redoButton.isEnabled = doc.canRedo
-        window?.isDocumentEdited = doc.isEdited
+        window?.isDocumentEdited = doc.revision != savedRevision
+        let where_ = ((savedCopy ?? fileURL).path as NSString).abbreviatingWithTildeInPath
+        status.stringValue = !ownsFile && savedCopy == nil ? "Edits will be saved next to the original"
+            : doc.revision != savedRevision ? "Unsaved edits · \(where_)" : "Saved to \(where_)"
     }
 
     @objc private func toolChanged() { select(tool: Tool.allCases[toolControl.selectedSegment]) }
     @objc private func colorClicked(_ b: NSButton) { select(colorIndex: b.tag) }
     @objc private func sizeChanged() { select(size: StrokeSize(rawValue: sizeControl.selectedSegment + 1) ?? .medium) }
     @objc private func undoClicked() { canvas.undo() }
+    @objc private func deleteClicked() { canvas.deleteSelection() }
     @objc private func redoClicked() { canvas.redo() }
     @objc private func copyClicked() { finish(copyImage: true) }
+    @objc private func saveCopyClicked() { saveCopy() }
     @objc private func copyPathClicked() { finish(copyImage: false, copyPath: true) }
 
     // MARK: Keys
@@ -199,16 +241,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         case ([.command], "c"): finish(copyImage: true); return true
         case ([.command, .shift], "c"): finish(copyImage: false, copyPath: true); return true
         case ([.command], "s"): saveCopy(); return true
+        case ([.command], "d"): canvas.duplicateSelection(); return true
+        case ([.command], "]"): canvas.reorderSelection(toFront: true); return true
+        case ([.command], "["): canvas.reorderSelection(toFront: false); return true
         default: break
         }
+        if mods == [.command], e.keyCode == 51 { trashCapture(); return true }   // ⌘⌫
         guard mods.isEmpty || mods == [.shift] else { return false }
+        let step: CGFloat = mods == [.shift] ? 10 : 1
         switch e.keyCode {
         case 36, 76: finish(copyImage: true); return true                       // Return
-        case 53: closeAsking(); return true                                     // Esc
-        case 51, 117: canvas.deleteSelection(); return true                     // Delete
+        case 53:
+            // Esc steps back one level at a time: drawing tool → Select tool → no selection → copy and close.
+            if canvas.tool != .select { select(tool: .select) }
+            else if canvas.hasSelection { canvas.deselect() }
+            else { finish(copyImage: true) }
+            return true
+        case 51, 117: canvas.deleteSelection(); return true                     // Delete, Forward Delete
+        case 123: canvas.nudgeSelection(dx: -step, dy: 0); return true
+        case 124: canvas.nudgeSelection(dx: step, dy: 0); return true
+        case 125: canvas.nudgeSelection(dx: 0, dy: -step); return true
+        case 126: canvas.nudgeSelection(dx: 0, dy: step); return true
         default: break
         }
-        if let t = Tool(rawValue: chars) { select(tool: t); return true }
+        if let t = settings.tool(forKey: chars) { select(tool: t); return true }
         if let n = Int(chars), (1...RGBA.palette.count).contains(n) { select(colorIndex: n - 1); return true }
         if chars == "[" { select(size: StrokeSize(rawValue: max(1, canvas.size.rawValue - 1))!); return true }
         if chars == "]" { select(size: StrokeSize(rawValue: min(3, canvas.size.rawValue + 1))!); return true }
@@ -241,25 +297,28 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     func saveEdits() -> URL? {
         canvas.commitText()
         guard doc.revision != savedRevision else { return savedCopy ?? fileURL }
-        guard let image = flattened() else { return nil }
+        guard let image = flattened() else {
+            Alerts.show("Snapmark couldn't render this image", "Your edits are still open. Try Save a Copy (⌘S).",
+                        in: window)
+            return nil
+        }
         var url = outputURL
         do {
             try Output.write(image, to: url, dpi: doc.dpi)
         } catch {
             // A read-only folder (a mounted disk image, a locked folder): fall back to the screenshots folder.
-            let fallback = Settings.load().newCaptureURL()
+            let fallback = settings.newCaptureURL()
             do {
                 try Output.write(image, to: fallback, dpi: doc.dpi)
                 url = fallback
             } catch {
-                let alert = NSAlert(error: error)
-                alert.messageText = "Snapmark couldn't save this image"
-                if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+                Alerts.show("Snapmark couldn't save this image", error: error, in: window)
                 return nil
             }
         }
         savedRevision = doc.revision
         if !ownsFile || url != fileURL { savedCopy = url }
+        refresh()
         return url
     }
 
@@ -267,7 +326,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     func finish(copyImage: Bool, copyPath: Bool = false) {
         guard !finished, let url = saveEdits() else { return }
         finished = true
-        if copyImage, let image = flattened() { Output.copy(image, fileURL: url, dpi: doc.dpi) }
+        if copyImage, !(flattened().map { Output.copy($0, fileURL: url, dpi: doc.dpi) } ?? false) {
+            finished = false
+            Alerts.show("Snapmark couldn't copy the image", "It is saved at \(url.path).", in: window)
+            return
+        }
         if copyPath { Output.copyPath(url) }
         window?.close()
     }
@@ -303,6 +366,31 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// ⌘⌫: a capture you didn't want goes to the Trash (recoverable). An opened image is never trashed;
+    /// only Snapmark's edited copy of it is.
+    func trashCapture() {
+        canvas.commitText()
+        guard let window else { return }
+        let target = ownsFile ? fileURL : savedCopy
+        let alert = NSAlert()
+        alert.messageText = target == nil ? "Discard your annotations?" : "Move \(target!.lastPathComponent) to the Trash?"
+        alert.informativeText = ownsFile ? "The capture is removed from your screenshots folder. You can restore it from the Trash."
+            : "The original image is not touched."
+        alert.addButton(withTitle: target == nil ? "Discard" : "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] r in
+            guard let self, r == .alertFirstButtonReturn else { return }
+            if let target {
+                do { try FileManager.default.trashItem(at: target, resultingItemURL: nil) } catch {
+                    Alerts.show("Snapmark couldn't move \(target.lastPathComponent) to the Trash", error: error, in: window)
+                    return
+                }
+            }
+            self.finished = true
+            self.window?.close()
+        }
+    }
+
     func saveCopy() {
         guard let window, let image = flattened() else { return }
         let panel = NSSavePanel()
@@ -310,7 +398,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         panel.nameFieldStringValue = fileURL.lastPathComponent
         panel.beginSheetModal(for: window) { [doc] r in
             guard r == .OK, let url = panel.url else { return }
-            do { try Output.write(image, to: url, dpi: doc.dpi) } catch { NSAlert(error: error).runModal() }
+            do { try Output.write(image, to: url, dpi: doc.dpi) } catch {
+                Alerts.show("Snapmark couldn't save \(url.lastPathComponent)", error: error, in: window)
+            }
         }
     }
 
@@ -363,24 +453,41 @@ final class DragOutButton: NSButton, NSDraggingSource {
 enum Output {
     static func write(_ image: CGImage, to url: URL, dpi: CGFloat) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let data = Renderer.pngData(image, dpi: dpi) else { throw CocoaError(.fileWriteUnknown) }
+        guard let data = Renderer.pngData(image, dpi: dpi) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "The image couldn't be encoded as PNG."])
+        }
         try data.write(to: url, options: .atomic)
     }
 
-    /// PNG data plus the file: terminals such as Claude Code paste the image with Ctrl+V,
-    /// Finder and chat apps get the file.
-    static func copy(_ image: CGImage, fileURL: URL, dpi: CGFloat) {
+    /// One clipboard item with PNG data, a TIFF made only if an app asks for it, and the file.
+    /// Terminals such as Claude Code paste the image with Ctrl+V; Finder and chat apps get the file.
+    /// Returns false when nothing was copied.
+    @discardableResult
+    static func copy(_ image: CGImage, fileURL: URL, dpi: CGFloat) -> Bool {
+        guard let png = Renderer.pngData(image, dpi: dpi) else { return false }
+        let item = NSPasteboardItem()
+        item.setData(png, forType: .png)
+        item.setDataProvider(TIFFProvider(png: png), forTypes: [.tiff])
+        item.setString(fileURL.absoluteString, forType: .fileURL)
         let pb = NSPasteboard.general
         pb.clearContents()
-        let item = NSPasteboardItem()
-        if let png = Renderer.pngData(image, dpi: dpi) { item.setData(png, forType: .png) }
-        item.setString(fileURL.absoluteString, forType: .fileURL)
-        pb.writeObjects([item])
+        return pb.writeObjects([item])
     }
 
     /// The path as text, for pasting into a terminal prompt.
     static func copyPath(_ url: URL) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(url.path, forType: .string)
+    }
+}
+
+/// Builds TIFF on demand for older apps that don't read PNG from the clipboard.
+private final class TIFFProvider: NSObject, NSPasteboardItemDataProvider {
+    let png: Data
+    init(png: Data) { self.png = png }
+    func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+        if let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation(using: .lzw, factor: 0) {
+            item.setData(tiff, forType: .tiff)
+        }
     }
 }

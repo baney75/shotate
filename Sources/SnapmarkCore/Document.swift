@@ -97,6 +97,39 @@ public struct Mark: Identifiable, Equatable, Sendable {
                width: abs(end.x - start.x), height: abs(end.y - start.y))
     }
 
+    /// Grab points for resizing: the two ends of an arrow, the four corners of a shape.
+    /// Text and steps resize with the size control instead.
+    public var handles: [CGPoint] {
+        switch tool {
+        case .arrow: [start, end]
+        case .box, .ellipse, .highlight, .redact:
+            [start, end, CGPoint(x: start.x, y: end.y), CGPoint(x: end.x, y: start.y)]
+        default: []
+        }
+    }
+
+    /// The mark with handle `i` (an index into `handles`) moved to `p`. A shape keeps the opposite corner fixed.
+    public func moving(handle i: Int, to p: CGPoint) -> Mark {
+        var m = self
+        let h = handles
+        guard h.indices.contains(i) else { return m }
+        if tool == .arrow {
+            if i == 0 { m.start = p } else { m.end = p }
+            return m
+        }
+        let opposite = CGPoint(x: h[i].x == start.x ? end.x : start.x, y: h[i].y == start.y ? end.y : start.y)
+        m.start = opposite
+        m.end = p
+        return m
+    }
+
+    /// A copy with a new identity, nudged so it doesn't hide the original.
+    public func duplicate(offset d: CGFloat) -> Mark {
+        var m = offset(by: CGVector(dx: d, dy: -d))
+        m = Mark(tool: m.tool, color: m.color, size: m.size, start: m.start, end: m.end, text: m.text, number: m.number)
+        return m
+    }
+
     public func offset(by d: CGVector) -> Mark {
         var m = self
         m.start = CGPoint(x: start.x + d.dx, y: start.y + d.dy)
@@ -111,15 +144,80 @@ public final class Document {
     /// 144 for Retina captures. Kept on export so the image shows at its real size in other apps.
     public let dpi: CGFloat
     public private(set) var marks: [Mark] = []
+    /// The crop as the user drew it. Use `effectiveCrop`, which follows the canvas as marks change.
     public private(set) var crop: CGRect?
+
+    /// The crop trimmed to the current canvas, or nil when none is left. Deleting or moving a mark
+    /// can shrink the canvas under an existing crop; this keeps export and the editor in agreement.
+    public var effectiveCrop: CGRect? {
+        guard let c = crop?.intersection(canvas), c.width >= 4, c.height >= 4 else { return nil }
+        return c
+    }
     /// Bumps on every change, undo and redo, so callers can tell whether a saved copy is stale.
     public private(set) var revision = 0
     private var undoStack: [([Mark], CGRect?)] = []
     private var redoStack: [([Mark], CGRect?)] = []
 
+    /// The color along the screenshot's edge. Marks drawn past the edge grow the canvas, and the new
+    /// area is filled with this color so it looks like the screenshot simply continues.
+    public let borderColor: RGBA
+
     public init(image: CGImage, dpi: CGFloat = 72) {
         self.image = image
         self.dpi = dpi > 0 ? dpi : 72
+        borderColor = Document.edgeColor(of: image)
+    }
+
+    /// The image plus every mark that reaches past it, with a margin so nothing touches the edge.
+    /// Equal to `bounds` while every mark stays inside the image.
+    public var canvas: CGRect { canvas(including: marks) }
+
+    public func canvas(including marks: [Mark]) -> CGRect {
+        var r = bounds
+        for m in marks {
+            let e = Renderer.extent(of: m, imageWidth: image.width)
+            if !bounds.contains(e) {
+                let pad = max(12, m.size.width(forImageWidth: image.width) * 2.5)
+                r = r.union(e.insetBy(dx: -pad, dy: -pad))
+            }
+        }
+        return r.integral
+    }
+
+    /// The most common color in the outermost row and column of pixels on each side.
+    static func edgeColor(of image: CGImage) -> RGBA {
+        let w = image.width, h = image.height
+        guard w > 0, h > 0 else { return RGBA(1, 1, 1) }
+        // CGImage cropping uses a top-left origin; strips are one pixel thick.
+        let strips = [CGRect(x: 0, y: 0, width: w, height: 1), CGRect(x: 0, y: h - 1, width: w, height: 1),
+                      CGRect(x: 0, y: 0, width: 1, height: h), CGRect(x: w - 1, y: 0, width: 1, height: h)]
+        var buckets: [Int: (n: Int, r: Int, g: Int, b: Int)] = [:]
+        for rect in strips {
+            guard let strip = image.cropping(to: rect) else { continue }
+            let sw = strip.width, sh = strip.height
+            var px = [UInt8](repeating: 0, count: sw * sh * 4)
+            guard let ctx = CGContext(data: &px, width: sw, height: sh, bitsPerComponent: 8, bytesPerRow: sw * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { continue }
+            ctx.draw(strip, in: CGRect(x: 0, y: 0, width: sw, height: sh))
+            for i in stride(from: 0, to: px.count, by: 4) {
+                let a = Int(px[i + 3])
+                // Transparent pixels get a bucket of their own; the rest are un-premultiplied.
+                guard a > 0 else {
+                    let e = buckets[-1] ?? (0, 0, 0, 0)
+                    buckets[-1] = (e.n + 1, 0, 0, 0)
+                    continue
+                }
+                let (r, g, b) = (Int(px[i]) * 255 / a, Int(px[i + 1]) * 255 / a, Int(px[i + 2]) * 255 / a)
+                let key = (r >> 3) << 10 | (g >> 3) << 5 | (b >> 3)
+                let e = buckets[key] ?? (0, 0, 0, 0)
+                buckets[key] = (e.n + 1, e.r + r, e.g + g, e.b + b)
+            }
+        }
+        guard let (key, top) = buckets.max(by: { $0.value.n < $1.value.n }) else { return RGBA(1, 1, 1) }
+        if key == -1 { return RGBA(0, 0, 0, 0) }  // mostly transparent edge: grow with transparency
+        let n = CGFloat(top.n) * 255
+        return RGBA(CGFloat(top.r) / n, CGFloat(top.g) / n, CGFloat(top.b) / n)
     }
 
     public var bounds: CGRect { CGRect(x: 0, y: 0, width: image.width, height: image.height) }
@@ -153,8 +251,17 @@ public final class Document {
         marks.removeAll { $0.id == id }
     }
 
+    /// Moves a mark to the top (drawn last) or the bottom of the stack.
+    public func reorder(id: UUID, toFront: Bool) {
+        guard let i = marks.firstIndex(where: { $0.id == id }), marks.count > 1,
+              toFront ? i != marks.count - 1 : i != 0 else { return }
+        checkpoint()
+        let m = marks.remove(at: i)
+        if toFront { marks.append(m) } else { marks.insert(m, at: 0) }
+    }
+
     public func setCrop(_ rect: CGRect?) {
-        let clipped = rect.map { $0.integral.intersection(bounds) }
+        let clipped = rect.map { $0.integral.intersection(canvas) }
         let value = (clipped?.width ?? 0) >= 4 && (clipped?.height ?? 0) >= 4 ? clipped : nil
         guard value != crop else { return }
         checkpoint()

@@ -1,0 +1,29 @@
+name: Bug report
+description: Something doesn't work the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "e.g. macOS 15.3 on an M2 MacBook Air"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Snapmark version
+      description: Menu bar icon › Settings, or About Snapmark.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: "Output of: /usr/bin/log show --last 10m --predicate 'process == \"Snapmark\"' --style compact"
+      render: text

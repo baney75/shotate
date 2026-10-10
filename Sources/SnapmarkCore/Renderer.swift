@@ -37,6 +37,42 @@ public enum Renderer {
         return CGRect(x: m.start.x, y: m.start.y, width: CGFloat(w) + pad * 2, height: size * 1.25 + pad * 0.6)
     }
 
+    /// The image, plus the area a canvas grows into: each side continues the screenshot's outermost
+    /// row or column of pixels (so a title bar or a page background carries on), and the corners take
+    /// the border color.
+    public static func drawBackground(_ doc: Document, canvas: CGRect, in ctx: CGContext) {
+        let img = doc.image, b = doc.bounds
+        if canvas != b {
+            ctx.setFillColor(doc.borderColor.cgColor)
+            ctx.fill(canvas)
+            ctx.saveGState()
+            ctx.interpolationQuality = .none
+            let w = img.width, h = img.height
+            // Strips use CGImage's top-left origin; destinations use the context's bottom-left one.
+            let sides: [(CGRect, CGRect)] = [
+                (CGRect(x: 0, y: 0, width: 1, height: h), CGRect(x: canvas.minX, y: 0, width: -canvas.minX, height: b.height)),
+                (CGRect(x: w - 1, y: 0, width: 1, height: h), CGRect(x: b.maxX, y: 0, width: canvas.maxX - b.maxX, height: b.height)),
+                (CGRect(x: 0, y: h - 1, width: w, height: 1), CGRect(x: 0, y: canvas.minY, width: b.width, height: -canvas.minY)),
+                (CGRect(x: 0, y: 0, width: w, height: 1), CGRect(x: 0, y: b.maxY, width: b.width, height: canvas.maxY - b.maxY)),
+            ]
+            for (strip, dest) in sides where dest.width > 0 && dest.height > 0 {
+                if let s = img.cropping(to: strip) { ctx.draw(s, in: dest) }
+            }
+            ctx.restoreGState()
+        }
+        ctx.draw(img, in: b)
+    }
+
+    /// Everything a mark paints, including stroke width, arrowhead and shadow.
+    public static func extent(of m: Mark, imageWidth: Int) -> CGRect {
+        let w = m.size.width(forImageWidth: imageWidth)
+        switch m.tool {
+        case .text, .step: return textOrStepRect(m, imageWidth: imageWidth).insetBy(dx: -w, dy: -w)
+        case .arrow: return m.rect.insetBy(dx: -max(w * 4.5, 10), dy: -max(w * 4.5, 10))
+        default: return m.rect.insetBy(dx: -w, dy: -w)
+        }
+    }
+
     public static func draw(_ m: Mark, in ctx: CGContext, imageWidth: Int, selected: Bool = false) {
         let w = m.size.width(forImageWidth: imageWidth)
         ctx.saveGState()
@@ -128,19 +164,22 @@ public enum Renderer {
     }
 
     /// The finished image: base then marks in the order they were added, cropped if a crop is set.
+    /// Marks past the edge grow the canvas, filled with the screenshot's border color.
     public static func flatten(_ doc: Document, selected: UUID? = nil) -> CGImage? {
         let img = doc.image
-        guard let ctx = CGContext(data: nil, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        let canvas = doc.canvas
+        guard let ctx = CGContext(data: nil, width: Int(canvas.width), height: Int(canvas.height), bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.translateBy(x: -canvas.minX, y: -canvas.minY)
         ctx.interpolationQuality = .high
-        ctx.draw(img, in: doc.bounds)
+        drawBackground(doc, canvas: canvas, in: ctx)
         // Stacking order: a redaction hides everything drawn before it.
         for m in doc.marks { draw(m, in: ctx, imageWidth: img.width, selected: m.id == selected) }
         guard let full = ctx.makeImage() else { return nil }
-        guard let crop = doc.crop else { return full }
-        // CGImage cropping uses a top-left origin.
-        let flipped = CGRect(x: crop.minX, y: CGFloat(img.height) - crop.maxY, width: crop.width, height: crop.height)
+        guard let crop = doc.effectiveCrop else { return full }
+        // CGImage cropping uses a top-left origin, relative to the canvas.
+        let flipped = CGRect(x: crop.minX - canvas.minX, y: canvas.maxY - crop.maxY, width: crop.width, height: crop.height)
         return full.cropping(to: flipped)
     }
 
@@ -157,9 +196,13 @@ public enum Renderer {
     public static func loadImage(at url: URL) -> CGImage? { loadDocument(at: url)?.image }
 
     /// The image and its DPI (screencapture tags Retina captures 144).
+    /// Reads the bytes into memory and decodes now: a URL-backed CGImage decodes lazily from the
+    /// file, so deleting the capture's temp file (or editing the original) broke every later save.
     public static func loadDocument(at url: URL) -> Document? {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        guard let data = try? Data(contentsOf: url),
+              let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(
+                  src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else { return nil }
         let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
         let dpi = (props?[kCGImagePropertyDPIWidth] as? NSNumber)?.doubleValue ?? 72
         return Document(image: image, dpi: CGFloat(dpi))

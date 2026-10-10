@@ -65,3 +65,15 @@ final class Hotkeys {
         return m
     }()
 }
+
+extension Shortcut {
+    /// For showing the shortcut next to a menu item.
+    var modifierFlags: NSEvent.ModifierFlags {
+        var f: NSEvent.ModifierFlags = []
+        if modifiers.contains(.cmd) { f.insert(.command) }
+        if modifiers.contains(.shift) { f.insert(.shift) }
+        if modifiers.contains(.option) { f.insert(.option) }
+        if modifiers.contains(.control) { f.insert(.control) }
+        return f
+    }
+}
