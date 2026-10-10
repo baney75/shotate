@@ -22,7 +22,8 @@ function fallback(cmd: string, args: Record<string, unknown>): unknown {
   console.info("[dev] would call", cmd, args);
   if (cmd === "read_file") return fetch("/sample.png").then((r) => r.arrayBuffer());
   if (cmd === "get_config") return defaults;
-  if (cmd === "platform") return "linux";
+  // ?platform=windows previews the Windows look in a browser during development.
+  if (cmd === "platform") return new URLSearchParams(location.search).get("platform") ?? "linux";
   if (cmd === "output_path") return "/home/you/Pictures/Screenshots/sample (edited).png";
   return null;
 }
@@ -41,6 +42,7 @@ export const api = {
   copyText: (text: string) => call<void>("copy_text", { text }),
   trash: (path: string) => call<void>("trash", { path }),
   saveDialog: (name: string) => call<string | null>("save_dialog", { name }),
+  pickFolder: () => call<string | null>("pick_folder"),
   getConfig: () => call<Config>("get_config"),
   setConfig: (config: Config) => call<void>("set_config", { config }),
   platform: () => call<string>("platform"),

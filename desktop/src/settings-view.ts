@@ -1,5 +1,7 @@
-// Settings for Windows and Linux: the same panes as the macOS app. Every change applies at once and
-// writes the config file; edits to the file (by hand or by an agent) show up here live.
+// Settings for Windows and Linux. Windows gets the Windows 11 Settings layout (navigation on the
+// left, cards of rows on the right); Linux gets the GNOME one (a centered view switcher above
+// boxed lists). Every change applies at once and writes the config file; edits to the file (by
+// hand or by an agent) show up here live.
 import { api, onEvent } from "./api";
 import { credits, wireLinks } from "./credits";
 import { icon } from "./icons";
@@ -8,6 +10,17 @@ import { resolveToolKeys, shortcutLabel, type Config } from "./core/settings";
 
 const PANES = [["general", "General", "gear"], ["shortcuts", "Shortcuts", "keyboard"],
                ["commands", "Commands", "terminal"], ["advanced", "Advanced", "sliders"]] as const;
+
+const esc = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** One settings row: an icon, a title with an optional description, and its controls. */
+const row = (ic: string, title: string, detail: string, controls: string) => `
+  <div class="row">${ic ? icon(ic) : ""}<div class="label"><b>${title}</b>${detail ? `<span>${detail}</span>` : ""}</div>
+  <div class="controls">${controls}</div></div>`;
+
+const toggle = (id: string, on: boolean, label: string) =>
+  `<button class="switch" role="switch" id="${id}" aria-checked="${on}" aria-label="${label}"></button>`;
 
 export async function startSettings(root: HTMLElement) {
   let config = await api.getConfig();
@@ -32,11 +45,15 @@ export async function startSettings(root: HTMLElement) {
 
   const render = async () => {
     stopRecording?.();
+    const title = PANES.find(([id]) => id === pane)![1];
     root.innerHTML = `
-      <div style="display:grid;grid-template-rows:auto 1fr;height:100%">
-        <nav class="tabs" role="tablist">${PANES.map(([id, title, ic]) =>
-          `<button class="tab" role="tab" data-pane="${id}" aria-selected="${id === pane}">${icon(ic)}${title}</button>`).join("")}</nav>
-        <main class="page">${await body()}</main>
+      <div class="shell">
+        <nav class="nav" role="tablist" aria-label="Settings">
+          <div class="brand"><img src="/icon.png" alt="">Snapmark</div>
+          ${PANES.map(([id, t, ic]) => `<button class="tab" role="tab" data-pane="${id}" aria-selected="${id === pane}">${icon(ic)}${t}</button>`).join("")}
+          <div class="grow"></div>
+        </nav>
+        <main class="page"><h1>${title}</h1>${await body()}</main>
       </div>`;
     root.querySelectorAll<HTMLButtonElement>(".tab").forEach((t) => t.addEventListener("click", () => { pane = t.dataset.pane!; void render(); }));
     wire();
@@ -48,54 +65,64 @@ export async function startSettings(root: HTMLElement) {
       case "general": {
         const login = await api.autostart();
         return `
-          <div class="form">
-            <label>Save captures to:</label><div class="row"><input type="text" id="folder" value="${attr(config.saveFolder)}" style="width:260px"></div>
-            <label>Options:</label>
-            <div>
-              <label class="row"><input type="checkbox" id="copy" ${config.copyOnCapture ? "checked" : ""}> Copy every capture to the clipboard</label>
-              <label class="row"><input type="checkbox" id="tray" ${config.showMenuBarIcon ? "checked" : ""}> Show Snapmark in the system tray</label>
-              <label class="row"><input type="checkbox" id="login" ${login ? "checked" : ""}> Open Snapmark when I log in</label>
-            </div>
+          <div class="card">
+            ${row("save", "Save captures to", esc(config.saveFolder),
+                  `<button class="btn" id="browse">Browse…</button>`)}
+            ${row("path", "Copy every capture to the clipboard", "Paste it anywhere the moment you take it.",
+                  toggle("copy", config.copyOnCapture, "Copy every capture to the clipboard"))}
           </div>
-          <hr class="sep"><p class="note">Captures are saved and copied the moment you take them. Opened images are never overwritten; edits go to a copy beside them.</p>
-          <hr class="sep">${credits()}`;
+          <div class="card">
+            ${row("capture", "Show Snapmark in the system tray", "The tray menu has every capture mode, Open Image and Settings.",
+                  toggle("tray", config.showMenuBarIcon, "Show Snapmark in the system tray"))}
+            ${row("check", "Open Snapmark when I log in", "So the capture shortcut always works.",
+                  toggle("login", login, "Open Snapmark when I log in"))}
+          </div>
+          <p class="note">Captures are saved and copied the moment you take them. Opened images are never overwritten; edits go to a copy beside them.</p>
+          ${credits()}`;
       }
       case "shortcuts": {
         const keys = resolveToolKeys(config.toolKeys);
-        const rows = [["captureArea", "Capture area"], ["captureWindow", "Capture window"],
-          ["captureScreen", "Capture full screen"]] as const;
+        const rows = [["captureArea", "Capture area", "Drag over anything. Space switches to a window."],
+          ["captureWindow", "Capture window", "Click the window you want."],
+          ["captureScreen", "Capture full screen", "The screen under the pointer."]] as const;
         return `
-          <h2>Global shortcuts</h2>
-          <div class="form">${rows.map(([id, title]) => `<label>${title}:</label>
-            <div class="row"><button class="btn recorder" data-shortcut="${id}">${attr(shortcutLabel(config.shortcuts[id])) || "Record Shortcut"}</button>
-            ${config.shortcuts[id] ? `<button class="btn" data-clear="${id}" title="Turn off">Clear</button>` : ""}</div>`).join("")}</div>
-          <p class="note">Click a shortcut, then press the keys. These work from any app. On Linux with Wayland, set shortcuts in your desktop's keyboard settings to run <code>snapmark --capture</code>.</p>
-          <hr class="sep"><h2>Editor tool keys</h2>
-          <div class="keys">${TOOLS.map((t) => `<span class="row">${icon(t.tool)} ${t.title}</span>
-            <input class="key" maxlength="1" data-tool="${t.title.toLowerCase()}" value="${keys[t.tool].toUpperCase()}">`).join("")}</div>
+          <div class="section">Global shortcuts</div>
+          <div class="card">${rows.map(([id, title, detail]) => row("", title, detail, `
+            <button class="btn recorder" data-shortcut="${id}">${esc(shortcutLabel(config.shortcuts[id])) || "Record shortcut"}</button>
+            ${config.shortcuts[id] ? `<button class="btn" data-clear="${id}" aria-label="Turn off ${title}">Clear</button>` : ""}`)).join("")}
+          </div>
+          <p class="note">Click a shortcut, then press the keys. These work from any app.${
+            document.documentElement.dataset.platform === "linux-wayland"
+              ? " On Wayland your desktop owns global shortcuts: add one in its keyboard settings that runs <code>snapmark --capture</code>." : ""}</p>
+          <div class="section">Editor tool keys</div>
+          <div class="card keys">${TOOLS.map((t) => `<div class="key-row"><span>${icon(t.tool)}${t.title}</span>
+            <input type="text" class="key" maxlength="1" data-tool="${t.title.toLowerCase()}" value="${keys[t.tool].toUpperCase()}" aria-label="${t.title} key"></div>`).join("")}</div>
           <p class="note">One letter per tool. A letter another tool already uses is ignored, so every tool stays reachable. Digits 1–6 always pick colors.</p>`;
       }
-      case "commands": {
+      case "commands":
         return `
-          <p class="note">Run any shell command from a global shortcut, such as opening a terminal or a notes script.</p>
-          <div id="cmds">${drafts.length ? "" : '<p class="note">No command shortcuts yet.</p>'}${drafts.map((d, i) => cmdRow(d.keys, d.command, i)).join("")}</div>
-          <button class="btn" id="add">Add Command Shortcut</button>`;
-      }
+          <p class="note" style="margin:0 2px 14px">Run any shell command from a global shortcut, such as opening a terminal or a notes script.</p>
+          <div class="card" id="cmds">${drafts.length ? drafts.map((d, i) => cmdRow(d.keys, d.command, i)).join("")
+            : row("terminal", "No command shortcuts yet", "Add one to launch a script from anywhere.", "")}</div>
+          <div style="margin-top:12px"><button class="btn" id="add">${icon("plus")}Add command shortcut</button></div>`;
       default:
         return `
-          <h2>Config file</h2>
-          <p class="note">Every setting lives in one JSON file. Edit it yourself or let a script or AI agent change it; Snapmark applies changes the moment the file is saved.</p>
-          <div class="row"><button class="btn" id="open-config">Edit Config File…</button></div>
-          <hr class="sep"><h2>Command line</h2>
-          <p class="note"><code>snapmark --capture</code> · <code>--capture-window</code> · <code>--capture-screen</code> · <code>--open FILE</code> · <code>--settings</code></p>`;
+          <div class="card">
+            ${row("sliders", "Config file", "Every setting lives in one JSON file. Edit it yourself or let a script or AI agent change it; Snapmark applies changes the moment it's saved.",
+                  `<button class="btn" id="open-config">Edit…</button>`)}
+          </div>
+          <div class="section">Command line</div>
+          <div class="card">
+            ${row("terminal", "Capture and open from scripts", "<code>snapmark --capture</code> · <code>--capture-window</code> · <code>--capture-screen</code> · <code>--open FILE</code> · <code>--settings</code>", "")}
+          </div>`;
     }
   };
 
   const cmdRow = (keys: string, command: string, i: number) => `
-    <div class="row" data-row="${i}" style="margin-bottom:8px">
-      <button class="btn recorder" data-cmdkey="${i}">${attr(shortcutLabel(keys)) || "Set Shortcut"}</button>
-      <input type="text" data-cmd="${i}" value="${attr(command)}" placeholder="xdg-open ~/notes" style="width:260px">
-      <button class="btn" data-remove="${i}">Remove</button>
+    <div class="row" data-row="${i}">
+      <button class="btn recorder" data-cmdkey="${i}">${esc(shortcutLabel(keys)) || "Set shortcut"}</button>
+      <input type="text" data-cmd="${i}" value="${esc(command)}" placeholder="xdg-open ~/notes" aria-label="Command" style="flex:1;min-width:0">
+      <button class="btn" data-remove="${i}" aria-label="Remove">${icon("trash")}</button>
     </div>`;
 
   /** Saves complete rows; incomplete ones stay on screen as drafts. */
@@ -104,27 +131,41 @@ export async function startSettings(root: HTMLElement) {
     for (const d of drafts) if (d.keys && d.command.trim()) c.commands[d.keys] = d.command.trim();
   });
 
+  const flip = (id: string, apply: (on: boolean) => Promise<unknown>) => {
+    const b = root.querySelector<HTMLButtonElement>(`#${id}`);
+    b?.addEventListener("click", async () => {
+      const on = b.getAttribute("aria-checked") !== "true";
+      b.setAttribute("aria-checked", String(on));
+      await apply(on);
+    });
+  };
+
   const wire = () => {
     const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel);
-    $("#folder")?.addEventListener("change", (e) => save((c) => { c.saveFolder = (e.target as HTMLInputElement).value; }));
-    $("#copy")?.addEventListener("change", (e) => save((c) => { c.copyOnCapture = (e.target as HTMLInputElement).checked; }));
-    $("#tray")?.addEventListener("change", (e) => save((c) => { c.showMenuBarIcon = (e.target as HTMLInputElement).checked; }));
-    $("#login")?.addEventListener("change", (e) => void api.autostart((e.target as HTMLInputElement).checked));
+    $("#browse")?.addEventListener("click", async () => {
+      const folder = await api.pickFolder();
+      if (folder) { await save((c) => { c.saveFolder = folder; }); await render(); }
+    });
+    flip("copy", (on) => save((c) => { c.copyOnCapture = on; }));
+    flip("tray", (on) => save((c) => { c.showMenuBarIcon = on; }));
+    flip("login", (on) => api.autostart(on));
     $("#open-config")?.addEventListener("click", () => void api.openConfig());
     root.querySelectorAll<HTMLButtonElement>("[data-shortcut]").forEach((b) => record(b, (v) =>
       save((c) => { c.shortcuts[b.dataset.shortcut as keyof Config["shortcuts"]] = v; }).then(render)));
     root.querySelectorAll<HTMLButtonElement>("[data-clear]").forEach((b) => b.addEventListener("click", () =>
       save((c) => { c.shortcuts[b.dataset.clear as keyof Config["shortcuts"]] = ""; }).then(render)));
-    root.querySelectorAll<HTMLInputElement>("input.key").forEach((inp) => inp.addEventListener("change", () =>
-      save((c) => { c.toolKeys[inp.dataset.tool!] = inp.value.toLowerCase(); }).then(render)));
+    root.querySelectorAll<HTMLInputElement>("input.key").forEach((inp) => {
+      inp.addEventListener("input", () => { inp.value = inp.value.replace(/[^a-z]/gi, "").slice(-1).toUpperCase(); });
+      inp.addEventListener("change", () => save((c) => { c.toolKeys[inp.dataset.tool!] = inp.value.toLowerCase(); }).then(render));
+    });
     root.querySelectorAll<HTMLButtonElement>("[data-cmdkey]").forEach((b) => record(b, (v) => {
       drafts[Number(b.dataset.cmdkey)].keys = v;
       void saveCommands().then(render);
     }));
-    root.querySelectorAll<HTMLInputElement>("[data-cmd]").forEach((i) => i.addEventListener("input", () => {
-      drafts[Number(i.dataset.cmd)].command = i.value;
-    }));
-    root.querySelectorAll<HTMLInputElement>("[data-cmd]").forEach((i) => i.addEventListener("change", () => void saveCommands()));
+    root.querySelectorAll<HTMLInputElement>("[data-cmd]").forEach((i) => {
+      i.addEventListener("input", () => { drafts[Number(i.dataset.cmd)].command = i.value; });
+      i.addEventListener("change", () => void saveCommands());
+    });
     root.querySelectorAll<HTMLButtonElement>("[data-remove]").forEach((b) => b.addEventListener("click", () => {
       drafts.splice(Number(b.dataset.remove), 1);
       void saveCommands().then(render);
@@ -139,7 +180,7 @@ export async function startSettings(root: HTMLElement) {
   const record = (b: HTMLButtonElement, done: (value: string) => void) => {
     b.addEventListener("click", () => {
       stopRecording?.();
-      b.dataset.label = b.textContent ?? "";
+      const label = b.textContent ?? "";
       b.classList.add("recording");
       b.textContent = "Type shortcut…";
       void api.pauseShortcuts(true);
@@ -163,7 +204,7 @@ export async function startSettings(root: HTMLElement) {
         void api.pauseShortcuts(false);
       };
       // Leaving the window (or switching panes) ends recording, so shortcuts never stay paused.
-      const cancel = () => { stop(); b.textContent = b.dataset.label ?? "Record Shortcut"; };
+      const cancel = () => { stop(); b.textContent = label; };
       stopRecording = cancel;
       window.addEventListener("keydown", onKey, true);
       window.addEventListener("blur", cancel);
@@ -180,6 +221,3 @@ export async function startSettings(root: HTMLElement) {
   window.addEventListener("beforeunload", () => stopRecording?.());
   await render();
 }
-
-const attr = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
