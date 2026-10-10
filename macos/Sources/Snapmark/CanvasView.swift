@@ -12,7 +12,7 @@ import SnapmarkCore
 final class CanvasView: NSView, NSTextFieldDelegate {
     let doc: Document
     var tool: Tool = .arrow {
-        didSet { commitText(); selectedID = nil; window?.invalidateCursorRects(for: self) }
+        didSet { commitText(); resetTextPress(); selectedID = nil; window?.invalidateCursorRects(for: self) }
     }
     var color: RGBA = RGBA.palette[0]
     var size: StrokeSize = .medium
@@ -309,13 +309,13 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             if tool == .select { NSCursor.openHand.set() }
             return
         }
-        if let label = pressedLabel {
-            beginText(at: label.start, editing: label)
+        if let label = pressedLabel, let current = doc.marks.first(where: { $0.id == label.id }) {
+            beginText(at: current.start, editing: current)
             return
         }
         if let box = textBox {
             // A dragged box sets the text height; a click uses the preset size, centered on the click.
-            let sized = box.height > 6 * pixelsPerPoint ? box.height / Renderer.textBoxHeight : nil
+            let sized = box.height > 6 * pixelsPerPoint ? min(max(box.height / Renderer.textBoxHeight, 8), 600) : nil
             let probe = Mark(tool: .text, color: color, size: size, start: box.origin, end: box.origin, fontSize: sized)
             let h = Renderer.textOrStepRect(probe, imageWidth: doc.image.width).height
             let top = sized == nil ? box.midY + h / 2 : box.maxY
@@ -418,8 +418,11 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         field.removeFromSuperview()
         textField = nil
-        if let id = editingID, var m = doc.marks.first(where: { $0.id == id }) {
-            if text.isEmpty { doc.remove(id: id) } else { m.text = text; doc.update(m); selectedID = id }
+        if let id = editingID {
+            // The label may have been undone while it was open; then there is nothing to update.
+            if var m = doc.marks.first(where: { $0.id == id }) {
+                if text.isEmpty { doc.remove(id: id) } else { m.text = text; doc.update(m); selectedID = id }
+            }
         } else if !text.isEmpty {
             let m = Mark(tool: .text, color: color, size: size, start: textOrigin, end: textOrigin, text: text, fontSize: textFontSize)
             doc.add(m)
@@ -488,10 +491,10 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     func applySizeToSelection(_ s: StrokeSize) {
         size = s
         guard var m = selectedMark else { return }
+        // A preset replaces a hand-set size; a label keeps its top-left corner.
+        let top = Renderer.textOrStepRect(m, imageWidth: doc.image.width).maxY
         m.size = s
         if m.tool == .text {
-            // A preset replaces a hand-set size; the label keeps its top-left corner.
-            let top = Renderer.textOrStepRect(m, imageWidth: doc.image.width).maxY
             m.fontSize = nil
             m = Renderer.anchored(m, top: top, imageWidth: doc.image.width)
         }
@@ -499,8 +502,16 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         changed()
     }
 
-    func undo() { commitText(); doc.undo(); selectedID = nil; changed() }
-    func redo() { commitText(); doc.redo(); selectedID = nil; changed() }
+    func undo() { commitText(); resetTextPress(); doc.undo(); selectedID = nil; changed() }
+    func redo() { commitText(); resetTextPress(); doc.redo(); selectedID = nil; changed() }
+
+    /// Forgets a Text-tool press in progress, so releasing it later does nothing.
+    private func resetTextPress() {
+        pressedLabel = nil
+        textBox = nil
+        live = nil
+        dragOrigin = nil
+    }
 
     private func changed() {
         needsDisplay = true

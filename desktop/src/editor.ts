@@ -329,11 +329,12 @@ class Editor {
         this.doc.update(this.live);
         this.live = null;
         this.changed();
-      } else if (pressed) {
-        this.beginText(pressed.start, pressed);
+      } else if (pressed && this.doc.marks.some((m) => m.id === pressed.id)) {
+        const current = this.doc.marks.find((m) => m.id === pressed.id)!;
+        this.beginText(current.start, current);
       } else if (box) {
         // A dragged box sets the text height; a click uses the preset size, centered on the click.
-        const sized = box.h > 6 * this.ppp ? box.h / TEXT_BOX_HEIGHT : undefined;
+        const sized = box.h > 6 * this.ppp ? Math.min(Math.max(box.h / TEXT_BOX_HEIGHT, 8), 600) : undefined;
         const h = (sized ?? markFontSize(mark("text", this.color, box, box, { size: this.size }), this.doc.width)) * TEXT_BOX_HEIGHT;
         const top = sized === undefined ? box.y - h / 2 : box.y;
         this.beginText({ x: box.x, y: top + h }, null, sized);
@@ -454,7 +455,8 @@ class Editor {
     if (editing) {
       if (!text) this.doc.remove(editing.id);
       else { this.doc.update({ ...editing, text }); this.select(editing.id); }
-    } else if (text) {
+    } else if (text && !this.editingId) {
+      // An open label that was undone meanwhile has nothing to update.
       const m = this.doc.add(mark("text", this.color, this.textAt, this.textAt, { size: this.size, text, fontSize: this.textFontSize }));
       this.select(m.id);
     }
@@ -478,6 +480,7 @@ class Editor {
 
   setTool(t: Tool) {
     this.commitText();
+    this.resetTextPress();
     this.tool = t;
     this.select(null);
     this.draw();
@@ -509,8 +512,8 @@ class Editor {
       case "duplicate": if (m) { const d = duplicate(m, 12 * this.ppp); this.doc.add(d); this.select(d.id); this.changed(); } break;
       case "front": if (m) { this.doc.reorder(m.id, true); this.changed(); } break;
       case "back": if (m) { this.doc.reorder(m.id, false); this.changed(); } break;
-      case "undo": this.commitText(); this.doc.undo(); this.select(null); this.changed(); break;
-      case "redo": this.commitText(); this.doc.redo(); this.select(null); this.changed(); break;
+      case "undo": this.commitText(); this.resetTextPress(); this.doc.undo(); this.select(null); this.changed(); break;
+      case "redo": this.commitText(); this.resetTextPress(); this.doc.redo(); this.select(null); this.changed(); break;
       case "copy": await this.finish(true, false); break;
       case "path": await this.finish(false, true); break;
       case "save": await this.saveCopy(); break;
@@ -564,6 +567,14 @@ class Editor {
     if (tool) return done(), this.setTool(tool);
     const n = Number(e.key);
     if (n >= 1 && n <= PALETTE.length) return done(), this.setColor(n - 1);
+  }
+
+  /** Forgets a Text-tool press in progress, so releasing it later does nothing. */
+  resetTextPress() {
+    this.pressedLabel = null;
+    this.textBox = null;
+    this.live = null;
+    this.dragOrigin = null;
   }
 
   // MARK: Output
