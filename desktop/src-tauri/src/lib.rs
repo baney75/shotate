@@ -23,7 +23,6 @@ use tauri_plugin_opener::OpenerExt;
 /// A capture waiting for the user to pick an area or a window in the overlay.
 struct Pending {
     image: RgbaImage,
-    shot: PathBuf,
     scale: f64,
     mode: &'static str,
     windows: Vec<serde_json::Value>,
@@ -105,11 +104,8 @@ fn capture_inner(app: &AppHandle, mode: &'static str) -> Result<(), String> {
             })
         })
         .collect();
-    let shot = std::env::temp_dir().join(format!("snapmark-overlay-{}.png", std::process::id()));
-    image.save(&shot).map_err(|e| e.to_string())?;
     *app.state::<State>().pending.lock().unwrap() = Some(Pending {
         image,
-        shot,
         scale,
         mode,
         windows,
@@ -153,7 +149,9 @@ fn linux_tool_capture() -> Option<RgbaImage> {
     if !cfg!(target_os = "linux") {
         return None;
     }
-    let out = std::env::temp_dir().join(format!("snapmark-tool-{}.png", std::process::id()));
+    // A private (0700) folder, not a guessable name in shared /tmp.
+    let dir = tempfile::Builder::new().prefix("snapmark-").tempdir().ok()?;
+    let out = dir.path().join("screen.png");
     let o = out.to_string_lossy().into_owned();
     let tools: [(&str, Vec<&str>); 3] = [
         ("grim", vec![o.as_str()]),
@@ -225,8 +223,18 @@ fn overlay_info(app: AppHandle) -> Result<serde_json::Value, String> {
     let pending = state.pending.lock().unwrap();
     let p = pending.as_ref().ok_or("no capture in progress")?;
     Ok(
-        serde_json::json!({ "shot": p.shot, "scale": p.scale, "mode": p.mode, "windows": p.windows }),
+        serde_json::json!({ "width": p.image.width(), "height": p.image.height(), "scale": p.scale, "mode": p.mode, "windows": p.windows }),
     )
+}
+
+/// The frozen screenshot for the overlay, as raw RGBA. It never touches the disk, so other users
+/// on a shared machine can't read it from /tmp.
+#[tauri::command]
+fn overlay_pixels(app: AppHandle) -> Result<Response, String> {
+    let state = app.state::<State>();
+    let pending = state.pending.lock().unwrap();
+    let p = pending.as_ref().ok_or("no capture in progress")?;
+    Ok(Response::new(p.image.as_raw().clone()))
 }
 
 #[derive(serde::Deserialize)]
@@ -246,7 +254,6 @@ fn finish_capture(app: AppHandle, rect: Option<PickRect>) -> Result<(), String> 
     let (Some(p), Some(r)) = (pending, rect) else {
         return Ok(());
     };
-    let _ = std::fs::remove_file(&p.shot);
     let (iw, ih) = p.image.dimensions();
     let x = r.x.min(iw.saturating_sub(1));
     let y = r.y.min(ih.saturating_sub(1));
@@ -806,7 +813,19 @@ fn handle_args(app: &AppHandle, args: &[String], first_run: bool) {
 
 pub fn run() {
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            // Relative paths from the second launch belong to its working directory, not ours.
+            let args: Vec<String> = args
+                .into_iter()
+                .map(|a| {
+                    let p = Path::new(&a);
+                    if !a.starts_with("--") && p.is_relative() && Path::new(&cwd).join(p).exists() {
+                        Path::new(&cwd).join(p).to_string_lossy().into_owned()
+                    } else {
+                        a
+                    }
+                })
+                .collect();
             // A second launch hands its arguments to the running copy; a plain relaunch opens Settings.
             if args.len() <= 1 {
                 show_view(app, "settings", "Snapmark Settings", (620.0, 560.0));
@@ -830,9 +849,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(State::default())
+        .on_window_event(|window, event| {
+            // However the overlay goes away (Esc, Alt+F4, the window manager), drop its capture.
+            if window.label() == "overlay" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.app_handle().state::<State>().pending.lock().unwrap().take();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             capture_cmd,
             overlay_info,
+            overlay_pixels,
             finish_capture,
             read_file,
             save_png,

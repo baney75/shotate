@@ -7,7 +7,8 @@ type R = { x: number; y: number; w: number; h: number };
 
 export async function startOverlay(root: HTMLElement) {
   const info = await api.overlayInfo();
-  const img = await createImageBitmap(new Blob([await api.readFile(info.shot)]));
+  const pixels = new Uint8ClampedArray(await api.overlayPixels());
+  const img = await createImageBitmap(new ImageData(pixels, info.width, info.height));
   root.innerHTML = `<div class="overlay"><canvas></canvas><div class="hint"></div></div>`;
   const canvas = root.querySelector("canvas")!;
   const hint = root.querySelector<HTMLElement>(".hint")!;
@@ -69,8 +70,9 @@ export async function startOverlay(root: HTMLElement) {
   canvas.addEventListener("pointermove", (e) => {
     if (windowMode) { hover = windowAt(e.clientX, e.clientY); draw(); return; }
     if (!start) return;
-    sel = { x: Math.min(start.x, e.clientX), y: Math.min(start.y, e.clientY),
-            w: Math.abs(e.clientX - start.x), h: Math.abs(e.clientY - start.y) };
+    // Pointer capture reports positions past the screen edge; keep the selection on this monitor.
+    const x = Math.max(0, Math.min(innerWidth, e.clientX)), y = Math.max(0, Math.min(innerHeight, e.clientY));
+    sel = { x: Math.min(start.x, x), y: Math.min(start.y, y), w: Math.abs(x - start.x), h: Math.abs(y - start.y) };
     draw();
   });
   canvas.addEventListener("pointerup", () => {

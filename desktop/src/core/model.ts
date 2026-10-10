@@ -152,8 +152,8 @@ export function textOrStepRect(m: Mark, imageWidth: number, measure: Measure): R
   }
   const pad = size * 0.45;
   const h = size * 1.25 + pad * 0.6;
-  // The label hangs below its anchor point, as typed.
-  return { x: m.start.x, y: m.start.y, w: measure(m.text || " ", size) + pad * 2, h };
+  // The anchor is the label's bottom-left corner, as in the macOS app.
+  return { x: m.start.x, y: m.start.y - h, w: measure(m.text || " ", size) + pad * 2, h };
 }
 
 /** Everything a mark paints, including stroke, arrowhead and shadow. */

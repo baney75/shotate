@@ -41,6 +41,10 @@ class Editor {
   savedRevision = 0;
   savedCopy: string | null = null;
   finished = false;
+  /** Set while finishing, so a second Enter can't save and copy twice. */
+  finishing = false;
+  /** Set while a confirm dialog is open; the editor's keys stay out of its way. */
+  modal = false;
 
   stage!: HTMLElement;
   canvas!: HTMLCanvasElement;
@@ -322,6 +326,7 @@ class Editor {
     }
     import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
       getCurrentWindow().onCloseRequested(async (e) => {
+        this.commitText();
         if (this.finished || this.doc.revision === this.savedRevision) return;
         e.preventDefault();
         await this.closeAsking();
@@ -362,6 +367,8 @@ class Editor {
     const size = fontSize(editing?.size ?? this.size, this.doc.width) * this.scale;
     const input = document.createElement("input");
     input.className = "label-input";
+    // The label sits above its anchor, like the drawn one (and the macOS app).
+    v.y -= size * 1.25 + size * 0.45 * 0.6;
     input.value = editing?.text ?? "";
     input.placeholder = "Type, then Enter";
     Object.assign(input.style, {
@@ -459,7 +466,7 @@ class Editor {
   }
 
   key(e: KeyboardEvent) {
-    if (this.input || (e.target as HTMLElement).tagName === "INPUT") return;
+    if (this.modal || this.input || (e.target as HTMLElement).tagName === "INPUT") return;
     const ctrl = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
     const done = () => { e.preventDefault(); return; };
@@ -525,13 +532,15 @@ class Editor {
   }
 
   async finish(copyImage: boolean, copyPath: boolean) {
-    if (this.finished) return;
+    if (this.finished || this.finishing) return;
+    this.finishing = true;
     const path = await this.saveEdits();
-    if (!path) return;
+    if (!path) { this.finishing = false; return; }
     try {
       if (copyImage) await api.copyPng(await this.png(), path);
       if (copyPath) await api.copyText(path);
     } catch (err) {
+      this.finishing = false;
       this.toast(`Snapmark couldn't copy the image. It is saved at ${path}. (${err})`);
       return;
     }
@@ -581,7 +590,9 @@ class Editor {
 
   /** A small in-window dialog; resolves to the index of the chosen button, or -1 on Esc. */
   confirm(title: string, detail: string, choices: string[]): Promise<number> {
+    this.modal = true;
     return new Promise((resolve) => {
+      const settle = (i: number) => { this.modal = false; m.remove(); window.removeEventListener("keydown", esc, true); resolve(i); };
       const m = document.createElement("div");
       m.className = "menu";
       Object.assign(m.style, { left: "50%", top: "30%", transform: "translateX(-50%)", padding: "16px", width: "340px" });
@@ -591,11 +602,11 @@ class Editor {
         const b = document.createElement("button");
         b.className = i === 0 ? "primary" : "btn";
         b.textContent = c;
-        b.onclick = () => { m.remove(); window.removeEventListener("keydown", esc, true); resolve(i); };
+        b.onclick = () => settle(i);
         row.append(b);
       });
       const esc = (e: KeyboardEvent) => {
-        if (e.key === "Escape") { e.stopPropagation(); m.remove(); window.removeEventListener("keydown", esc, true); resolve(-1); }
+        if (e.key === "Escape") { e.stopPropagation(); settle(-1); }
       };
       window.addEventListener("keydown", esc, true);
       document.body.append(m);

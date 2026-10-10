@@ -46,6 +46,8 @@ export const api = {
   platform: () => call<string>("platform"),
   openConfig: () => call<void>("open_config"),
   overlayInfo: () => call<OverlayInfo>("overlay_info"),
+  /** The frozen screenshot as raw RGBA (width × height × 4 bytes). */
+  overlayPixels: () => call<ArrayBuffer>("overlay_pixels"),
   finishCapture: (rect: { x: number; y: number; w: number; h: number } | null) => call<void>("finish_capture", { rect }),
   capture: (mode: "area" | "window" | "screen") => call<void>("capture_cmd", { mode }),
   pauseShortcuts: (paused: boolean) => call<void>("pause_shortcuts", { paused }),
@@ -55,7 +57,8 @@ export const api = {
 };
 
 export interface OverlayInfo {
-  shot: string;
+  width: number;
+  height: number;
   /** Physical pixels per CSS pixel on this monitor. */
   scale: number;
   mode: "area" | "window";
