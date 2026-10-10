@@ -197,6 +197,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     func select(colorIndex i: Int) {
         canvas.applyColorToSelection(RGBA.palette[i])
+        showColor(i)
+    }
+
+    private func showColor(_ i: Int) {
         for (j, b) in colorButtons.enumerated() {
             b.layer?.borderWidth = j == i ? 3 : 1
             b.layer?.borderColor = (j == i ? NSColor.labelColor : NSColor.separatorColor).cgColor
@@ -242,6 +246,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         case ([.command, .shift], "c"): finish(copyImage: false, copyPath: true); return true
         case ([.command], "s"): saveCopy(); return true
         case ([.command], "d"): canvas.duplicateSelection(); return true
+        case ([.command, .option], "c"): canvas.copyStyle(); return true
+        case ([.command, .option], "v"):
+            if let s = canvas.pasteStyle() {
+                if let i = RGBA.palette.firstIndex(of: s.color) { showColor(i) }
+                sizeControl.selectedSegment = s.size.rawValue - 1
+            }
+            return true
         case ([.command], "]"): canvas.reorderSelection(toFront: true); return true
         case ([.command], "["): canvas.reorderSelection(toFront: false); return true
         default: break

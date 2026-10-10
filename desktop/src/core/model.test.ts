@@ -1,4 +1,4 @@
-import { Doc, Geometry, PALETTE, mark, handles, moveHandle, duplicate, markRect, markFontSize, resizeText, textOrStepRect } from "./model";
+import { Doc, Geometry, LINE_HEIGHT, PALETTE, Snap, mark, handles, moveHandle, moveMarkHandle, duplicate, markRect, markFontSize, offset, resizeText, styled, textLines, textOrStepRect } from "./model";
 import { resolveToolKeys, shortcutLabel } from "./settings";
 import { TOOLS } from "./model";
 
@@ -130,5 +130,63 @@ describe("text labels", () => {
     const doc = new Doc(1000, 600, measure);
     doc.add(big);
     expect(doc.hitTest({ x: br.x + br.w - 2, y: br.y + br.h / 2 }, 0)?.id).toBe(big.id);
+  });
+});
+
+describe("annotation", () => {
+  it("wraps labels at their width and grows them downward from the top-left", () => {
+    const one = mark("text", red, { x: 100, y: 100 }, { x: 100, y: 100 }, { text: "Deploy the build now" });
+    const r1 = textOrStepRect(one, 1000, measure);
+    const wrapped = { ...one, textWidth: (r1.w - markFontSize(one, 1000) * 0.9) / 2 };
+    const r2 = textOrStepRect(wrapped, 1000, measure);
+    expect(textLines(wrapped, markFontSize(one, 1000), measure).length).toBeGreaterThan(1);
+    expect(r2.h).toBeGreaterThan(r1.h * 1.5);
+    expect(r2.y).toBe(100);
+    const broken = { ...one, text: "Deploy\nnow" };
+    expect(textOrStepRect(broken, 1000, measure).h).toBeCloseTo(r1.h + markFontSize(one, 1000) * LINE_HEIGHT);
+    // The side handle sets the width; the corner scales width and font together.
+    const side = moveMarkHandle(wrapped, 1, { x: r2.x + r2.w + 50, y: r2.y + r2.h / 2 }, 1000, measure);
+    expect(side.textWidth).toBeCloseTo(wrapped.textWidth + 50);
+    const corner = moveMarkHandle(wrapped, 0, { x: r2.x + r2.w * 2, y: r2.y + r2.h }, 1000, measure);
+    expect(corner.textWidth! / wrapped.textWidth).toBeCloseTo(corner.fontSize! / markFontSize(wrapped, 1000));
+  });
+
+  it("keeps arrows attached to the marks they point at", () => {
+    const doc = new Doc(1000, 600, measure);
+    const box = doc.add(mark("box", red, { x: 100, y: 100 }, { x: 300, y: 200 }));
+    const b = doc.bindingAt({ x: 300, y: 150 }, 0, null)!;
+    expect(b.id).toBe(box.id);
+    expect(b.anchor).toEqual({ x: 1, y: 0.5 });
+    expect(doc.bindingAt({ x: 600, y: 400 }, 0, null)).toBeNull();
+    const arrow = doc.add(mark("arrow", red, { x: 600, y: 400 }, { x: 300, y: 150 }, { endBinding: b }));
+    doc.update(offset(box, 50, -20));
+    expect(doc.marks[1].end).toEqual({ x: 350, y: 130 });
+    expect(doc.marks[1].start).toEqual({ x: 600, y: 400 });
+    expect(doc.resolveBindings([offset(doc.marks[0], 10, 0), doc.marks[1]])[1].end).toEqual({ x: 360, y: 130 });
+    doc.undo();
+    expect(doc.marks[1].end).toEqual({ x: 300, y: 150 });
+    expect(offset(arrow, 5, 5).endBinding).toBeUndefined();
+    doc.remove(box.id);
+    expect(doc.marks[0].endBinding).toBeUndefined();
+    expect(doc.marks[0].end).toEqual({ x: 300, y: 150 });
+  });
+
+  it("snaps dragged marks to edges and centers", () => {
+    const targets = [{ x: 0, y: 0, w: 1000, h: 600 }, { x: 100, y: 100, w: 200, h: 100 }];
+    const s = Snap.move({ x: 104, y: 400, w: 50, h: 50 }, targets, 6);
+    expect(s.dx).toBe(-4);
+    expect(s.dy).toBe(0);
+    expect(s.guides.some((g) => g.vertical && g.at === 100)).toBe(true);
+    expect(Snap.move({ x: 473, y: 400, w: 50, h: 20 }, targets, 6).dx).toBe(2);
+    const far = Snap.move({ x: 120, y: 400, w: 50, h: 50 }, targets, 6);
+    expect([far.dx, far.dy, far.guides.length]).toEqual([0, 0, 0]);
+    expect(Snap.point({ x: 297, y: 203 }, targets, 6).p).toEqual({ x: 300, y: 200 });
+  });
+
+  it("pastes a style without moving or retyping the mark", () => {
+    const source = mark("text", PALETTE[3].color, { x: 0, y: 0 }, { x: 0, y: 0 }, { size: 3, text: "A", fontSize: 40 });
+    const target = mark("text", red, { x: 9, y: 9 }, { x: 9, y: 9 }, { text: "B" });
+    const out = styled(target, source);
+    expect([out.color, out.size, out.fontSize, out.text, out.start]).toEqual([source.color, 3, 40, "B", target.start]);
   });
 });

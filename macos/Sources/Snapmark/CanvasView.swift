@@ -7,9 +7,11 @@ import SnapmarkCore
 /// Interaction follows the conventions of canvas editors such as tldraw and Figma: a new mark is
 /// selected as soon as it is drawn, so Delete removes it and color and size apply to it; a selected
 /// mark shows handles to resize it; Esc deselects before it closes; right-click offers the actions.
-/// Text is placed by clicking (or dragging a box to set its size), moved by dragging it with the
-/// Text or Select tool, and scaled from its corner handle.
-final class CanvasView: NSView, NSTextFieldDelegate {
+/// Text is placed by clicking (or dragging to set the width it wraps at), moved by dragging it with
+/// the Text or Select tool, scaled from its corner handle and rewrapped from its side handle.
+/// Dragged marks snap to the image and to each other (hold ⌘ to place freely), and an arrow end
+/// dropped on a mark stays attached to it.
+final class CanvasView: NSView, NSTextViewDelegate {
     let doc: Document
     var tool: Tool = .arrow {
         didSet { commitText(); resetTextPress(); selectedID = nil; window?.invalidateCursorRects(for: self) }
@@ -26,7 +28,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     private var dragOrigin: CGPoint?
     private var dragHandle: Int?
     private var cropDraft: CGRect? { didSet { needsDisplay = true } }
-    private var textField: NSTextField?
+    private var textField: LabelEditor?
     private var editingID: UUID?
     private var textOrigin = CGPoint.zero
     private var textFontSize: CGFloat?
@@ -34,6 +36,11 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     private var textBox: CGRect? { didSet { needsDisplay = true } }
     /// A label pressed with the Text tool: released in place it opens for editing, dragged it moves.
     private var pressedLabel: Mark?
+    private var textWidth: CGFloat?
+    /// Snap guides to draw while dragging.
+    private var guides: [Snap.Guide] = [] { didSet { needsDisplay = true } }
+    /// The mark an arrow end being dragged would attach to, outlined as a drop target.
+    private var bindTarget: UUID? { didSet { if oldValue != bindTarget { needsDisplay = true } } }
     private var tracking: NSTrackingArea?
 
     init(document: Document) {
@@ -102,15 +109,28 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         return r.insetBy(dx: -pad, dy: -pad)
     }
 
-    /// A mark's grab points. A label has one, at the bottom-right corner of its box, to scale it.
-    private func handles(of m: Mark) -> [CGPoint] {
-        guard m.tool == .text else { return m.handles }
-        let r = Renderer.textOrStepRect(m, imageWidth: doc.image.width)
-        return [CGPoint(x: r.maxX, y: r.minY)]
-    }
+    private func handles(of m: Mark) -> [CGPoint] { Renderer.handles(of: m, imageWidth: doc.image.width) }
 
     private func moving(_ m: Mark, handle i: Int, to p: CGPoint) -> Mark {
-        m.tool == .text ? Renderer.resizing(text: m, toCorner: p, imageWidth: doc.image.width) : m.moving(handle: i, to: p)
+        Renderer.moving(m, handle: i, to: p, imageWidth: doc.image.width)
+    }
+
+    /// The box a mark lines up by when snapping.
+    private func snapRect(_ m: Mark) -> CGRect { doc.bindableRect(m) ?? m.rect }
+
+    /// `p` lined up with the image and the other marks, unless ⌘ is held. Updates the guides.
+    private func snapped(_ p: CGPoint, _ e: NSEvent, excluding ids: Set<UUID>) -> CGPoint {
+        guard !e.modifierFlags.contains(.command) else { guides = []; return p }
+        let (q, g) = Snap.point(p, to: doc.snapTargets(excluding: ids), threshold: 6 * pixelsPerPoint)
+        guides = g
+        return q
+    }
+
+    /// Where an arrow end at `p` attaches: the mark under it, outlined while dragging.
+    private func bind(_ p: CGPoint, arrow: UUID) -> Binding? {
+        let b = doc.binding(at: p, tolerance: 2 * pixelsPerPoint, excluding: arrow)
+        bindTarget = b?.id
+        return b
     }
 
     private func handleIndex(at p: CGPoint) -> Int? {
@@ -131,6 +151,8 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         var marks = doc.marks
         if let l = live, let i = marks.firstIndex(where: { $0.id == l.id }) { marks[i] = l }
         if let d = draft { marks.append(d) }
+        // Arrows attached to a mark being dragged follow it live.
+        if live != nil { marks = doc.resolvingBindings(marks) }
         // The canvas as it will export: grown past the edge where marks reach, in the border color.
         let canvas = doc.canvas(including: marks)
         ctx.saveGState()
@@ -165,6 +187,19 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             ctx.setLineDash(phase: 0, lengths: [])
         }
         let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB)?.cgColor ?? CGColor(srgbRed: 0.3, green: 0.56, blue: 0.98, alpha: 1)
+        let guideColor = CGColor(srgbRed: 0.98, green: 0.3, blue: 0.55, alpha: 1)
+        ctx.setStrokeColor(guideColor)
+        ctx.setLineWidth(pixelsPerPoint)
+        for g in guides {
+            ctx.move(to: g.vertical ? CGPoint(x: g.at, y: g.from) : CGPoint(x: g.from, y: g.at))
+            ctx.addLine(to: g.vertical ? CGPoint(x: g.at, y: g.to) : CGPoint(x: g.to, y: g.at))
+        }
+        ctx.strokePath()
+        if let id = bindTarget, let m = marks.first(where: { $0.id == id }) {
+            ctx.setStrokeColor(accent)
+            ctx.setLineWidth(2.5 * pixelsPerPoint)
+            ctx.stroke(outline(m))
+        }
         if let id = hoverID, id != selectedID, let m = marks.first(where: { $0.id == id }) {
             ctx.setStrokeColor(accent.copy(alpha: 0.5) ?? accent)
             ctx.setLineWidth(1.5 * pixelsPerPoint)
@@ -252,7 +287,10 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             cropDraft = CGRect(origin: p, size: .zero)
         default:
             selectedID = nil
-            draft = Mark(tool: tool, color: color, size: size, start: p, end: p)
+            var d = Mark(tool: tool, color: color, size: size, start: p, end: p)
+            if tool == .arrow { d.startBinding = doc.binding(at: p, tolerance: 2 * pixelsPerPoint, excluding: nil) }
+            else { d.start = snapped(p, e, excluding: []); d.end = d.start; guides = [] }
+            draft = d
         }
     }
 
@@ -267,17 +305,36 @@ final class CanvasView: NSView, NSTextFieldDelegate {
                     p = base.tool == .arrow ? Geometry.snap45(from: fixed, to: p) : Geometry.square(from: fixed, to: p)
                 }
             }
-            live = moving(base, handle: i, to: p)
+            if base.tool == .arrow {
+                // An arrow end attaches to the mark it's dropped on; elsewhere it snaps.
+                var m = moving(base, handle: i, to: p)
+                let b = bind(p, arrow: base.id)
+                if b == nil, !e.modifierFlags.contains(.shift) { m = moving(base, handle: i, to: snapped(p, e, excluding: [base.id])) }
+                else { guides = [] }
+                if i == 0 { m.startBinding = b } else { m.endBinding = b }
+                live = m
+            } else if base.tool == .text {
+                live = moving(base, handle: i, to: p)
+            } else {
+                live = moving(base, handle: i, to: e.modifierFlags.contains(.shift) ? p : snapped(p, e, excluding: [base.id]))
+            }
             return
         }
         if textBox != nil, let o = dragOrigin {
+            p = snapped(p, e, excluding: [])
             textBox = CGRect(x: min(o.x, p.x), y: min(o.y, p.y), width: abs(p.x - o.x), height: abs(p.y - o.y))
             return
         }
         // A pressed label only starts to move past a few points, so a slightly shaky click still edits it.
         if pressedLabel != nil, let o = dragOrigin, live == nil, hypot(p.x - o.x, p.y - o.y) < 3 * pixelsPerPoint { return }
         if tool == .select || tool == .text, let o = dragOrigin, let m = selectedMark {
-            live = m.offset(by: CGVector(dx: p.x - o.x, dy: p.y - o.y))
+            var moved = m.offset(by: CGVector(dx: p.x - o.x, dy: p.y - o.y))
+            if e.modifierFlags.contains(.command) { guides = [] } else {
+                let (d, g) = Snap.move(snapRect(moved), to: doc.snapTargets(excluding: [m.id]), threshold: 6 * pixelsPerPoint)
+                moved = moved.offset(by: d)
+                guides = g
+            }
+            live = moved
             return
         }
         if tool == .crop, let o = dragOrigin {
@@ -285,8 +342,15 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             return
         }
         guard var d = draft else { return }
+        if d.tool == .arrow {
+            d.endBinding = e.modifierFlags.contains(.shift) ? nil : bind(p, arrow: d.id)
+            if d.endBinding != nil { guides = [] }
+        }
         if e.modifierFlags.contains(.shift) {
             p = d.tool == .arrow ? Geometry.snap45(from: d.start, to: p) : Geometry.square(from: d.start, to: p)
+            guides = []
+        } else if d.endBinding == nil {
+            p = snapped(p, e, excluding: [])
         }
         d.end = p
         draft = d
@@ -298,6 +362,8 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             dragHandle = nil
             pressedLabel = nil
             textBox = nil
+            guides = []
+            bindTarget = nil
             frozenLayout = nil
             needsDisplay = true
             window?.invalidateCursorRects(for: self)
@@ -314,12 +380,17 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             return
         }
         if let box = textBox {
-            // A dragged box sets the text height; a click uses the preset size, centered on the click.
-            let sized = box.height > 6 * pixelsPerPoint ? min(max(box.height / Renderer.textBoxHeight, 8), 600) : nil
-            let probe = Mark(tool: .text, color: color, size: size, start: box.origin, end: box.origin, fontSize: sized)
-            let h = Renderer.textOrStepRect(probe, imageWidth: doc.image.width).height
-            let top = sized == nil ? box.midY + h / 2 : box.maxY
-            beginText(at: CGPoint(x: box.minX, y: top - h), editing: nil, fontSize: sized)
+            // A drag sets the width the label wraps at, from its top-left corner; a click starts a
+            // label that grows with its text, centered on the click.
+            let probe = Mark(tool: .text, color: color, size: size, start: .zero, end: .zero)
+            let font = Renderer.fontSize(of: probe, imageWidth: doc.image.width)
+            if box.width > 12 * pixelsPerPoint {
+                beginText(at: CGPoint(x: box.minX, y: box.maxY), editing: nil,
+                          textWidth: max(font * 1.5, box.width - font * 0.9))
+            } else {
+                let h = Renderer.textOrStepRect(probe, imageWidth: doc.image.width).height
+                beginText(at: CGPoint(x: box.minX, y: box.midY + h / 2), editing: nil)
+            }
             return
         }
         if tool == .crop {
@@ -367,56 +438,76 @@ final class CanvasView: NSView, NSTextFieldDelegate {
 
     // MARK: Text
 
-    private func beginText(at p: CGPoint, editing: Mark?, fontSize sized: CGFloat? = nil) {
+    /// Opens the label editor with its top-left corner at `p`.
+    private func beginText(at p: CGPoint, editing: Mark?, textWidth wrap: CGFloat? = nil) {
         let markColor = editing?.color ?? color
-        let probe = editing ?? Mark(tool: .text, color: color, size: size, start: p, end: p, fontSize: sized)
-        let fontSize = Renderer.fontSize(of: probe, imageWidth: doc.image.width) / pixelsPerPoint
-        let field = NSTextField(frame: .zero)
-        field.cell = LabelFieldCell(textCell: "")
-        field.isEditable = true
-        field.usesSingleLineMode = true
-        field.cell?.isScrollable = true
-        field.font = .systemFont(ofSize: fontSize, weight: .semibold)
-        field.stringValue = editing?.text ?? ""
-        let ink = NSColor(cgColor: Renderer.ink(on: markColor).cgColor) ?? .white
-        field.placeholderAttributedString = NSAttributedString(string: "Type, then Return", attributes: [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold), .foregroundColor: ink.withAlphaComponent(0.65)])
-        field.isBordered = false
-        field.drawsBackground = false
-        field.textColor = ink
-        field.focusRingType = .none
-        field.wantsLayer = true
-        field.layer?.backgroundColor = markColor.cgColor.copy(alpha: 0.92)
-        field.layer?.cornerRadius = fontSize * 0.35
-        field.delegate = self
-        addSubview(field)
-        textField = field
         textOrigin = p
-        textFontSize = editing?.fontSize ?? sized
+        textFontSize = editing?.fontSize
+        textWidth = editing?.textWidth ?? wrap
         editingID = editing?.id
+        let fontSize = Renderer.fontSize(of: editingMark(text: ""), imageWidth: doc.image.width) / pixelsPerPoint
+        let ink = NSColor(cgColor: Renderer.ink(on: markColor).cgColor) ?? .white
+        // The editor lays text out like the drawn label: the same font, padding, line height and wrap width.
+        let editor = LabelEditor(frame: .zero)
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = fontSize * Renderer.lineHeight
+        style.maximumLineHeight = fontSize * Renderer.lineHeight
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: fontSize), .foregroundColor: ink,
+                                                    .paragraphStyle: style]
+        editor.isRichText = false
+        editor.allowsUndo = true
+        editor.drawsBackground = false
+        editor.insertionPointColor = ink
+        editor.textContainerInset = NSSize(width: fontSize * 0.45, height: 0)
+        editor.textContainer?.lineFragmentPadding = 0
+        editor.textContainer?.widthTracksTextView = false
+        editor.isHorizontallyResizable = false
+        editor.isVerticallyResizable = false
+        editor.defaultParagraphStyle = style
+        editor.typingAttributes = attrs
+        editor.textStorage?.setAttributedString(NSAttributedString(string: editing?.text ?? "", attributes: attrs))
+        editor.placeholder = NSAttributedString(string: "Type, then Return", attributes: attrs.merging(
+            [.foregroundColor: ink.withAlphaComponent(0.65)]) { $1 })
+        editor.wantsLayer = true
+        editor.layer?.backgroundColor = markColor.cgColor.copy(alpha: 0.92)
+        editor.layer?.cornerRadius = fontSize * 0.35
+        editor.delegate = self
+        addSubview(editor)
+        textField = editor
         fitTextField()
-        window?.makeFirstResponder(field)
+        window?.makeFirstResponder(editor)
+        editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
         needsDisplay = true
     }
 
-    /// Sizes the field to the pill the label will draw as, so typing looks like the result.
-    private func fitTextField() {
-        guard let field = textField else { return }
-        let text = field.stringValue.isEmpty ? field.placeholderAttributedString?.string ?? "" : field.stringValue
-        let m = Mark(tool: .text, color: color, size: editingID.flatMap { id in doc.marks.first { $0.id == id }?.size } ?? size,
-                     start: textOrigin, end: textOrigin, text: text, fontSize: textFontSize)
-        let r = Renderer.textOrStepRect(m, imageWidth: doc.image.width)
-        let o = viewPoint(r.origin)
-        // A few points of slack keep the caret and the last glyph from scrolling out of view.
-        field.frame = CGRect(x: o.x, y: o.y, width: r.width / pixelsPerPoint + 4, height: r.height / pixelsPerPoint)
+    /// The label being edited, as it would be with `text`.
+    private func editingMark(text: String) -> Mark {
+        let base = editingID.flatMap { id in doc.marks.first { $0.id == id } }
+        return Mark(tool: .text, color: base?.color ?? color, size: base?.size ?? size, start: textOrigin, end: textOrigin,
+                    text: text, fontSize: textFontSize, textWidth: textWidth)
     }
 
-    func controlTextDidChange(_ obj: Notification) { fitTextField() }
+    /// Sizes the editor to the box the label will draw as, so typing looks like the result.
+    private func fitTextField() {
+        guard let editor = textField else { return }
+        let text = editor.string.isEmpty ? editor.placeholder.string : editor.string
+        let r = Renderer.textOrStepRect(editingMark(text: text), imageWidth: doc.image.width)
+        let o = viewPoint(r.origin)
+        let inset = editor.textContainerInset.width
+        // A wrapping label wraps at its width; one that grows gets room for the caret past the last glyph.
+        let frame = CGRect(x: o.x, y: o.y, width: r.width / pixelsPerPoint + (textWidth == nil ? 2 : 0),
+                           height: r.height / pixelsPerPoint)
+        editor.textContainer?.containerSize = NSSize(width: textWidth == nil ? 100_000 : frame.width - inset * 2,
+                                                     height: 100_000)
+        editor.frame = frame
+    }
+
+    func textDidChange(_ notification: Notification) { fitTextField() }
 
     func commitText() {
-        guard let field = textField else { return }
-        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        field.removeFromSuperview()
+        guard let editor = textField else { return }
+        let text = editor.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        editor.removeFromSuperview()
         textField = nil
         if let id = editingID {
             // The label may have been undone while it was open; then there is nothing to update.
@@ -424,7 +515,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
                 if text.isEmpty { doc.remove(id: id) } else { m.text = text; doc.update(m); selectedID = id }
             }
         } else if !text.isEmpty {
-            let m = Mark(tool: .text, color: color, size: size, start: textOrigin, end: textOrigin, text: text, fontSize: textFontSize)
+            let m = editingMark(text: text)
             doc.add(m)
             selectedID = m.id
         }
@@ -443,9 +534,14 @@ final class CanvasView: NSView, NSTextFieldDelegate {
 
     var isEditingText: Bool { textField != nil }
 
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+    /// Return commits and Esc cancels; Option-Return starts a new line.
+    func textView(_ textView: NSTextView, doCommandBy sel: Selector) -> Bool {
         if sel == #selector(NSResponder.insertNewline(_:)) { commitText(); return true }
         if sel == #selector(NSResponder.cancelOperation(_:)) { cancelText(); return true }
+        if sel == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)) {
+            textView.insertText("\n", replacementRange: textView.selectedRange())
+            return true
+        }
         return false
     }
 
@@ -483,6 +579,26 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         changed()
     }
 
+    /// The style ⌥⌘C copied, which ⌥⌘V puts on the selection and on new marks.
+    private var copiedStyle: Mark?
+
+    func copyStyle() { if let m = selectedMark { copiedStyle = m } }
+
+    /// Pastes the copied style. Returns it so the toolbar can show it.
+    @discardableResult
+    func pasteStyle() -> Mark? {
+        guard let s = copiedStyle else { return nil }
+        color = s.color
+        size = s.size
+        if let m = selectedMark {
+            var styled = m.styled(like: s)
+            if m.tool == .text, s.tool != .text { styled.fontSize = nil }
+            doc.update(styled)
+            changed()
+        }
+        return s
+    }
+
     func applyColorToSelection(_ c: RGBA) {
         color = c
         if var m = selectedMark { m.color = c; doc.update(m); changed() }
@@ -491,12 +607,12 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     func applySizeToSelection(_ s: StrokeSize) {
         size = s
         guard var m = selectedMark else { return }
-        // A preset replaces a hand-set size; a label keeps its top-left corner.
-        let top = Renderer.textOrStepRect(m, imageWidth: doc.image.width).maxY
         m.size = s
         if m.tool == .text {
+            // A preset replaces a hand-set size, and the wrap width scales with it.
+            let old = Renderer.fontSize(of: m, imageWidth: doc.image.width)
             m.fontSize = nil
-            m = Renderer.anchored(m, top: top, imageWidth: doc.image.width)
+            m.textWidth = m.textWidth.map { $0 * Renderer.fontSize(of: m, imageWidth: doc.image.width) / old }
         }
         doc.update(m)
         changed()
@@ -521,20 +637,11 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     }
 }
 
-/// The label editor's cell: the text sits where the drawn label puts it, inset and vertically centered.
-private final class LabelFieldCell: NSTextFieldCell {
-    override func drawingRect(forBounds rect: NSRect) -> NSRect {
-        let size = font?.pointSize ?? 13
-        // The cell adds its own 2-point text inset; take it back so the text lands where the label draws it.
-        let inset = rect.insetBy(dx: max(0, size * 0.45 - 2), dy: 0)
-        let h = cellSize(forBounds: inset).height
-        return NSRect(x: inset.minX, y: inset.midY - h / 2, width: inset.width, height: h)
-    }
-    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
-        super.edit(withFrame: drawingRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, event: event)
-    }
-    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
-        super.select(withFrame: drawingRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate,
-                     start: selStart, length: selLength)
+/// The label editor: a text view that shows a hint while empty.
+private final class LabelEditor: NSTextView {
+    var placeholder = NSAttributedString()
+    override func draw(_ rect: NSRect) {
+        super.draw(rect)
+        if string.isEmpty { placeholder.draw(at: textContainerOrigin) }
     }
 }

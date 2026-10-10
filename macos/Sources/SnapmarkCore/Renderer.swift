@@ -16,24 +16,58 @@ public enum Renderer {
         m.fontSize ?? fontSize(imageWidth: w, size: m.size)
     }
 
-    /// The label line height plus padding, as a multiple of the font size.
-    public static let textBoxHeight: CGFloat = 1.25 + 0.45 * 0.6
+    /// A label's line height and the padding around its text, as multiples of the font size.
+    public static let lineHeight: CGFloat = 1.25
+    static let padX: CGFloat = 0.45, padY: CGFloat = 0.27
+
+    /// The lines a label draws: its own line breaks, plus wrapping when it has a width.
+    static func lines(_ m: Mark, size: CGFloat) -> [CTLine] {
+        let text = m.text.isEmpty ? " " : m.text
+        let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, size, nil)
+            ?? CTFontCreateWithName("Helvetica-Bold" as CFString, size, nil)
+        let attrs: [CFString: Any] = [kCTFontAttributeName: font, kCTForegroundColorAttributeName: ink(on: m.color).cgColor]
+        let str = CFAttributedStringCreate(nil, text as CFString, attrs as CFDictionary)!
+        let setter = CTFramesetterCreateWithAttributedString(str)
+        let width = m.textWidth.map { max($0, size) } ?? 100_000
+        let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0),
+                                             CGPath(rect: CGRect(x: 0, y: 0, width: width, height: 100_000), transform: nil), nil)
+        let lines = CTFrameGetLines(frame) as? [CTLine] ?? []
+        // A trailing line break starts an empty last line, which the caret is on while typing.
+        return text.hasSuffix("\n") ? lines + [line(" ", size: size, color: m.color)] : lines
+    }
 
     /// The label scaled so the bottom-right corner of its box follows `p`; the top-left corner stays put.
     public static func resizing(text m: Mark, toCorner p: CGPoint, imageWidth: Int) -> Mark {
         let r = textOrStepRect(m, imageWidth: imageWidth)
         let scale = max((p.x - r.minX) / max(r.width, 1), (r.maxY - p.y) / max(r.height, 1))
+        let old = fontSize(of: m, imageWidth: imageWidth)
         var out = m
-        out.fontSize = min(max(fontSize(of: m, imageWidth: imageWidth) * scale, 8), 600)
-        return anchored(out, top: r.maxY, imageWidth: imageWidth)
+        out.fontSize = min(max(old * scale, 8), 600)
+        out.textWidth = m.textWidth.map { $0 * out.fontSize! / old }
+        return out
     }
 
-    /// The label moved so the top of its box is at `top`, its left edge unchanged.
-    public static func anchored(_ m: Mark, top: CGFloat, imageWidth: Int) -> Mark {
+    /// The label wrapping at the width that puts the right edge of its box at `x`.
+    public static func resizing(text m: Mark, toRightEdge x: CGFloat, imageWidth: Int) -> Mark {
+        let size = fontSize(of: m, imageWidth: imageWidth)
         var out = m
-        out.start.y = top - textOrStepRect(m, imageWidth: imageWidth).height
-        out.end = out.start
+        out.textWidth = max(size * 1.5, x - m.start.x - size * padX * 2)
         return out
+    }
+
+    /// A mark's grab points. A label has two: its bottom-right corner scales it, its right edge sets
+    /// where it wraps. Shapes and arrows use `Mark.handles`.
+    public static func handles(of m: Mark, imageWidth: Int) -> [CGPoint] {
+        guard m.tool == .text else { return m.handles }
+        let r = textOrStepRect(m, imageWidth: imageWidth)
+        return [CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.midY)]
+    }
+
+    /// The mark with handle `i` (an index into `handles(of:)`) dragged to `p`.
+    public static func moving(_ m: Mark, handle i: Int, to p: CGPoint, imageWidth: Int) -> Mark {
+        guard m.tool == .text else { return m.moving(handle: i, to: p) }
+        return i == 0 ? resizing(text: m, toCorner: p, imageWidth: imageWidth)
+            : resizing(text: m, toRightEdge: p.x, imageWidth: imageWidth)
     }
 
     /// Black text on light colors, white on dark ones.
@@ -56,10 +90,11 @@ public enum Renderer {
             let r = size * 0.95
             return CGRect(x: m.start.x - r, y: m.start.y - r, width: r * 2, height: r * 2)
         }
-        let l = line(m.text.isEmpty ? " " : m.text, size: size, color: m.color)
-        let w = CTLineGetTypographicBounds(l, nil, nil, nil)
-        let pad = size * 0.45
-        return CGRect(x: m.start.x, y: m.start.y, width: CGFloat(w) + pad * 2, height: size * textBoxHeight)
+        let lines = lines(m, size: size)
+        let widest = lines.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil)) - CGFloat(CTLineGetTrailingWhitespaceWidth($0)) }.max() ?? 0
+        let w = (m.textWidth.map { max($0, size) } ?? widest) + size * padX * 2
+        let h = size * (lineHeight * CGFloat(max(lines.count, 1)) + padY)
+        return CGRect(x: m.start.x, y: m.start.y - h, width: w, height: h)
     }
 
     /// The image, plus the area a canvas grows into: each side continues the screenshot's outermost
@@ -132,11 +167,12 @@ public enum Renderer {
             ctx.addPath(CGPath(roundedRect: r, cornerWidth: size * 0.35, cornerHeight: size * 0.35, transform: nil))
             ctx.fillPath()
             ctx.setShadow(offset: .zero, blur: 0)
-            let l = line(m.text, size: size, color: ink(on: m.color))
-            var descent: CGFloat = 0
-            _ = CTLineGetTypographicBounds(l, nil, &descent, nil)
-            ctx.textPosition = CGPoint(x: r.minX + size * 0.45, y: r.minY + size * 0.27 + descent)
-            CTLineDraw(l, ctx)
+            for (i, l) in lines(m, size: size).enumerated() {
+                var descent: CGFloat = 0
+                _ = CTLineGetTypographicBounds(l, nil, &descent, nil)
+                ctx.textPosition = CGPoint(x: r.minX + size * padX, y: r.maxY - size * lineHeight * CGFloat(i + 1) + descent)
+                CTLineDraw(l, ctx)
+            }
         case .step:
             let r = textOrStepRect(m, imageWidth: imageWidth)
             let size = fontSize(imageWidth: imageWidth, size: m.size)
