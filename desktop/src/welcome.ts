@@ -16,19 +16,24 @@ export async function startWelcome(root: HTMLElement) {
     <div class="page"><div class="welcome">
       <img src="/icon.png" alt="">
       <h1>Welcome to Snapmark</h1>
-      <p class="note">Capture, mark up, and paste in a few seconds.</p>
+      <p>Capture, mark up, and paste in a few seconds.</p>
       <div class="card">
-        <div class="item">${icon("capture")}<div><b>Capture from anywhere</b><span>${capture}</span></div></div>
-        <div class="item">${icon("pen")}<div><b>Mark it up, press Enter</b><span>The image is copied and saved. Esc steps back, then copies and closes.</span></div></div>
-        <div class="item">${icon("gear")}<div><b>Lives in your system tray</b><span>Settings, Open Image and the capture modes are one click away.</span></div></div>
+        <div class="row">${icon("capture")}<div class="label"><b>Capture from anywhere</b><span>${capture}</span></div></div>
+        <div class="row">${icon("pen")}<div class="label"><b>Mark it up, press Enter</b><span>The image is copied and saved. Esc steps back, then copies and closes.</span></div></div>
+        <div class="row">${icon("gear")}<div class="label"><b>Lives in your system tray</b><span>Every capture mode, Open Image and Settings are one click away.</span></div></div>
       </div>
-      <div class="row" style="justify-content:space-between">
-        <label class="row"><input type="checkbox" id="login" ${login ? "checked" : ""}> Open Snapmark when I log in</label>
-        <div class="row"><button class="btn" id="done">Done</button><button class="primary" id="try">Try a Capture</button></div>
+      <div class="actions">
+        <label class="grow"><button class="switch" role="switch" id="login" aria-checked="${login}" aria-label="Open Snapmark when I log in"></button>Open at login</label>
+        <button class="btn" id="done">Done</button><button class="primary" id="try">Try a capture</button>
       </div>
       ${credits()}
     </div></div>`;
-  root.querySelector("#login")!.addEventListener("change", (e) => void api.autostart((e.target as HTMLInputElement).checked));
+  const login$ = root.querySelector<HTMLButtonElement>("#login")!;
+  login$.addEventListener("click", () => {
+    const on = login$.getAttribute("aria-checked") !== "true";
+    login$.setAttribute("aria-checked", String(on));
+    void api.autostart(on);
+  });
   root.querySelector("#done")!.addEventListener("click", () => void api.closeWindow());
   root.querySelector("#try")!.addEventListener("click", async () => { await api.closeWindow(); await api.capture("area"); });
   wireLinks(root);

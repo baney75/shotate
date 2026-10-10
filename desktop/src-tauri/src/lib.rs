@@ -382,6 +382,18 @@ async fn save_dialog(app: AppHandle, name: String) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+/// The native folder picker, for the save folder in Settings. Returns "~/…" for folders under home.
+#[tauri::command]
+async fn pick_folder(app: AppHandle) -> Option<String> {
+    let start = app.state::<State>().config.lock().unwrap().save_dir();
+    let picked = app.dialog().file().set_directory(start).blocking_pick_folder()?.into_path().ok()?;
+    let home = dirs::home_dir().unwrap_or_default();
+    Some(match picked.strip_prefix(&home) {
+        Ok(rest) => format!("~/{}", rest.to_string_lossy().replace('\\', "/")),
+        Err(_) => picked.to_string_lossy().into_owned(),
+    })
+}
+
 // MARK: - Config
 
 #[tauri::command]
@@ -637,6 +649,8 @@ fn encode(s: &str) -> String {
 }
 
 fn show_view(app: &AppHandle, label: &str, title: &str, size: (f64, f64)) {
+    // Windows Settings puts navigation on the left, which needs a wider window.
+    let size = if cfg!(windows) && label == "settings" { (900.0, 640.0) } else { size };
     if let Some(w) = app.get_webview_window(label) {
         let _ = w.show();
         let _ = w.set_focus();
@@ -867,6 +881,7 @@ pub fn run() {
             copy_text,
             trash,
             save_dialog,
+            pick_folder,
             get_config,
             set_config,
             open_config,
