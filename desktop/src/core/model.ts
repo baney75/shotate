@@ -78,12 +78,14 @@ export interface Mark {
   end: Point;
   text: string;
   number: number;
+  /** A label's font size in image pixels when it was sized by hand; unset follows `size`. */
+  fontSize?: number;
 }
 
 export function mark(tool: Tool, color: RGBA, start: Point, end: Point = start,
-                     opts: Partial<Pick<Mark, "size" | "text" | "number" | "id">> = {}): Mark {
+                     opts: Partial<Pick<Mark, "size" | "text" | "number" | "id" | "fontSize">> = {}): Mark {
   return { id: opts.id ?? newId(), tool, color, size: opts.size ?? 2, start, end, text: opts.text ?? "",
-           number: opts.number ?? 0 };
+           number: opts.number ?? 0, ...(opts.fontSize ? { fontSize: opts.fontSize } : {}) };
 }
 
 export const markRect = (m: Mark) => rectFrom(m.start, m.end);
@@ -144,14 +146,34 @@ export const Geometry = {
 export type Measure = (text: string, size: number) => number;
 
 /** The label box for a text mark, or the disc for a step. */
+/** The font size a text or step mark draws with: its own when sized by hand, else its preset. */
+export const markFontSize = (m: Mark, imageWidth: number) => m.fontSize ?? fontSize(m.size, imageWidth);
+
+/** The label line height plus padding, as a multiple of the font size. */
+export const TEXT_BOX_HEIGHT = 1.25 + 0.45 * 0.6;
+
+/** The label scaled so the bottom-right corner of its box follows `p`; the top-left corner stays put. */
+export function resizeText(m: Mark, p: Point, imageWidth: number, measure: Measure): Mark {
+  const r = textOrStepRect(m, imageWidth, measure);
+  const scale = Math.max((p.x - r.x) / Math.max(r.w, 1), (p.y - r.y) / Math.max(r.h, 1));
+  const size = Math.min(Math.max(markFontSize(m, imageWidth) * scale, 8), 600);
+  return anchorText({ ...m, fontSize: size }, r.y, imageWidth);
+}
+
+/** The label moved so the top of its box is at `top`, its left edge unchanged. */
+export function anchorText(m: Mark, top: number, imageWidth: number): Mark {
+  const start = { x: m.start.x, y: top + markFontSize(m, imageWidth) * TEXT_BOX_HEIGHT };
+  return { ...m, start, end: start };
+}
+
 export function textOrStepRect(m: Mark, imageWidth: number, measure: Measure): Rect {
-  const size = fontSize(m.size, imageWidth);
+  const size = markFontSize(m, imageWidth);
   if (m.tool === "step") {
     const r = size * 0.95;
     return { x: m.start.x - r, y: m.start.y - r, w: r * 2, h: r * 2 };
   }
   const pad = size * 0.45;
-  const h = size * 1.25 + pad * 0.6;
+  const h = size * TEXT_BOX_HEIGHT;
   // The anchor is the label's bottom-left corner, as in the macOS app.
   return { x: m.start.x, y: m.start.y - h, w: measure(m.text || " ", size) + pad * 2, h };
 }

@@ -85,11 +85,13 @@ public struct Mark: Identifiable, Equatable, Sendable {
     public var end: CGPoint
     public var text: String
     public var number: Int
+    /// A label's font size in image pixels when it was sized by hand; nil follows `size`.
+    public var fontSize: CGFloat?
 
     public init(tool: Tool, color: RGBA, size: StrokeSize = .medium, start: CGPoint, end: CGPoint,
-                text: String = "", number: Int = 0, id: UUID = UUID()) {
+                text: String = "", number: Int = 0, fontSize: CGFloat? = nil, id: UUID = UUID()) {
         self.id = id; self.tool = tool; self.color = color; self.size = size
-        self.start = start; self.end = end; self.text = text; self.number = number
+        self.start = start; self.end = end; self.text = text; self.number = number; self.fontSize = fontSize
     }
 
     public var rect: CGRect {
@@ -98,7 +100,7 @@ public struct Mark: Identifiable, Equatable, Sendable {
     }
 
     /// Grab points for resizing: the two ends of an arrow, the four corners of a shape.
-    /// Text and steps resize with the size control instead.
+    /// Text resizes from the corner of its box (see `Renderer.resizing`); steps use the size control.
     public var handles: [CGPoint] {
         switch tool {
         case .arrow: [start, end]
@@ -126,7 +128,8 @@ public struct Mark: Identifiable, Equatable, Sendable {
     /// A copy with a new identity, nudged so it doesn't hide the original.
     public func duplicate(offset d: CGFloat) -> Mark {
         var m = offset(by: CGVector(dx: d, dy: -d))
-        m = Mark(tool: m.tool, color: m.color, size: m.size, start: m.start, end: m.end, text: m.text, number: m.number)
+        m = Mark(tool: m.tool, color: m.color, size: m.size, start: m.start, end: m.end, text: m.text, number: m.number,
+                 fontSize: m.fontSize)
         return m
     }
 

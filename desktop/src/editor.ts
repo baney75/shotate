@@ -4,10 +4,10 @@
 import { api } from "./api";
 import { icon } from "./icons";
 import {
-  Doc, Geometry, PALETTE, TOOLS, css, duplicate, fontSize, handles, inset, mark, moveHandle,
-  offset, strokeWidth, textOrStepRect, type Mark, type Point, type Rect, type StrokeSize, type Tool,
+  Doc, Geometry, PALETTE, TEXT_BOX_HEIGHT, TOOLS, anchorText, css, duplicate, handles, inset, mark, markFontSize,
+  moveHandle, offset, resizeText, strokeWidth, textOrStepRect, type Mark, type Point, type Rect, type StrokeSize, type Tool,
 } from "./core/model";
-import { FONT, drawBackground, drawMark, edgeColor, flatten } from "./core/render";
+import { FONT, drawBackground, drawMark, edgeColor, flatten, ink } from "./core/render";
 import { resolveToolKeys } from "./core/settings";
 
 export async function startEditor(root: HTMLElement, file: string, owns: boolean) {
@@ -38,6 +38,11 @@ class Editor {
   input: HTMLInputElement | null = null;
   editingId: string | null = null;
   textAt: Point = { x: 0, y: 0 };
+  textFontSize: number | undefined;
+  /** A box being dragged with the Text tool to place and size a new label. */
+  textBox: Rect | null = null;
+  /** A label pressed with the Text tool: released in place it opens for editing, dragged it moves. */
+  pressedLabel: Mark | null = null;
   savedRevision = 0;
   savedCopy: string | null = null;
   finished = false;
@@ -170,6 +175,15 @@ class Editor {
       ctx.strokeRect(crop.x, crop.y, crop.w, crop.h);
       ctx.restore();
     }
+    if (this.textBox) {
+      const b = this.textBox;
+      ctx.save();
+      ctx.strokeStyle = css(this.color);
+      ctx.lineWidth = 1.5 * this.ppp;
+      ctx.setLineDash([5 * this.ppp, 3 * this.ppp]);
+      ctx.strokeRect(b.x, b.y, b.w, b.h);
+      ctx.restore();
+    }
 
     const outline = (m: Mark) => {
       const r = m.tool === "text" || m.tool === "step" ? textOrStepRect(m, this.doc.width, this.doc.measure)
@@ -188,7 +202,7 @@ class Editor {
       ctx.strokeStyle = "#3b82f6";
       if (sel.tool !== "arrow") { const r = outline(sel); ctx.strokeRect(r.x, r.y, r.w, r.h); }
       const side = 8 * this.ppp;
-      for (const h of handles(sel)) {
+      for (const h of this.handlesOf(sel)) {
         ctx.beginPath();
         ctx.arc(h.x, h.y, side / 2, 0, Math.PI * 2);
         ctx.fillStyle = "#fff";
@@ -200,10 +214,21 @@ class Editor {
 
   // MARK: Pointer
 
+  /** A mark's grab points. A label has one, at the bottom-right corner of its box, to scale it. */
+  handlesOf(m: Mark): Point[] {
+    if (m.tool !== "text") return handles(m);
+    const r = textOrStepRect(m, this.doc.width, this.doc.measure);
+    return [{ x: r.x + r.w, y: r.y + r.h }];
+  }
+
+  moveHandleOf(m: Mark, i: number, p: Point): Mark {
+    return m.tool === "text" ? resizeText(m, p, this.doc.width, this.doc.measure) : moveHandle(m, i, p);
+  }
+
   handleAt(p: Point): number | null {
     const m = this.live ?? this.selected;
     if (!m) return null;
-    const i = handles(m).findIndex((h) => Math.hypot(h.x - p.x, h.y - p.y) <= 7 * this.ppp);
+    const i = this.handlesOf(m).findIndex((h) => Math.hypot(h.x - p.x, h.y - p.y) <= 7 * this.ppp);
     return i >= 0 ? i : null;
   }
 
@@ -234,7 +259,9 @@ class Editor {
         }
         case "text": {
           const hit = this.doc.hitTest(p, tol);
-          this.beginText(hit?.tool === "text" ? hit.start : p, hit?.tool === "text" ? hit : null);
+          this.dragOrigin = p;
+          if (hit?.tool === "text") { this.select(hit.id); this.pressedLabel = hit; }
+          else { this.select(null); this.textBox = { x: p.x, y: p.y, w: 0, h: 0 }; }
           break;
         }
         case "step": {
@@ -259,21 +286,29 @@ class Editor {
       let p = this.toImage(e);
       if (!c.hasPointerCapture(e.pointerId)) {
         const onHandle = this.handleAt(p) !== null;
-        const hit = this.tool === "select" && !onHandle ? this.doc.hitTest(p, 6 * this.ppp) : undefined;
+        let hit = (this.tool === "select" || this.tool === "text") && !onHandle ? this.doc.hitTest(p, 6 * this.ppp) : undefined;
+        if (this.tool === "text" && hit?.tool !== "text") hit = undefined;
         if ((hit?.id ?? null) !== this.hoverId) { this.hoverId = hit?.id ?? null; this.draw(); }
-        c.style.cursor = onHandle ? "crosshair" : this.tool === "select" ? (hit ? "grab" : "default")
-          : this.tool === "text" ? "text" : "crosshair";
+        c.style.cursor = onHandle ? "nwse-resize" : this.tool === "select" ? (hit ? "grab" : "default")
+          : this.tool === "text" ? (hit ? "grab" : "text") : "crosshair";
         return;
       }
       if (this.dragHandle !== null && this.live) {
         const base = this.selected ?? this.live;
-        if (e.shiftKey) {
+        if (e.shiftKey && base.tool !== "text") {
           const fixed = base.tool === "arrow" ? (this.dragHandle === 0 ? base.end : base.start)
             : moveHandle(base, this.dragHandle, p).start;
           p = base.tool === "arrow" ? Geometry.snap45(fixed, p) : Geometry.square(fixed, p);
         }
-        this.live = moveHandle(base, this.dragHandle, p);
-      } else if (this.tool === "select" && this.dragOrigin && this.selected) {
+        this.live = this.moveHandleOf(base, this.dragHandle, p);
+      } else if (this.textBox && this.dragOrigin) {
+        const o = this.dragOrigin;
+        this.textBox = { x: Math.min(o.x, p.x), y: Math.min(o.y, p.y), w: Math.abs(p.x - o.x), h: Math.abs(p.y - o.y) };
+      } else if (this.pressedLabel && !this.live && this.dragOrigin
+                 && Math.hypot(p.x - this.dragOrigin.x, p.y - this.dragOrigin.y) < 3 * this.ppp) {
+        // A pressed label only starts to move past a few points, so a slightly shaky click still edits it.
+        return;
+      } else if ((this.tool === "select" || this.tool === "text") && this.dragOrigin && this.selected) {
         c.style.cursor = "grabbing";
         this.live = offset(this.selected, p.x - this.dragOrigin.x, p.y - this.dragOrigin.y);
       } else if (this.tool === "crop" && this.dragOrigin) {
@@ -287,10 +322,22 @@ class Editor {
     });
 
     c.addEventListener("pointerup", () => {
+      const pressed = this.pressedLabel, box = this.textBox;
+      this.pressedLabel = null;
+      this.textBox = null;
       if (this.live) {
         this.doc.update(this.live);
         this.live = null;
         this.changed();
+      } else if (pressed && this.doc.marks.some((m) => m.id === pressed.id)) {
+        const current = this.doc.marks.find((m) => m.id === pressed.id)!;
+        this.beginText(current.start, current);
+      } else if (box) {
+        // A dragged box sets the text height; a click uses the preset size, centered on the click.
+        const sized = box.h > 6 * this.ppp ? Math.min(Math.max(box.h / TEXT_BOX_HEIGHT, 8), 600) : undefined;
+        const h = (sized ?? markFontSize(mark("text", this.color, box, box, { size: this.size }), this.doc.width)) * TEXT_BOX_HEIGHT;
+        const top = sized === undefined ? box.y - h / 2 : box.y;
+        this.beginText({ x: box.x, y: top + h }, null, sized);
       } else if (this.tool === "crop" && this.cropDraft) {
         const d = this.cropDraft;
         if (d.w >= 4 * this.ppp && d.h >= 4 * this.ppp) this.doc.setCrop(d);
@@ -362,19 +409,27 @@ class Editor {
 
   // MARK: Text
 
-  beginText(at: Point, editing: Mark | null) {
+  beginText(at: Point, editing: Mark | null, sized?: number) {
     const v = this.toView(at);
-    const size = fontSize(editing?.size ?? this.size, this.doc.width) * this.scale;
+    const probe = editing ?? mark("text", this.color, at, at, { size: this.size, fontSize: sized });
+    const size = markFontSize(probe, this.doc.width) * this.scale;
     const input = document.createElement("input");
     input.className = "label-input";
     // The label sits above its anchor, like the drawn one (and the macOS app).
-    v.y -= size * 1.25 + size * 0.45 * 0.6;
+    v.y -= size * TEXT_BOX_HEIGHT;
     input.value = editing?.text ?? "";
     input.placeholder = "Type, then Enter";
+    const color = editing?.color ?? this.color;
     Object.assign(input.style, {
-      left: `${v.x}px`, top: `${v.y}px`, height: `${size * 1.5}px`, font: FONT(size),
-      background: css(editing?.color ?? this.color, 0.92), width: `${Math.max(200, this.stage.clientWidth - v.x - 12)}px`,
+      left: `${v.x}px`, top: `${v.y}px`, height: `${size * TEXT_BOX_HEIGHT}px`, font: FONT(size),
+      background: css(color, 0.92), color: css(ink(color)),
     });
+    // The field is the label's pill: it hugs the text (or the hint) and grows as you type.
+    const measure = document.createElement("canvas").getContext("2d")!;
+    measure.font = FONT(size);
+    const fit = () => { input.style.width = `${measure.measureText(input.value || input.placeholder).width + size * 0.9 + 2}px`; };
+    fit();
+    input.addEventListener("input", fit);
     input.addEventListener("keydown", (e) => {
       e.stopPropagation();
       if (e.key === "Enter") { e.preventDefault(); this.commitText(); }
@@ -385,6 +440,7 @@ class Editor {
     requestAnimationFrame(() => input.focus());
     this.input = input;
     this.textAt = at;
+    this.textFontSize = editing?.fontSize ?? sized;
     this.editingId = editing?.id ?? null;
     this.draw();
   }
@@ -399,8 +455,9 @@ class Editor {
     if (editing) {
       if (!text) this.doc.remove(editing.id);
       else { this.doc.update({ ...editing, text }); this.select(editing.id); }
-    } else if (text) {
-      const m = this.doc.add(mark("text", this.color, this.textAt, this.textAt, { size: this.size, text }));
+    } else if (text && !this.editingId) {
+      // An open label that was undone meanwhile has nothing to update.
+      const m = this.doc.add(mark("text", this.color, this.textAt, this.textAt, { size: this.size, text, fontSize: this.textFontSize }));
       this.select(m.id);
     }
     this.editingId = null;
@@ -423,6 +480,7 @@ class Editor {
 
   setTool(t: Tool) {
     this.commitText();
+    this.resetTextPress();
     this.tool = t;
     this.select(null);
     this.draw();
@@ -438,7 +496,12 @@ class Editor {
   setSize(s: StrokeSize) {
     this.size = s;
     const m = this.selected;
-    if (m) { this.doc.update({ ...m, size: s }); this.changed(); }
+    if (m?.tool === "text") {
+      // A preset replaces a hand-set size; the label keeps its top-left corner.
+      const top = textOrStepRect(m, this.doc.width, this.doc.measure).y;
+      this.doc.update(anchorText({ ...m, size: s, fontSize: undefined }, top, this.doc.width));
+      this.changed();
+    } else if (m) { this.doc.update({ ...m, size: s }); this.changed(); }
     this.refresh();
   }
 
@@ -449,8 +512,8 @@ class Editor {
       case "duplicate": if (m) { const d = duplicate(m, 12 * this.ppp); this.doc.add(d); this.select(d.id); this.changed(); } break;
       case "front": if (m) { this.doc.reorder(m.id, true); this.changed(); } break;
       case "back": if (m) { this.doc.reorder(m.id, false); this.changed(); } break;
-      case "undo": this.commitText(); this.doc.undo(); this.select(null); this.changed(); break;
-      case "redo": this.commitText(); this.doc.redo(); this.select(null); this.changed(); break;
+      case "undo": this.commitText(); this.resetTextPress(); this.doc.undo(); this.select(null); this.changed(); break;
+      case "redo": this.commitText(); this.resetTextPress(); this.doc.redo(); this.select(null); this.changed(); break;
       case "copy": await this.finish(true, false); break;
       case "path": await this.finish(false, true); break;
       case "save": await this.saveCopy(); break;
@@ -504,6 +567,14 @@ class Editor {
     if (tool) return done(), this.setTool(tool);
     const n = Number(e.key);
     if (n >= 1 && n <= PALETTE.length) return done(), this.setColor(n - 1);
+  }
+
+  /** Forgets a Text-tool press in progress, so releasing it later does nothing. */
+  resetTextPress() {
+    this.pressedLabel = null;
+    this.textBox = null;
+    this.live = null;
+    this.dragOrigin = null;
   }
 
   // MARK: Output

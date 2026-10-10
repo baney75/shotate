@@ -362,4 +362,24 @@ final class SnapmarkCoreTests: XCTestCase {
         ctx.fill(CGRect(x: 10, y: 10, width: 30, height: 30))  // opaque middle, clear border
         XCTAssertEqual(Document(image: ctx.makeImage()!).borderColor.a, 0)
     }
+
+    func testDraggingALabelCornerScalesItAboutItsTopLeft() {
+        let label = Mark(tool: .text, color: RGBA.palette[0], start: CGPoint(x: 100, y: 200), end: CGPoint(x: 100, y: 200), text: "Hello")
+        let r = Renderer.textOrStepRect(label, imageWidth: 1000)
+        // Drag the bottom-right corner out to twice the width.
+        let big = Renderer.resizing(text: label, toCorner: CGPoint(x: r.minX + r.width * 2, y: r.minY), imageWidth: 1000)
+        let br = Renderer.textOrStepRect(big, imageWidth: 1000)
+        XCTAssertEqual(big.fontSize!, Renderer.fontSize(of: label, imageWidth: 1000) * 2, accuracy: 0.01)
+        XCTAssertEqual(br.minX, r.minX, accuracy: 0.01)
+        XCTAssertEqual(br.maxY, r.maxY, accuracy: 0.01)
+        XCTAssertEqual(br.width, r.width * 2, accuracy: r.width * 0.03)  // SF Pro changes shape with size
+        // Dragging past the top-left corner can't flip or erase it.
+        let tiny = Renderer.resizing(text: label, toCorner: CGPoint(x: 0, y: 1000), imageWidth: 1000)
+        XCTAssertEqual(tiny.fontSize, 8)
+        // A hand size survives duplication and moves the hit area with it.
+        XCTAssertEqual(big.duplicate(offset: 5).fontSize, big.fontSize)
+        let doc = Document(image: solidImage(1000, 600))
+        doc.add(big)
+        XCTAssertEqual(doc.hitTest(CGPoint(x: br.maxX - 2, y: br.midY), tolerance: 0)?.id, big.id)
+    }
 }

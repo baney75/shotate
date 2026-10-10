@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- **Text is easier to place and size.** Click with the Text tool to start a label centered on the
+  click, or drag a box to set its size as you place it. The typing field now looks like the finished
+  label and grows as you type, instead of a bar across the whole window. Drag a label (with Text or
+  Select) to move it, click it to edit, and drag its corner handle to scale it to any size. The size
+  buttons still set the presets.
+
 ## 0.11.0 (2026-10-10)
 
 ### Added
