@@ -4,9 +4,29 @@ on:
     tags: ['v*']
 permissions:
   contents: write
+
 jobs:
-  release:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A draft until every installer is attached, so `releases/latest` never points at an empty one.
+      - name: Create the release from the changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          notes=$(awk -v v="## $v" '$0 ~ "^"v {on=1; next} /^## / && on {exit} on' CHANGELOG.md)
+          notes="$notes"$'\n\n'"## Install"$'\n\n'"- **macOS:** \`curl -fsSL https://raw.githubusercontent.com/baney75/snapmark/main/install.sh | bash\` (builds on your Mac so it is trusted and keeps its permission). The zip below is ad-hoc signed; right-click › Open on first launch."$'\n'"- **Windows:** \`irm https://raw.githubusercontent.com/baney75/snapmark/main/install.ps1 | iex\`, or run the Setup .exe below."$'\n'"- **Linux:** \`curl -fsSL https://raw.githubusercontent.com/baney75/snapmark/main/install.sh | bash\`, or pick the .deb, .rpm or .AppImage below."
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --title "Snapmark $v" --notes "$notes"
+
+  macos:
+    needs: create
     runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
     steps:
       - uses: actions/checkout@v4
       - run: swift test
@@ -14,13 +34,57 @@ jobs:
         run: scripts/bundle.sh
         env:
           SNAPMARK_ADHOC: 1
-      - name: Package
-        run: ditto -c -k --keepParent build/Snapmark.app "Snapmark-${GITHUB_REF_NAME#v}.zip"
-      - name: Publish release
+      - name: Upload
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes=$(awk -v v="## ${GITHUB_REF_NAME#v}" '$0 ~ "^"v {on=1; next} /^## / && on {exit} on' CHANGELOG.md)
-          notes="$notes"$'\n\n'"**Recommended:** install with the one-line installer in the README, which builds on your Mac so macOS trusts it and remembers its permission. The zip is ad-hoc signed; on first open, right-click Snapmark and choose Open."
-          gh release create "$GITHUB_REF_NAME" "Snapmark-${GITHUB_REF_NAME#v}.zip" --title "Snapmark ${GITHUB_REF_NAME#v}" --notes "$notes" \
-            || gh release upload "$GITHUB_REF_NAME" "Snapmark-${GITHUB_REF_NAME#v}.zip" --clobber
+          zip="Snapmark-${GITHUB_REF_NAME#v}-macOS.zip"
+          ditto -c -k --keepParent build/Snapmark.app "$zip"
+          gh release upload "$GITHUB_REF_NAME" "$zip" --clobber
+
+  desktop:
+    needs: create
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
+            libclang-dev libxcb1-dev libxrandr-dev libdbus-1-dev libwayland-dev libegl-dev libgbm-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm test
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Build installers
+        run: npx tauri build
+      - name: Upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(src-tauri/target/release/bundle/{nsis/*.exe,msi/*.msi,appimage/*.AppImage,deb/*.deb,rpm/*.rpm})
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+
+  publish:
+    needs: [macos, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

@@ -4,7 +4,7 @@
 #   scripts/bundle.sh --install  also copy to ~/Applications and register it
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VERSION=$(cat VERSION)
+VERSION=$(cat ../VERSION)  # one version for every platform
 APP=build/Snapmark.app
 rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
