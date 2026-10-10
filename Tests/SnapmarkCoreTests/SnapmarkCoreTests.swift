@@ -338,4 +338,28 @@ final class SnapmarkCoreTests: XCTestCase {
         XCTAssertEqual(c.b, 0.9, accuracy: 0.02)
         XCTAssertEqual(c.r, 0.1, accuracy: 0.02)
     }
+
+    /// A crop drawn into grown space must not break export once that space goes away.
+    func testCropSurvivesTheCanvasShrinking() throws {
+        let doc = Document(image: solidImage(100, 100))
+        let box = Mark(tool: .box, color: RGBA.palette[0], start: CGPoint(x: 150, y: 10), end: CGPoint(x: 190, y: 50))
+        doc.add(box)
+        doc.setCrop(CGRect(x: 120, y: 10, width: 60, height: 40))
+        XCTAssertNotNil(doc.effectiveCrop)
+        doc.remove(id: box.id)
+        XCTAssertNil(doc.effectiveCrop, "the crop lay entirely in space that no longer exists")
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        XCTAssertEqual(flat.width, 100)
+        doc.setCrop(CGRect(x: 50, y: 0, width: 150, height: 100))
+        XCTAssertEqual(try XCTUnwrap(Renderer.flatten(doc)).width, 50, "a crop partly outside is trimmed, not dropped")
+    }
+
+    func testTransparentEdgesGrowTransparent() {
+        let ctx = CGContext(data: nil, width: 50, height: 50, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 10, y: 10, width: 30, height: 30))  // opaque middle, clear border
+        XCTAssertEqual(Document(image: ctx.makeImage()!).borderColor.a, 0)
+    }
 }

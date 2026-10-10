@@ -177,7 +177,7 @@ public enum Renderer {
         // Stacking order: a redaction hides everything drawn before it.
         for m in doc.marks { draw(m, in: ctx, imageWidth: img.width, selected: m.id == selected) }
         guard let full = ctx.makeImage() else { return nil }
-        guard let crop = doc.crop else { return full }
+        guard let crop = doc.effectiveCrop else { return full }
         // CGImage cropping uses a top-left origin, relative to the canvas.
         let flipped = CGRect(x: crop.minX - canvas.minX, y: canvas.maxY - crop.maxY, width: crop.width, height: crop.height)
         return full.cropping(to: flipped)

@@ -126,7 +126,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             Renderer.draw(m, in: ctx, imageWidth: doc.image.width)
         }
         // Dim everything outside the crop.
-        if let crop = cropDraft ?? doc.crop {
+        if let crop = cropDraft ?? doc.effectiveCrop {
             ctx.setFillColor(CGColor(gray: 0, alpha: 0.55))
             let path = CGMutablePath()
             path.addRect(canvas)
@@ -183,10 +183,12 @@ final class CanvasView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
+        // Commit a label first: it may grow the canvas, and the new layout must be in place before
+        // this click is mapped to the image or a new text field is positioned.
+        if textField != nil { commitText() }
         frozenLayout = layoutRect
         let p = imagePoint(e)
         let tolerance = 8 * pixelsPerPoint
-        if textField != nil { commitText() }
         // A selected mark's handles win over every tool, so a fresh arrow can be adjusted right away.
         if let i = handleIndex(at: p), let m = selectedMark {
             dragHandle = i

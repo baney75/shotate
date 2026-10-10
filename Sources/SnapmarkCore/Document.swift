@@ -144,7 +144,15 @@ public final class Document {
     /// 144 for Retina captures. Kept on export so the image shows at its real size in other apps.
     public let dpi: CGFloat
     public private(set) var marks: [Mark] = []
+    /// The crop as the user drew it. Use `effectiveCrop`, which follows the canvas as marks change.
     public private(set) var crop: CGRect?
+
+    /// The crop trimmed to the current canvas, or nil when none is left. Deleting or moving a mark
+    /// can shrink the canvas under an existing crop; this keeps export and the editor in agreement.
+    public var effectiveCrop: CGRect? {
+        guard let c = crop?.intersection(canvas), c.width >= 4, c.height >= 4 else { return nil }
+        return c
+    }
     /// Bumps on every change, undo and redo, so callers can tell whether a saved copy is stale.
     public private(set) var revision = 0
     private var undoStack: [([Mark], CGRect?)] = []
@@ -193,13 +201,21 @@ public final class Document {
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { continue }
             ctx.draw(strip, in: CGRect(x: 0, y: 0, width: sw, height: sh))
             for i in stride(from: 0, to: px.count, by: 4) {
-                let (r, g, b) = (Int(px[i]), Int(px[i + 1]), Int(px[i + 2]))
+                let a = Int(px[i + 3])
+                // Transparent pixels get a bucket of their own; the rest are un-premultiplied.
+                guard a > 0 else {
+                    let e = buckets[-1] ?? (0, 0, 0, 0)
+                    buckets[-1] = (e.n + 1, 0, 0, 0)
+                    continue
+                }
+                let (r, g, b) = (Int(px[i]) * 255 / a, Int(px[i + 1]) * 255 / a, Int(px[i + 2]) * 255 / a)
                 let key = (r >> 3) << 10 | (g >> 3) << 5 | (b >> 3)
                 let e = buckets[key] ?? (0, 0, 0, 0)
                 buckets[key] = (e.n + 1, e.r + r, e.g + g, e.b + b)
             }
         }
-        guard let top = buckets.values.max(by: { $0.n < $1.n }) else { return RGBA(1, 1, 1) }
+        guard let (key, top) = buckets.max(by: { $0.value.n < $1.value.n }) else { return RGBA(1, 1, 1) }
+        if key == -1 { return RGBA(0, 0, 0, 0) }  // mostly transparent edge: grow with transparency
         let n = CGFloat(top.n) * 255
         return RGBA(CGFloat(top.r) / n, CGFloat(top.g) / n, CGFloat(top.b) / n)
     }

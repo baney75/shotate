@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func loadConfig() -> Settings? {
         let url = Settings.configURL
         guard FileManager.default.fileExists(atPath: url.path) else {
+            configBroken = false
             return Settings.migrated(from: .standard)
         }
         do {
@@ -135,8 +136,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func reloadConfig() {
-        guard FileManager.default.fileExists(atPath: Settings.configURL.path),
-              var fresh = loadConfig() else { return }
+        guard FileManager.default.fileExists(atPath: Settings.configURL.path) else {
+            // Deleted (for example to get past a broken file): write the current settings back out.
+            configBroken = false
+            applySettings()
+            return
+        }
+        guard var fresh = loadConfig() else { return }
         fresh.normalize()
         guard fresh != settings else { return }
         settings = fresh
