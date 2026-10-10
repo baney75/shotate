@@ -1,5 +1,5 @@
 import AppKit
-import SnapCore
+import SnapmarkCore
 
 /// Shows the screenshot scaled to fit and turns mouse input into marks. All geometry is kept in
 /// image pixels (origin bottom-left); the view converts at the edges.
@@ -23,6 +23,11 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         doc = document
         super.init(frame: .zero)
         wantsLayer = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+        setAccessibilityLabel("Screenshot")
+        setAccessibilityHelp("Draw with the selected tool. Tools: V select, A arrow, R box, O ellipse, H highlight, "
+                             + "T text, B redact, N step, C crop.")
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -66,8 +71,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             marks[i] = marks[i].offset(by: dragOffset)
         }
         if let d = draft { marks.append(d) }
-        for m in marks where m.tool == .redact { Renderer.draw(m, in: ctx, imageWidth: doc.image.width) }
-        for m in marks where m.tool != .redact && m.id != editingID {
+        for m in marks where m.id != editingID {
             Renderer.draw(m, in: ctx, imageWidth: doc.image.width, selected: m.id == selectedID)
         }
         // Dim everything outside the crop.
@@ -157,7 +161,10 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             return
         }
         if tool == .crop {
-            doc.setCrop(cropDraft)
+            // A click without a drag leaves the current crop alone.
+            if let draft = cropDraft, draft.width >= 4 * pixelsPerPoint, draft.height >= 4 * pixelsPerPoint {
+                doc.setCrop(draft)
+            }
             cropDraft = nil
             changed()
             return
@@ -246,10 +253,12 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     }
 
     func undo() { commitText(); doc.undo(); selectedID = nil; changed() }
-    func redo() { doc.redo(); selectedID = nil; changed() }
+    func redo() { commitText(); doc.redo(); selectedID = nil; changed() }
 
     private func changed() {
         needsDisplay = true
+        let n = doc.marks.count
+        setAccessibilityLabel(n == 0 ? "Screenshot" : "Screenshot with \(n) annotation\(n == 1 ? "" : "s")")
         onChange?()
     }
 }

@@ -1,6 +1,6 @@
 import AppKit
 import CoreGraphics
-import SnapCore
+import SnapmarkCore
 
 enum CaptureMode: String {
     case area, window, screen
@@ -21,11 +21,17 @@ enum Capture {
     /// so check first and explain instead of failing quietly.
     static func ensurePermission() -> Bool {
         if CGPreflightScreenCaptureAccess() { return true }
-        CGRequestScreenCaptureAccess()
+        // The first time, macOS shows its own prompt; only explain when that was already declined.
+        let asked = UserDefaults.standard.bool(forKey: "askedScreenRecording")
+        UserDefaults.standard.set(true, forKey: "askedScreenRecording")
+        if !asked {
+            _ = CGRequestScreenCaptureAccess()
+            return false
+        }
         let alert = NSAlert()
-        alert.messageText = "Snap needs Screen Recording permission"
-        alert.informativeText = "Turn on Snap in System Settings › Privacy & Security › Screen & System Audio "
-            + "Recording, then quit and reopen Snap."
+        alert.messageText = "Snapmark needs Screen Recording permission"
+        alert.informativeText = "Turn on Snapmark in System Settings › Privacy & Security › Screen & System Audio "
+            + "Recording, then quit and reopen Snapmark. macOS asks again after Snapmark is rebuilt or updated."
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)
@@ -37,7 +43,7 @@ enum Capture {
     }
 
     /// Runs screencapture off the main thread; calls back on main with the image, or nil if cancelled.
-    static func run(_ mode: CaptureMode, completion: @escaping (CGImage?) -> Void) {
+    static func run(_ mode: CaptureMode, completion: @escaping (Document?) -> Void) {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("snap-\(UUID().uuidString).png")
         DispatchQueue.global(qos: .userInitiated).async {
             let p = Process()
@@ -51,16 +57,10 @@ enum Capture {
             }
             p.waitUntilExit()
             let message = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            if !message.isEmpty { NSLog("Snap: screencapture: %@", message) }
-            let image = Renderer.loadImageIfPresent(tmp)
+            if !message.isEmpty { NSLog("Snapmark: screencapture: %@", message) }
+            let doc = FileManager.default.fileExists(atPath: tmp.path) ? Renderer.loadDocument(at: tmp) : nil
             try? FileManager.default.removeItem(at: tmp)
-            DispatchQueue.main.async { completion(image) }
+            DispatchQueue.main.async { completion(doc) }
         }
-    }
-}
-
-extension Renderer {
-    static func loadImageIfPresent(_ url: URL) -> CGImage? {
-        FileManager.default.fileExists(atPath: url.path) ? loadImage(at: url) : nil
     }
 }

@@ -8,6 +8,6 @@ app:
 install:
 	scripts/bundle.sh --install
 selftest: app
-	build/Snap.app/Contents/MacOS/Snap --selftest Tests/Fixtures/sample.png build/selftest.png
+	build/Snapmark.app/Contents/MacOS/Snapmark --selftest Tests/Fixtures/sample.png build/selftest.png
 clean:
 	rm -rf .build build

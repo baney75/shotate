@@ -1,8 +1,8 @@
 import CoreGraphics
 import XCTest
-@testable import SnapCore
+@testable import SnapmarkCore
 
-final class SnapCoreTests: XCTestCase {
+final class SnapmarkCoreTests: XCTestCase {
     func solidImage(_ w: Int = 400, _ h: Int = 300, gray: CGFloat = 0.5) -> CGImage {
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -111,7 +111,33 @@ final class SnapCoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(Renderer.fontSize(imageWidth: 6000, size: .medium), 72)
     }
 
+    func testEllipseIsHitOnItsOutlineNotItsCorner() {
+        let doc = Document(image: solidImage(1200, 1200))
+        doc.add(Mark(tool: .ellipse, color: RGBA.palette[0], start: CGPoint(x: 100, y: 100), end: CGPoint(x: 1100, y: 1100)))
+        let r45 = CGFloat(500) * CGFloat(2).squareRoot() / 2
+        let onOutline = CGPoint(x: 600 + r45, y: 600 + r45)
+        XCTAssertNotNil(doc.hitTest(onOutline, tolerance: 8))
+        XCTAssertNil(doc.hitTest(CGPoint(x: 1090, y: 1090), tolerance: 8), "bounding-box corner is empty space")
+    }
+
+    func testRedactionCoversEarlierMarks() {
+        let doc = Document(image: solidImage(800, 400, gray: 0.9))
+        doc.add(Mark(tool: .text, color: RGBA.palette[2], start: CGPoint(x: 100, y: 100), end: .zero, text: "secret"))
+        let label = Renderer.textOrStepRect(doc.marks[0], imageWidth: 800)
+        doc.add(Mark(tool: .redact, color: RGBA.palette[0], start: CGPoint(x: label.minX - 5, y: label.minY - 5),
+                     end: CGPoint(x: label.maxX + 5, y: label.maxY + 5)))
+        let p = pixel(Renderer.flatten(doc)!, Int(label.midX), Int(label.midY))
+        XCTAssertLessThan(Int(p.2), 60, "the blue label is hidden under the bar")
+    }
+
+    func testDPIIsKeptThroughSaveAndLoad() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
+        try Renderer.pngData(solidImage(), dpi: 144)!.write(to: url)
+        XCTAssertEqual(Renderer.loadDocument(at: url)?.dpi, 144)
+    }
+
     func testShortcutParsing() {
+        XCTAssertNil(Shortcut("cmd+/"), "keys that cannot be registered are rejected up front")
         XCTAssertEqual(Shortcut("cmd+shift+a")?.modifiers, [.cmd, .shift])
         XCTAssertEqual(Shortcut("⌘⇧+s".replacingOccurrences(of: "⌘⇧", with: "cmd+shift"))?.key, "s")
         XCTAssertNil(Shortcut("a"), "a bare key would swallow typing")

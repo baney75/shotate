@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "Snap",
+    name: "Snapmark",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "Snap", targets: ["Snap"]),
+        .executable(name: "Snapmark", targets: ["Snapmark"]),
     ],
     targets: [
         // Drawing model, rendering and settings: no AppKit windows, fully unit-tested.
-        .target(name: "SnapCore"),
+        .target(name: "SnapmarkCore"),
         // The menu bar app: capture, editor window, hotkeys.
-        .executableTarget(name: "Snap", dependencies: ["SnapCore"]),
-        .testTarget(name: "SnapCoreTests", dependencies: ["SnapCore"]),
+        .executableTarget(name: "Snapmark", dependencies: ["SnapmarkCore"]),
+        .testTarget(name: "SnapmarkCoreTests", dependencies: ["SnapmarkCore"]),
     ]
 )

@@ -1,6 +1,6 @@
 import Foundation
 
-/// User settings in the app's standard defaults (domain com.baney.snap), so `defaults write com.baney.snap` works.
+/// User settings in the app's standard defaults (domain com.baney.snapmark), so `defaults write com.baney.snapmark` works.
 public struct Settings: Equatable {
     public var saveFolder: URL
     public var copyOnCapture: Bool
@@ -42,12 +42,12 @@ public struct Settings: Equatable {
         d.set(commandHotkeys, forKey: "commandHotkeys")
     }
 
-    /// "Snap 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
+    /// "Snapmark 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
     public func newCaptureURL(date: Date = Date()) -> URL {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let base = "Snap \(f.string(from: date))"
+        let base = "Snapmark \(f.string(from: date))"
         var url = saveFolder.appendingPathComponent(base + ".png")
         var n = 2
         while FileManager.default.fileExists(atPath: url.path) {
@@ -74,7 +74,7 @@ public struct Shortcut: Equatable, Hashable {
             case "opt", "option", "alt", "⌥": mods.insert(.option)
             case "ctrl", "control", "⌃": mods.insert(.control)
             default:
-                guard key == nil, raw.count == 1 || Shortcut.namedKeys.contains(raw) else { return nil }
+                guard key == nil, Shortcut.supportedKeys.contains(raw) else { return nil }
                 key = raw
             }
         }
@@ -83,6 +83,8 @@ public struct Shortcut: Equatable, Hashable {
         self.modifiers = mods
     }
 
-    public static let namedKeys: Set<String> = ["space", "return", "escape", "tab",
-                                                 "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12"]
+    /// Keys a global shortcut can use: letters, digits, and a few named keys.
+    public static let supportedKeys: Set<String> = Set("abcdefghijklmnopqrstuvwxyz0123456789".map(String.init))
+        .union(["space", "return", "escape", "tab", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10",
+                "f11", "f12"])
 }

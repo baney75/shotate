@@ -6,14 +6,14 @@ enum MainMenu {
     static func build(target: AppDelegate) -> NSMenu {
         let main = NSMenu()
 
-        let app = NSMenu(title: "Snap")
-        app.addItem(withTitle: "About Snap", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let app = NSMenu(title: "Snapmark")
+        app.addItem(withTitle: "About Snapmark", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         app.addItem(.separator())
         let settings = app.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings), keyEquivalent: ",")
         settings.target = target
         app.addItem(.separator())
-        app.addItem(withTitle: "Hide Snap", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        app.addItem(withTitle: "Quit Snap", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.addItem(withTitle: "Hide Snapmark", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        app.addItem(withTitle: "Quit Snapmark", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         main.addItem(submenu(app))
 
         let file = NSMenu(title: "File")

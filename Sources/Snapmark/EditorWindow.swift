@@ -1,11 +1,14 @@
 import AppKit
-import SnapCore
+import SnapmarkCore
 
-/// One screenshot's editor. The capture is already on disk and on the clipboard before this opens,
-/// so closing it never loses the screenshot; edits are written back when it closes.
+/// One screenshot's editor. A capture is already on disk and on the clipboard before this opens.
+/// Edits are written back into Snapmark's own captures; an image opened from elsewhere is never
+/// overwritten, its edits go to a "… (edited).png" copy next to it.
 final class EditorWindowController: NSWindowController, NSWindowDelegate {
     let doc: Document
     let fileURL: URL
+    /// True for Snapmark's own captures, false for images opened from Finder or the Open panel.
+    let ownsFile: Bool
     let canvas: CanvasView
     var onClose: ((EditorWindowController) -> Void)?
     private var toolControl = NSSegmentedControl()
@@ -15,9 +18,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private var redoButton = NSButton()
     private var finished = false
 
-    init(document: Document, fileURL: URL) {
+    init(document: Document, fileURL: URL, ownsFile: Bool) {
         doc = document
         self.fileURL = fileURL
+        self.ownsFile = ownsFile
         canvas = CanvasView(document: document)
 
         let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
@@ -76,8 +80,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             b.layer?.backgroundColor = c.cgColor
             b.layer?.cornerRadius = 9
             b.layer?.borderColor = NSColor.controlAccentColor.cgColor
-            b.toolTip = "Color \(i + 1)"
-            b.setAccessibilityLabel("Color \(i + 1)")
+            let name = ["Red", "Amber", "Blue", "Green", "Purple", "White"][i]
+            b.toolTip = "\(name) (\(i + 1))"
+            b.setAccessibilityLabel(name)
             b.widthAnchor.constraint(equalToConstant: 18).isActive = true
             b.heightAnchor.constraint(equalToConstant: 18).isActive = true
             colorButtons.append(b)
@@ -87,7 +92,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         sizeControl = NSSegmentedControl(labels: ["S", "M", "L"], trackingMode: .selectOne, target: self,
                                          action: #selector(sizeChanged))
         sizeControl.selectedSegment = 1
-        sizeControl.toolTip = "Stroke and text size ([ and ])"
+        for (i, name) in ["Small", "Medium", "Large"].enumerated() {
+            sizeControl.setToolTip("\(name) ([ and ] change size)", forSegment: i)
+        }
+        sizeControl.setAccessibilityLabel("Size")
         bar.addArrangedSubview(sizeControl)
 
         let spacer = NSView()
@@ -102,7 +110,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         bar.addArrangedSubview(iconButton("doc.on.clipboard", "Copy file path (⇧⌘C), for terminals", #selector(copyPathClicked)))
         let copy = NSButton(title: "Copy", target: self, action: #selector(copyClicked))
         copy.bezelStyle = .rounded
-        copy.keyEquivalent = "\r"
+        // Return is handled in handleKey so it can go to a text label being typed instead.
         copy.toolTip = "Copy the image and close (Return or ⌘C)"
         bar.addArrangedSubview(copy)
 
@@ -196,7 +204,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         guard mods.isEmpty || mods == [.shift] else { return false }
         switch e.keyCode {
         case 36, 76: finish(copyImage: true); return true                       // Return
-        case 53: finish(copyImage: false); return true                          // Esc
+        case 53: closeAsking(); return true                                     // Esc
         case 51, 117: canvas.deleteSelection(); return true                     // Delete
         default: break
         }
@@ -211,17 +219,63 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     func flattened() -> CGImage? { Renderer.flatten(doc) }
 
-    /// Writes edits back to the capture file. Copies the image (or its path) when asked.
+    /// Where edits are saved: the capture itself, or a sibling copy for an opened file.
+    var outputURL: URL {
+        guard !ownsFile else { return fileURL }
+        let base = fileURL.deletingPathExtension().lastPathComponent
+        let dir = fileURL.deletingLastPathComponent()
+        var url = dir.appendingPathComponent("\(base) (edited).png")
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path), url != savedCopy {
+            url = dir.appendingPathComponent("\(base) (edited \(n)).png")
+            n += 1
+        }
+        return url
+    }
+    private var savedCopy: URL?
+
+    /// Saves edits (if any) and returns the file that now holds the finished image.
+    @discardableResult
+    func saveEdits() -> URL {
+        canvas.commitText()
+        guard doc.isEdited, let image = flattened() else { return savedCopy ?? fileURL }
+        let url = outputURL
+        Output.write(image, to: url, dpi: doc.dpi)
+        if !ownsFile { savedCopy = url }
+        return url
+    }
+
+    /// Return, ⌘C, ⇧⌘C: save edits, copy the image or its path, close.
     func finish(copyImage: Bool, copyPath: Bool = false) {
         guard !finished else { return }
-        canvas.commitText()
+        let url = saveEdits()
         finished = true
-        if let image = flattened() {
-            if doc.isEdited { Output.write(image, to: fileURL) }
-            if copyImage { Output.copy(image, fileURL: fileURL) }
-        }
-        if copyPath { Output.copyPath(fileURL) }
+        if copyImage, let image = flattened() { Output.copy(image, fileURL: url, dpi: doc.dpi) }
+        if copyPath { Output.copyPath(url) }
         window?.close()
+    }
+
+    /// Esc and the close button: discard unsaved edits only after asking.
+    func closeAsking() {
+        canvas.commitText()
+        guard doc.isEdited, let window else { finished = true; self.window?.close(); return }
+        let alert = NSAlert()
+        alert.messageText = "Keep your annotations?"
+        alert.informativeText = ownsFile ? "The capture is already saved; this only affects your edits."
+            : "Edits are saved as a copy next to the original."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] r in
+            guard let self else { return }
+            switch r {
+            case .alertFirstButtonReturn: self.saveEdits()
+            case .alertSecondButtonReturn: break
+            default: return
+            }
+            self.finished = true
+            self.window?.close()
+        }
     }
 
     func saveCopy() {
@@ -229,17 +283,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = fileURL.lastPathComponent
-        panel.beginSheetModal(for: window) { r in
-            if r == .OK, let url = panel.url { Output.write(image, to: url) }
+        panel.beginSheetModal(for: window) { [doc] r in
+            if r == .OK, let url = panel.url { Output.write(image, to: url, dpi: doc.dpi) }
         }
     }
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if finished || !doc.isEdited { return true }
+        closeAsking()
+        return false
+    }
+
     func windowWillClose(_ notification: Notification) {
-        if !finished {
-            finished = true
-            canvas.commitText()
-            if doc.isEdited, let image = flattened() { Output.write(image, to: fileURL) }
-        }
+        finished = true
         onClose?(self)
     }
 }
@@ -250,6 +306,8 @@ final class EditorWindow: NSWindow {
         if controller?.handleKey(e) != true { super.keyDown(with: e) }
     }
     override func performKeyEquivalent(with e: NSEvent) -> Bool {
+        // While a label is being typed, plain keys (Return included) belong to the text field.
+        if controller?.canvas.isEditingText == true, !e.modifierFlags.contains(.command) { return false }
         if e.modifierFlags.contains(.command), controller?.handleKey(e) == true { return true }
         return super.performKeyEquivalent(with: e)
     }
@@ -269,28 +327,27 @@ final class DragOutButton: NSButton, NSDraggingSource {
 
     override func mouseDown(with e: NSEvent) {
         guard let c = controller else { return }
-        c.canvas.commitText()
-        if c.doc.isEdited, let image = c.flattened() { Output.write(image, to: c.fileURL) }
-        let item = NSDraggingItem(pasteboardWriter: c.fileURL as NSURL)
-        item.setDraggingFrame(bounds, contents: NSWorkspace.shared.icon(forFile: c.fileURL.path))
+        let url = c.saveEdits()
+        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        item.setDraggingFrame(bounds, contents: NSWorkspace.shared.icon(forFile: url.path))
         beginDraggingSession(with: [item], event: e, source: self)
     }
     func draggingSession(_ s: NSDraggingSession, sourceOperationMaskFor c: NSDraggingContext) -> NSDragOperation { .copy }
 }
 
 enum Output {
-    static func write(_ image: CGImage, to url: URL) {
+    static func write(_ image: CGImage, to url: URL, dpi: CGFloat) {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = Renderer.pngData(image) { try? data.write(to: url, options: .atomic) }
+        if let data = Renderer.pngData(image, dpi: dpi) { try? data.write(to: url, options: .atomic) }
     }
 
     /// PNG data plus the file: terminals such as Claude Code paste the image with Ctrl+V,
     /// Finder and chat apps get the file.
-    static func copy(_ image: CGImage, fileURL: URL) {
+    static func copy(_ image: CGImage, fileURL: URL, dpi: CGFloat) {
         let pb = NSPasteboard.general
         pb.clearContents()
         let item = NSPasteboardItem()
-        if let png = Renderer.pngData(image) { item.setData(png, forType: .png) }
+        if let png = Renderer.pngData(image, dpi: dpi) { item.setData(png, forType: .png) }
         item.setString(fileURL.absoluteString, forType: .fileURL)
         pb.writeObjects([item])
     }

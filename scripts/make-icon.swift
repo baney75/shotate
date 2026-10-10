@@ -1,4 +1,4 @@
-// Draws Snap's app icon (a viewfinder over a gradient) into an .iconset, then iconutil makes the .icns.
+// Draws Snapmark's app icon (a viewfinder over a gradient) into an .iconset, then iconutil makes the .icns.
 import AppKit
 
 let out = CommandLine.arguments[1]

@@ -135,8 +135,8 @@ public enum Renderer {
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.interpolationQuality = .high
         ctx.draw(img, in: doc.bounds)
-        for m in doc.marks where m.tool == .redact { draw(m, in: ctx, imageWidth: img.width) }
-        for m in doc.marks where m.tool != .redact { draw(m, in: ctx, imageWidth: img.width, selected: m.id == selected) }
+        // Stacking order: a redaction hides everything drawn before it.
+        for m in doc.marks { draw(m, in: ctx, imageWidth: img.width, selected: m.id == selected) }
         guard let full = ctx.makeImage() else { return nil }
         guard let crop = doc.crop else { return full }
         // CGImage cropping uses a top-left origin.
@@ -144,17 +144,24 @@ public enum Renderer {
         return full.cropping(to: flipped)
     }
 
-    public static func pngData(_ image: CGImage) -> Data? {
+    public static func pngData(_ image: CGImage, dpi: CGFloat = 72) -> Data? {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
             return nil
         }
-        CGImageDestinationAddImage(dest, image, nil)
+        let props: [CFString: Any] = [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi]
+        CGImageDestinationAddImage(dest, image, props as CFDictionary)
         return CGImageDestinationFinalize(dest) ? data as Data : nil
     }
 
-    public static func loadImage(at url: URL) -> CGImage? {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(src, 0, nil)
+    public static func loadImage(at url: URL) -> CGImage? { loadDocument(at: url)?.image }
+
+    /// The image and its DPI (screencapture tags Retina captures 144).
+    public static func loadDocument(at url: URL) -> Document? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        let dpi = (props?[kCGImagePropertyDPIWidth] as? NSNumber)?.doubleValue ?? 72
+        return Document(image: image, dpi: CGFloat(dpi))
     }
 }

@@ -108,12 +108,17 @@ public struct Mark: Identifiable, Equatable, Sendable {
 /// The editable state of one screenshot: base image, marks, crop, and undo history.
 public final class Document {
     public let image: CGImage
+    /// 144 for Retina captures. Kept on export so the image shows at its real size in other apps.
+    public let dpi: CGFloat
     public private(set) var marks: [Mark] = []
     public private(set) var crop: CGRect?
     private var undoStack: [([Mark], CGRect?)] = []
     private var redoStack: [([Mark], CGRect?)] = []
 
-    public init(image: CGImage) { self.image = image }
+    public init(image: CGImage, dpi: CGFloat = 72) {
+        self.image = image
+        self.dpi = dpi > 0 ? dpi : 72
+    }
 
     public var bounds: CGRect { CGRect(x: 0, y: 0, width: image.width, height: image.height) }
     public var isEdited: Bool { !marks.isEmpty || crop != nil }
@@ -181,7 +186,12 @@ public enum Geometry {
             return segmentDistance(p, m.start, m.end)
         case .highlight, .redact:
             return m.rect.contains(p) ? 0 : rectDistance(p, m.rect)
-        case .box, .ellipse, .crop, .select:
+        case .ellipse:
+            let r = m.rect
+            let a = max(r.width / 2, 1), b = max(r.height / 2, 1)
+            let dx = (p.x - r.midX) / a, dy = (p.y - r.midY) / b
+            return abs(sqrt(dx * dx + dy * dy) - 1) * min(a, b)
+        case .box, .crop, .select:
             let r = m.rect
             if r.insetBy(dx: -1, dy: -1).contains(p) {
                 let inner = min(abs(p.x - r.minX), abs(p.x - r.maxX), abs(p.y - r.minY), abs(p.y - r.maxY))
@@ -208,7 +218,7 @@ public enum Geometry {
         return hypot(dx, dy)
     }
 
-    /// Snap a drag end to 45-degree steps (Shift while drawing an arrow).
+    /// Snapmark a drag end to 45-degree steps (Shift while drawing an arrow).
     public static func snap45(from a: CGPoint, to b: CGPoint) -> CGPoint {
         let angle = (atan2(b.y - a.y, b.x - a.x) / (.pi / 4)).rounded() * (.pi / 4)
         let len = hypot(b.x - a.x, b.y - a.y)

@@ -1,6 +1,6 @@
 import AppKit
 import ServiceManagement
-import SnapCore
+import SnapmarkCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var editors: [EditorWindowController] = []
@@ -20,17 +20,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if args.contains("--capture") { capture(.area) }
     }
 
+    /// ⌘Q, logout and restarts: save what is open before quitting.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        editors.forEach { $0.saveEdits() }
+        return .terminateNow
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showSettings()
         return false
     }
 
-    /// Finder "Open With › Snap" and dropping images on the app icon.
+    /// Finder "Open With › Snapmark" and dropping images on the app icon.
     func application(_ application: NSApplication, open urls: [URL]) {
         urls.filter(\.isFileURL).forEach(open)
     }
 
-    /// snap://capture, snap://capture/window, snap://capture/screen, snap://open?path=/x.png, snap://settings
+    /// snapmark://capture, snapmark://capture/window, snapmark://capture/screen, snapmark://open?path=/x.png, snapmark://settings
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URLComponents(string: s) else { return }
@@ -54,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             hotkeys.register(s) { [weak self] in self?.capture(.area) }
         }
         for (keys, command) in settings.commandHotkeys {
-            guard let s = Shortcut(keys) else { NSLog("Snap: bad shortcut %@", keys); continue }
+            guard let s = Shortcut(keys) else { NSLog("Snapmark: bad shortcut %@", keys); continue }
             hotkeys.register(s) { Self.run(command) }
         }
         if settings.showMenuBarIcon { installStatusItem() } else if let item = statusItem {
@@ -76,29 +82,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func capture(_ mode: CaptureMode) {
         guard !capturing, Capture.ensurePermission() else { return }
         capturing = true
-        Capture.run(mode) { [weak self] image in
+        Capture.run(mode) { [weak self] doc in
             guard let self else { return }
             self.capturing = false
-            guard let image else { return }  // cancelled with Esc
+            guard let doc else { return }  // cancelled with Esc
             let url = self.settings.newCaptureURL()
-            Output.write(image, to: url)
-            if self.settings.copyOnCapture { Output.copy(image, fileURL: url) }
-            self.edit(Document(image: image), fileURL: url)
+            Output.write(doc.image, to: url, dpi: doc.dpi)
+            if self.settings.copyOnCapture { Output.copy(doc.image, fileURL: url, dpi: doc.dpi) }
+            self.edit(doc, fileURL: url, ownsFile: true)
         }
     }
 
     func open(_ url: URL) {
-        guard let image = Renderer.loadImage(at: url) else {
+        guard let doc = Renderer.loadDocument(at: url) else {
             NSSound.beep()
             return
         }
-        edit(Document(image: image), fileURL: url)
+        edit(doc, fileURL: url, ownsFile: false)
     }
 
     /// A menu-bar-only app cannot reliably take keyboard focus on current macOS, so while an editor
-    /// is open Snap becomes a regular app (Dock icon, menu bar, ⌘-Tab) and goes back afterwards.
-    private func edit(_ doc: Document, fileURL: URL) {
-        let editor = EditorWindowController(document: doc, fileURL: fileURL)
+    /// is open Snapmark becomes a regular app (Dock icon, menu bar, ⌘-Tab) and goes back afterwards.
+    private func edit(_ doc: Document, fileURL: URL, ownsFile: Bool) {
+        let editor = EditorWindowController(document: doc, fileURL: fileURL, ownsFile: ownsFile)
         editor.onClose = { [weak self] e in
             guard let self else { return }
             self.editors.removeAll { $0 === e }
@@ -125,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func installStatusItem() {
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Snap")
+        item.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Snapmark")
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
@@ -144,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
                   .separator(),
                   NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","),
-                  NSMenuItem(title: "Quit Snap", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
+                  NSMenuItem(title: "Quit Snapmark", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
             if i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
             menu.addItem(i)
         }
@@ -171,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             } catch {
-                NSLog("Snap: launch at login: %@", error.localizedDescription)
+                NSLog("Snapmark: launch at login: %@", error.localizedDescription)
             }
         }
     }

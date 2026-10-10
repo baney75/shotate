@@ -1,20 +1,20 @@
 import AppKit
-import SnapCore
+import SnapmarkCore
 
 final class SettingsWindowController: NSWindowController {
     private weak var app: AppDelegate?
     private let folderLabel = NSTextField(labelWithString: "")
     private let copyBox = NSButton(checkboxWithTitle: "Copy every capture to the clipboard", target: nil, action: nil)
     private let hotkeyBox = NSButton(checkboxWithTitle: "⇧⌘S captures an area", target: nil, action: nil)
-    private let menuBox = NSButton(checkboxWithTitle: "Show Snap in the menu bar", target: nil, action: nil)
-    private let loginBox = NSButton(checkboxWithTitle: "Open Snap at login", target: nil, action: nil)
+    private let menuBox = NSButton(checkboxWithTitle: "Show Snapmark in the menu bar", target: nil, action: nil)
+    private let loginBox = NSButton(checkboxWithTitle: "Open Snapmark at login", target: nil, action: nil)
     private let commands = NSTextView()
 
     init(app: AppDelegate) {
         self.app = app
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 420),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Snap Settings"
+        window.title = "Snapmark Settings"
         window.isReleasedWhenClosed = false
         super.init(window: window)
         build()
@@ -52,7 +52,6 @@ final class SettingsWindowController: NSWindowController {
         scroll.heightAnchor.constraint(equalToConstant: 110).isActive = true
 
         let save = NSButton(title: "Save Shortcuts", target: self, action: #selector(changed))
-        save.keyEquivalent = "\r"
 
         let stack = NSStackView(views: [
             NSTextField(labelWithString: "Save screenshots to:"), folderRow,
