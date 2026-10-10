@@ -20,6 +20,7 @@ const paths: Record<string, string> = {
   sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
   capture: '<path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>',
   pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
   check: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
 };
 

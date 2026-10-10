@@ -77,9 +77,11 @@ class Editor {
       `<span class="dot" style="width:${3 + s * 3}px;height:${3 + s * 3}px"></span></button>`).join("");
     this.root.innerHTML = `
       <div class="editor">
-        <div class="toolbar">
+        <div class="toolbar" role="toolbar" aria-label="Annotation tools">
           <div class="group">${tools}</div>
-          <div class="row">${colors}</div>
+          <div class="sep"></div>
+          <div class="swatches">${colors}</div>
+          <div class="sep"></div>
           <div class="group">${sizes}</div>
           <div class="spacer"></div>
           <div class="group">
@@ -665,10 +667,10 @@ class Editor {
     return new Promise((resolve) => {
       const settle = (i: number) => { this.modal = false; m.remove(); window.removeEventListener("keydown", esc, true); resolve(i); };
       const m = document.createElement("div");
-      m.className = "menu";
-      Object.assign(m.style, { left: "50%", top: "30%", transform: "translateX(-50%)", padding: "16px", width: "340px" });
-      m.innerHTML = `<b>${escapeHtml(title)}</b><p class="note">${escapeHtml(detail)}</p><div class="row" style="justify-content:flex-end"></div>`;
-      const row = m.querySelector(".row")!;
+      m.className = "dialog";
+      m.setAttribute("role", "alertdialog");
+      m.innerHTML = `<b>${escapeHtml(title)}</b><p class="note">${escapeHtml(detail)}</p><div class="actions"></div>`;
+      const row = m.querySelector(".actions")!;
       choices.forEach((c, i) => {
         const b = document.createElement("button");
         b.className = i === 0 ? "primary" : "btn";

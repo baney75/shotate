@@ -18,18 +18,22 @@ func render(_ w: Int, _ h: Int, iconSize: CGFloat, title: CGFloat, to name: Stri
                            endCenter: CGPoint(x: W * 0.25, y: H * 0.5), endRadius: W * 0.35, options: [])
     let left = W * 0.08
     ctx.draw(icon, in: CGRect(x: left, y: (H - iconSize) / 2, width: iconSize, height: iconSize))
+    let x = left + iconSize + W * 0.04
+    // Each line shrinks if it would run past the right margin (the social card is narrower than the banner).
     func text(_ s: String, size: CGFloat, weight: NSFont.Weight, color: NSColor, at p: CGPoint) {
-        let attr = NSAttributedString(string: s, attributes: [.font: NSFont.systemFont(ofSize: size, weight: weight),
-                                                               .foregroundColor: color])
-        let line = CTLineCreateWithAttributedString(attr)
+        func line(_ size: CGFloat) -> CTLine {
+            CTLineCreateWithAttributedString(NSAttributedString(string: s, attributes: [
+                .font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color]))
+        }
+        let room = W * 0.95 - p.x, width = CTLineGetTypographicBounds(line(size), nil, nil, nil)
+        let line = line(width > room ? size * room / width : size)
         ctx.textPosition = p
         CTLineDraw(line, ctx)
     }
-    let x = left + iconSize + W * 0.04
     text("Snapmark", size: title, weight: .bold, color: .white, at: CGPoint(x: x, y: H / 2 + title * 0.1))
     text("Screenshot. Mark it up. Paste.", size: title * 0.36, weight: .medium,
          color: NSColor(white: 1, alpha: 0.78), at: CGPoint(x: x, y: H / 2 - title * 0.42))
-    text("Free and open source for macOS  ·  by Donovan Baney (@baney75)", size: title * 0.26, weight: .regular,
+    text("For macOS, Windows and Linux  ·  by Donovan Baney (@baney75)", size: title * 0.26, weight: .regular,
          color: NSColor(srgbRed: 0.98, green: 0.55, blue: 0.56, alpha: 1), at: CGPoint(x: x, y: H / 2 - title * 0.85))
     let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "\(out)/\(name)"))
