@@ -103,12 +103,19 @@ export function mark(tool: Tool, color: RGBA, start: Point, end: Point = start, 
   return m;
 }
 
-/** The same mark with another's color and size (and, between labels, its text size). */
+/** The same mark with another's color and size, and a label takes a label's text size. Use
+ *  `rewrapped` afterwards so a wrapping label's width scales with its new font. */
 export function styled(m: Mark, o: Mark): Mark {
   const out: Mark = { ...m, color: o.color, size: o.size };
-  if (m.tool === "text" && o.tool === "text") out.fontSize = o.fontSize;
+  if (m.tool === "text") out.fontSize = o.tool === "text" ? o.fontSize : undefined;
   if (out.fontSize === undefined) delete out.fontSize;
   return out;
+}
+
+/** `next` with its wrap width scaled by how much its font grew from `old`, so it keeps its lines. */
+export function rewrapped(next: Mark, old: Mark, imageWidth: number): Mark {
+  if (next.textWidth === undefined) return next;
+  return { ...next, textWidth: next.textWidth * markFontSize(next, imageWidth) / markFontSize(old, imageWidth) };
 }
 
 export const markRect = (m: Mark) => rectFrom(m.start, m.end);
@@ -184,7 +191,8 @@ export function textLines(m: Mark, size: number, measure: Measure): string[] {
   const out: string[] = [];
   for (const para of text.split("\n")) {
     let line = "";
-    for (const word of para.split(/(?<= )/)) {
+    // Words end after a space or a hyphen, where the editor and the macOS app also break.
+    for (const word of para.match(/[^ -]+[ -]*|[ -]+/g) ?? [""]) {
       if (line && measure((line + word).trimEnd(), size) > width) { out.push(line.trimEnd()); line = ""; }
       // A word longer than the width breaks between characters.
       let w = word;

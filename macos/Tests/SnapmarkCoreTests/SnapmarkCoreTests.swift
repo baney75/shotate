@@ -459,4 +459,16 @@ final class SnapmarkCoreTests: XCTestCase {
         XCTAssertEqual(styled.text, "B")
         XCTAssertEqual(styled.start, target.start)
     }
+
+    func testRestyledWrappingLabelsKeepTheirLines() {
+        var label = Mark(tool: .text, color: RGBA.palette[0], start: .zero, end: .zero, text: "Release notes go here", textWidth: 200)
+        let big = Mark(tool: .text, color: RGBA.palette[1], start: .zero, end: .zero, text: "x", fontSize: 90)
+        let lines = Renderer.textOrStepRect(label, imageWidth: 1000).height
+        let pasted = Renderer.rewrapped(label.styled(like: big), from: label, imageWidth: 1000)
+        XCTAssertEqual(pasted.textWidth! / 200, 90 / Renderer.fontSize(of: label, imageWidth: 1000), accuracy: 0.001)
+        XCTAssertEqual(Renderer.textOrStepRect(pasted, imageWidth: 1000).height / lines, 90 / Renderer.fontSize(of: label, imageWidth: 1000), accuracy: 0.01)
+        // A shape's style drops a label's hand-set size back to its preset.
+        label.fontSize = 50
+        XCTAssertNil(label.styled(like: Mark(tool: .box, color: RGBA.palette[2], start: .zero, end: .zero)).fontSize)
+    }
 }

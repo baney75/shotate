@@ -110,12 +110,13 @@ public struct Mark: Identifiable, Equatable, Sendable {
         self.textWidth = textWidth; self.startBinding = startBinding; self.endBinding = endBinding
     }
 
-    /// The same mark with another's color and size (and, between labels, its text size).
+    /// The same mark with another's color and size, and a label takes a label's text size. Use
+    /// `Renderer.rewrapped` afterwards so a wrapping label's width scales with its new font.
     public func styled(like o: Mark) -> Mark {
         var m = self
         m.color = o.color
         m.size = o.size
-        if tool == .text, o.tool == .text { m.fontSize = o.fontSize }
+        if tool == .text { m.fontSize = o.tool == .text ? o.fontSize : nil }
         return m
     }
 

@@ -305,18 +305,20 @@ final class CanvasView: NSView, NSTextViewDelegate {
                     p = base.tool == .arrow ? Geometry.snap45(from: fixed, to: p) : Geometry.square(from: fixed, to: p)
                 }
             }
+            let shift = e.modifierFlags.contains(.shift)
+            if shift { guides = []; bindTarget = nil }
             if base.tool == .arrow {
-                // An arrow end attaches to the mark it's dropped on; elsewhere it snaps.
+                // An arrow end attaches to the mark it's dropped on; elsewhere it snaps. Shift does neither.
                 var m = moving(base, handle: i, to: p)
-                let b = bind(p, arrow: base.id)
-                if b == nil, !e.modifierFlags.contains(.shift) { m = moving(base, handle: i, to: snapped(p, e, excluding: [base.id])) }
+                let b = shift ? nil : bind(p, arrow: base.id)
+                if b == nil, !shift { m = moving(base, handle: i, to: snapped(p, e, excluding: [base.id])) }
                 else { guides = [] }
                 if i == 0 { m.startBinding = b } else { m.endBinding = b }
                 live = m
             } else if base.tool == .text {
                 live = moving(base, handle: i, to: p)
             } else {
-                live = moving(base, handle: i, to: e.modifierFlags.contains(.shift) ? p : snapped(p, e, excluding: [base.id]))
+                live = moving(base, handle: i, to: shift ? p : snapped(p, e, excluding: [base.id]))
             }
             return
         }
@@ -325,8 +327,9 @@ final class CanvasView: NSView, NSTextViewDelegate {
             textBox = CGRect(x: min(o.x, p.x), y: min(o.y, p.y), width: abs(p.x - o.x), height: abs(p.y - o.y))
             return
         }
-        // A pressed label only starts to move past a few points, so a slightly shaky click still edits it.
-        if pressedLabel != nil, let o = dragOrigin, live == nil, hypot(p.x - o.x, p.y - o.y) < 3 * pixelsPerPoint { return }
+        // A mark only starts to move past a few points, so a slightly shaky click doesn't nudge it,
+        // snap it or let go of an arrow's attachments (and a pressed label still opens for editing).
+        if tool == .select || tool == .text, let o = dragOrigin, live == nil, hypot(p.x - o.x, p.y - o.y) < 3 * pixelsPerPoint { return }
         if tool == .select || tool == .text, let o = dragOrigin, let m = selectedMark {
             var moved = m.offset(by: CGVector(dx: p.x - o.x, dy: p.y - o.y))
             if e.modifierFlags.contains(.command) { guides = [] } else {
@@ -344,6 +347,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         guard var d = draft else { return }
         if d.tool == .arrow {
             d.endBinding = e.modifierFlags.contains(.shift) ? nil : bind(p, arrow: d.id)
+            if d.endBinding == nil { bindTarget = nil }
             if d.endBinding != nil { guides = [] }
         }
         if e.modifierFlags.contains(.shift) {
@@ -449,6 +453,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         let ink = NSColor(cgColor: Renderer.ink(on: markColor).cgColor) ?? .white
         // The editor lays text out like the drawn label: the same font, padding, line height and wrap width.
         let editor = LabelEditor(frame: .zero)
+        labelUndo = UndoManager()
         let style = NSMutableParagraphStyle()
         style.minimumLineHeight = fontSize * Renderer.lineHeight
         style.maximumLineHeight = fontSize * Renderer.lineHeight
@@ -503,6 +508,10 @@ final class CanvasView: NSView, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) { fitTextField() }
+
+    /// Each label editor has its own undo history, so ⌘Z never steps into an earlier label's typing.
+    private var labelUndo = UndoManager()
+    func undoManager(for view: NSTextView) -> UndoManager? { labelUndo }
 
     func commitText() {
         guard let editor = textField else { return }
@@ -591,9 +600,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         color = s.color
         size = s.size
         if let m = selectedMark {
-            var styled = m.styled(like: s)
-            if m.tool == .text, s.tool != .text { styled.fontSize = nil }
-            doc.update(styled)
+            doc.update(Renderer.rewrapped(m.styled(like: s), from: m, imageWidth: doc.image.width))
             changed()
         }
         return s
@@ -606,13 +613,13 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     func applySizeToSelection(_ s: StrokeSize) {
         size = s
-        guard var m = selectedMark else { return }
+        guard let old = selectedMark else { return }
+        var m = old
         m.size = s
         if m.tool == .text {
             // A preset replaces a hand-set size, and the wrap width scales with it.
-            let old = Renderer.fontSize(of: m, imageWidth: doc.image.width)
             m.fontSize = nil
-            m.textWidth = m.textWidth.map { $0 * Renderer.fontSize(of: m, imageWidth: doc.image.width) / old }
+            m = Renderer.rewrapped(m, from: old, imageWidth: doc.image.width)
         }
         doc.update(m)
         changed()

@@ -47,6 +47,13 @@ public enum Renderer {
         return out
     }
 
+    /// `new` with its wrap width scaled by how much its font grew from `old`, so it keeps its lines.
+    public static func rewrapped(_ new: Mark, from old: Mark, imageWidth: Int) -> Mark {
+        var out = new
+        out.textWidth = new.textWidth.map { $0 * fontSize(of: new, imageWidth: imageWidth) / fontSize(of: old, imageWidth: imageWidth) }
+        return out
+    }
+
     /// The label wrapping at the width that puts the right edge of its box at `x`.
     public static func resizing(text m: Mark, toRightEdge x: CGFloat, imageWidth: Int) -> Mark {
         let size = fontSize(of: m, imageWidth: imageWidth)

@@ -5,7 +5,7 @@ import { api } from "./api";
 import { icon } from "./icons";
 import {
   Doc, Geometry, LINE_HEIGHT, PAD_X, PAD_Y, PALETTE, Snap, TOOLS, css, duplicate, inset, mark, markFontSize, markHandles,
-  moveMarkHandle, styled, type Binding, type Guide,
+  moveMarkHandle, rewrapped, styled, type Binding, type Guide,
   moveHandle, offset, strokeWidth, textOrStepRect, type Mark, type Point, type Rect, type StrokeSize, type Tool,
 } from "./core/model";
 import { FONT, drawBackground, drawMark, edgeColor, flatten, ink } from "./core/render";
@@ -348,6 +348,7 @@ class Editor {
       }
       if (this.dragHandle !== null && this.live) {
         const base = this.selected ?? this.live;
+        if (e.shiftKey) { this.guides = []; this.bindTarget = null; }
         if (e.shiftKey && base.tool !== "text") {
           const fixed = base.tool === "arrow" ? (this.dragHandle === 0 ? base.end : base.start)
             : moveHandle(base, this.dragHandle, p).start;
@@ -369,9 +370,10 @@ class Editor {
         p = this.snapped(p, e, []);
         const o = this.dragOrigin;
         this.textBox = { x: Math.min(o.x, p.x), y: Math.min(o.y, p.y), w: Math.abs(p.x - o.x), h: Math.abs(p.y - o.y) };
-      } else if (this.pressedLabel && !this.live && this.dragOrigin
+      } else if ((this.tool === "select" || this.tool === "text") && !this.live && this.dragOrigin
                  && Math.hypot(p.x - this.dragOrigin.x, p.y - this.dragOrigin.y) < 3 * this.ppp) {
-        // A pressed label only starts to move past a few points, so a slightly shaky click still edits it.
+        // A mark only starts to move past a few points, so a slightly shaky click doesn't nudge it,
+        // snap it or let go of an arrow's attachments (and a pressed label still opens for editing).
         return;
       } else if ((this.tool === "select" || this.tool === "text") && this.dragOrigin && this.selected) {
         c.style.cursor = "grabbing";
@@ -390,7 +392,7 @@ class Editor {
         const d: Mark = { ...this.draft };
         if (d.tool === "arrow") {
           const b = e.shiftKey ? null : this.bindAt(p, d.id);
-          if (b) { d.endBinding = b; this.guides = []; } else delete d.endBinding;
+          if (b) { d.endBinding = b; this.guides = []; } else { delete d.endBinding; this.bindTarget = null; }
         }
         if (e.shiftKey) { p = d.tool === "arrow" ? Geometry.snap45(d.start, p) : Geometry.square(d.start, p); this.guides = []; }
         else if (!d.endBinding) p = this.snapped(p, e, []);
@@ -589,9 +591,7 @@ class Editor {
     this.size = s.size;
     const m = this.selected;
     if (m) {
-      const next = styled(m, s);
-      if (m.tool === "text" && s.tool !== "text") delete next.fontSize;
-      this.doc.update(next);
+      this.doc.update(rewrapped(styled(m, s), m, this.doc.width));
       this.changed();
     }
     this.refresh();
@@ -610,9 +610,7 @@ class Editor {
     if (m?.tool === "text") {
       // A preset replaces a hand-set size, and the wrap width scales with it.
       const { fontSize: _f, ...rest } = m;
-      const next: Mark = { ...rest, size: s };
-      if (m.textWidth !== undefined) next.textWidth = m.textWidth * markFontSize(next, this.doc.width) / markFontSize(m, this.doc.width);
-      this.doc.update(next);
+      this.doc.update(rewrapped({ ...rest, size: s }, m, this.doc.width));
       this.changed();
     } else if (m) { this.doc.update({ ...m, size: s }); this.changed(); }
     this.refresh();

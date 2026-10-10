@@ -1,4 +1,4 @@
-import { Doc, Geometry, LINE_HEIGHT, PALETTE, Snap, mark, handles, moveHandle, moveMarkHandle, duplicate, markRect, markFontSize, offset, resizeText, styled, textLines, textOrStepRect } from "./model";
+import { Doc, Geometry, LINE_HEIGHT, PALETTE, Snap, mark, handles, moveHandle, moveMarkHandle, duplicate, markRect, markFontSize, offset, resizeText, rewrapped, styled, textLines, textOrStepRect } from "./model";
 import { resolveToolKeys, shortcutLabel } from "./settings";
 import { TOOLS } from "./model";
 
@@ -188,5 +188,23 @@ describe("annotation", () => {
     const target = mark("text", red, { x: 9, y: 9 }, { x: 9, y: 9 }, { text: "B" });
     const out = styled(target, source);
     expect([out.color, out.size, out.fontSize, out.text, out.start]).toEqual([source.color, 3, 40, "B", target.start]);
+  });
+});
+
+describe("restyling and wrapping details", () => {
+  it("keeps a wrapping label's lines when a paste or preset changes its font", () => {
+    const label = mark("text", red, { x: 0, y: 0 }, { x: 0, y: 0 }, { text: "Release notes go here", textWidth: 200 });
+    const big = mark("text", red, { x: 0, y: 0 }, { x: 0, y: 0 }, { text: "x", fontSize: 90 });
+    const pasted = rewrapped(styled(label, big), label, 1000);
+    expect(pasted.textWidth! / 200).toBeCloseTo(90 / markFontSize(label, 1000));
+    expect(textLines(pasted, 90, measure)).toEqual(textLines(label, markFontSize(label, 1000), measure));
+    const hand = { ...label, fontSize: 50 };
+    expect(styled(hand, mark("box", red, { x: 0, y: 0 })).fontSize).toBeUndefined();
+  });
+
+  it("breaks lines after hyphens as well as spaces", () => {
+    const m = mark("text", red, { x: 0, y: 0 }, { x: 0, y: 0 }, { text: "state-of-the-art", textWidth: 55 });
+    expect(textLines(m, 10, measure)).toEqual(["state-of-", "the-art"]);
+    expect(textLines({ ...m, text: "a\n\nb" }, 10, measure)).toEqual(["a", " ", "b"]);
   });
 });
