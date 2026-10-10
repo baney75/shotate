@@ -5,6 +5,8 @@ public struct Settings: Equatable {
     public var saveFolder: URL
     public var copyOnCapture: Bool
     public var captureHotkeyEnabled: Bool
+    /// The global capture shortcut, e.g. "cmd+shift+s".
+    public var captureShortcut: String
     public var showMenuBarIcon: Bool
     /// Extra global shortcuts that run a shell command, e.g. ["cmd+shift+a": "~/bin/open-terminal"].
     public var commandHotkeys: [String: String]
@@ -12,13 +14,16 @@ public struct Settings: Equatable {
     // Always a directory URL, so it compares equal whether or not the folder exists yet.
     public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
                                           isDirectory: true)
+    public static let defaultShortcut = "cmd+shift+s"
 
     public init(saveFolder: URL = Settings.defaultFolder, copyOnCapture: Bool = true,
-                captureHotkeyEnabled: Bool = true, showMenuBarIcon: Bool = true,
+                captureHotkeyEnabled: Bool = true, captureShortcut: String = Settings.defaultShortcut,
+                showMenuBarIcon: Bool = true,
                 commandHotkeys: [String: String] = [:]) {
         self.saveFolder = saveFolder
         self.copyOnCapture = copyOnCapture
         self.captureHotkeyEnabled = captureHotkeyEnabled
+        self.captureShortcut = captureShortcut
         self.showMenuBarIcon = showMenuBarIcon
         self.commandHotkeys = commandHotkeys
     }
@@ -30,6 +35,7 @@ public struct Settings: Equatable {
         }
         if d.object(forKey: "copyOnCapture") != nil { s.copyOnCapture = d.bool(forKey: "copyOnCapture") }
         if d.object(forKey: "captureHotkeyEnabled") != nil { s.captureHotkeyEnabled = d.bool(forKey: "captureHotkeyEnabled") }
+        if let k = d.string(forKey: "captureShortcut"), Shortcut(k) != nil { s.captureShortcut = k }
         if d.object(forKey: "showMenuBarIcon") != nil { s.showMenuBarIcon = d.bool(forKey: "showMenuBarIcon") }
         s.commandHotkeys = d.dictionary(forKey: "commandHotkeys") as? [String: String] ?? [:]
         return s
@@ -39,6 +45,7 @@ public struct Settings: Equatable {
         d.set(saveFolder.path, forKey: "saveFolder")
         d.set(copyOnCapture, forKey: "copyOnCapture")
         d.set(captureHotkeyEnabled, forKey: "captureHotkeyEnabled")
+        d.set(captureShortcut, forKey: "captureShortcut")
         d.set(showMenuBarIcon, forKey: "showMenuBarIcon")
         d.set(commandHotkeys, forKey: "commandHotkeys")
     }
@@ -82,6 +89,13 @@ public struct Shortcut: Equatable, Hashable {
         guard let k = key, !mods.isEmpty else { return nil }
         self.key = k
         self.modifiers = mods
+    }
+
+    /// How macOS menus show it: "⌃⌥⇧⌘S".
+    public var displayString: String {
+        let glyphs: [(Modifier, String)] = [(.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.cmd, "⌘")]
+        let named = ["space": "Space", "return": "↩", "escape": "⎋", "tab": "⇥"]
+        return glyphs.filter { modifiers.contains($0.0) }.map(\.1).joined() + (named[key] ?? key.uppercased())
     }
 
     /// Keys a global shortcut can use: letters, digits, and a few named keys.

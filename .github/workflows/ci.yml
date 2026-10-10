@@ -12,10 +12,14 @@ jobs:
         run: swift test
       - name: Build the app (universal)
         run: scripts/bundle.sh
+        env:
+          SNAPMARK_ADHOC: 1
       - name: Render self-test
         run: |
           build/Snapmark.app/Contents/MacOS/Snapmark --selftest Tests/Fixtures/sample.png build/selftest.png
           test -s build/selftest.png
+      - name: Check shell scripts
+        run: bash -n install.sh uninstall.sh scripts/bundle.sh scripts/signing-identity.sh
       - uses: actions/upload-artifact@v4
         with:
           name: Snapmark.app

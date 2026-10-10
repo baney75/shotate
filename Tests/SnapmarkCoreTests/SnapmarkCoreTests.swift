@@ -181,4 +181,64 @@ final class SnapmarkCoreTests: XCTestCase {
         XCTAssertEqual(Settings.load(from: d), s, "round-trips even when the folder does not exist")
         XCTAssertEqual(Settings.load(from: UserDefaults(suiteName: "snapmark-empty-\(UUID().uuidString)")!), Settings())
     }
+
+    /// Captures are read from a temp file that is deleted right away. The image must not depend on
+    /// that file afterwards, or saving and copying fail with "No IDATs written".
+    func testLoadedDocumentSurvivesSourceFileDeletion() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("snapmark-test-\(UUID().uuidString).png")
+        try XCTUnwrap(Renderer.pngData(solidImage(gray: 0.2), dpi: 144)).write(to: url)
+        let doc = try XCTUnwrap(Renderer.loadDocument(at: url))
+        try FileManager.default.removeItem(at: url)
+        XCTAssertEqual(doc.dpi, 144)
+        doc.add(Mark(tool: .box, color: RGBA.palette[0], start: CGPoint(x: 10, y: 10), end: CGPoint(x: 90, y: 90)))
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        XCTAssertNotNil(Renderer.pngData(flat, dpi: doc.dpi))
+        XCTAssertNotNil(Renderer.pngData(doc.image, dpi: doc.dpi))
+        XCTAssertEqual(pixel(flat, 200, 150).0, pixel(doc.image, 200, 150).0)
+    }
+
+    func testShortcutDisplayStringUsesMenuOrder() {
+        XCTAssertEqual(Shortcut("cmd+shift+s")?.displayString, "⇧⌘S")
+        XCTAssertEqual(Shortcut("shift+ctrl+option+cmd+2")?.displayString, "⌃⌥⇧⌘2")
+        XCTAssertEqual(Shortcut("ctrl+f5")?.displayString, "⌃F5")
+    }
+
+    func testCaptureShortcutRoundTripsAndRejectsGarbage() {
+        let d = UserDefaults(suiteName: "snapmark-test-\(UUID().uuidString)")!
+        var s = Settings()
+        s.captureShortcut = "ctrl+shift+2"
+        s.save(to: d)
+        XCTAssertEqual(Settings.load(from: d).captureShortcut, "ctrl+shift+2")
+        d.set("not a shortcut", forKey: "captureShortcut")
+        XCTAssertEqual(Settings.load(from: d).captureShortcut, Settings.defaultShortcut)
+    }
+
+    func testDraggingACornerKeepsTheOppositeCornerFixed() {
+        let m = Mark(tool: .box, color: RGBA.palette[0], start: CGPoint(x: 10, y: 10), end: CGPoint(x: 100, y: 60))
+        XCTAssertEqual(m.handles.count, 4)
+        // Handle 2 is (start.x, end.y) = top-left; its opposite is (end.x, start.y).
+        let r = m.moving(handle: 2, to: CGPoint(x: 0, y: 80)).rect
+        XCTAssertEqual(r, CGRect(x: 0, y: 10, width: 100, height: 70))
+        let arrow = Mark(tool: .arrow, color: RGBA.palette[0], start: .zero, end: CGPoint(x: 50, y: 50))
+        XCTAssertEqual(arrow.moving(handle: 1, to: CGPoint(x: 70, y: 20)).end, CGPoint(x: 70, y: 20))
+        XCTAssertEqual(arrow.moving(handle: 1, to: CGPoint(x: 70, y: 20)).start, .zero)
+        XCTAssertTrue(Mark(tool: .text, color: RGBA.palette[0], start: .zero, end: .zero, text: "x").handles.isEmpty)
+    }
+
+    func testReorderAndDuplicateAreUndoable() {
+        let doc = Document(image: solidImage())
+        let a = Mark(tool: .box, color: RGBA.palette[0], start: .zero, end: CGPoint(x: 10, y: 10))
+        let b = Mark(tool: .ellipse, color: RGBA.palette[1], start: .zero, end: CGPoint(x: 20, y: 20))
+        doc.add(a); doc.add(b)
+        doc.reorder(id: a.id, toFront: true)
+        XCTAssertEqual(doc.marks.map(\.id), [b.id, a.id])
+        doc.undo()
+        XCTAssertEqual(doc.marks.map(\.id), [a.id, b.id])
+        let copy = a.duplicate(offset: 8)
+        XCTAssertNotEqual(copy.id, a.id)
+        XCTAssertEqual(copy.start, CGPoint(x: 8, y: -8))
+        let before = doc.revision
+        doc.reorder(id: b.id, toFront: true)  // already on top: no change, no undo step
+        XCTAssertEqual(doc.revision, before)
+    }
 }

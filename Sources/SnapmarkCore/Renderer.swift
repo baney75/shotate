@@ -157,9 +157,13 @@ public enum Renderer {
     public static func loadImage(at url: URL) -> CGImage? { loadDocument(at: url)?.image }
 
     /// The image and its DPI (screencapture tags Retina captures 144).
+    /// Reads the bytes into memory and decodes now: a URL-backed CGImage decodes lazily from the
+    /// file, so deleting the capture's temp file (or editing the original) broke every later save.
     public static func loadDocument(at url: URL) -> Document? {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        guard let data = try? Data(contentsOf: url),
+              let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(
+                  src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else { return nil }
         let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
         let dpi = (props?[kCGImagePropertyDPIWidth] as? NSNumber)?.doubleValue ?? 72
         return Document(image: image, dpi: CGFloat(dpi))

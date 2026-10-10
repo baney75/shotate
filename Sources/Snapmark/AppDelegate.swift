@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var hotkeys = Hotkeys()
     private var settingsWindow: SettingsWindowController?
+    private var welcomeWindow: WelcomeWindowController?
     private var capturing = false
     var settings = Settings.load()
 
@@ -14,10 +15,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass),
                                                      andEventID: AEEventID(kAEGetURL))
+        NSApp.mainMenu = MainMenu.build(target: self)
         applySettings()
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--open"), i + 1 < args.count { open(URL(fileURLWithPath: args[i + 1])) }
         if args.contains("--capture") { capture(.area) }
+        if !UserDefaults.standard.bool(forKey: "onboarded") || !ScreenRecording.isGranted { showWelcome() }
     }
 
     /// ⌘Q, logout and restarts: save what is open before quitting.
@@ -49,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 open(URL(fileURLWithPath: (p as NSString).expandingTildeInPath))
             }
         case "settings": showSettings()
+        case "welcome", "permissions": showWelcome()
         default: break
         }
     }
@@ -56,8 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applySettings() {
         settings.save()
         hotkeys.removeAll()
-        if settings.captureHotkeyEnabled, let s = Shortcut("cmd+shift+s") {
-            hotkeys.register(s) { [weak self] in self?.capture(.area) }
+        if settings.captureHotkeyEnabled, let s = Shortcut(settings.captureShortcut),
+           !hotkeys.register(s, { [weak self] in self?.capture(.area) }) {
+            Alerts.show("\(s.displayString) is already in use",
+                        "Another app owns that shortcut. Pick a different one in Snapmark Settings.")
         }
         for (keys, command) in settings.commandHotkeys {
             guard let s = Shortcut(keys) else { NSLog("Snapmark: bad shortcut %@", keys); continue }
@@ -80,7 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Capture and open
 
     func capture(_ mode: CaptureMode) {
-        guard !capturing, Capture.ensurePermission() else { return }
+        guard !capturing else { return }
+        guard ScreenRecording.isGranted else { showWelcome(); return }
         capturing = true
         Capture.run(mode) { [weak self] doc in
             guard let self else { return }
@@ -88,36 +95,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let doc else { return }  // cancelled with Esc
             let url = self.settings.newCaptureURL()
             do { try Output.write(doc.image, to: url, dpi: doc.dpi) } catch {
-                NSAlert(error: error).runModal()
+                Alerts.show("Snapmark couldn't save the capture to \(url.deletingLastPathComponent().path)",
+                            error: error)
                 return
             }
-            if self.settings.copyOnCapture { Output.copy(doc.image, fileURL: url, dpi: doc.dpi) }
+            if self.settings.copyOnCapture, !Output.copy(doc.image, fileURL: url, dpi: doc.dpi) {
+                Alerts.show("Snapmark couldn't copy the capture", "It is saved at \(url.path).")
+            }
             self.edit(doc, fileURL: url, ownsFile: true)
         }
     }
 
     func open(_ url: URL) {
         guard let doc = Renderer.loadDocument(at: url) else {
-            NSSound.beep()
+            Alerts.show("Snapmark can't open \(url.lastPathComponent)", "It isn't an image Snapmark can read.")
             return
         }
         edit(doc, fileURL: url, ownsFile: false)
     }
 
-    /// A menu-bar-only app cannot reliably take keyboard focus on current macOS, so while an editor
-    /// is open Snapmark becomes a regular app (Dock icon, menu bar, ⌘-Tab) and goes back afterwards.
+    /// Snapmark lives in the menu bar only: no Dock icon, even while an editor is open. The editor
+    /// window activates the app to take keyboard focus, and the hidden main menu still routes ⌘V,
+    /// ⌘A and friends to text labels.
     private func edit(_ doc: Document, fileURL: URL, ownsFile: Bool) {
         let editor = EditorWindowController(document: doc, fileURL: fileURL, ownsFile: ownsFile)
-        editor.onClose = { [weak self] e in
-            guard let self else { return }
-            self.editors.removeAll { $0 === e }
-            if self.editors.isEmpty { NSApp.setActivationPolicy(.accessory) }
-        }
+        editor.onClose = { [weak self] e in self?.editors.removeAll { $0 === e } }
         editors.append(editor)
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-            NSApp.mainMenu = MainMenu.build(target: self)
-        }
         editor.present()
     }
 
@@ -143,8 +146,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if !ScreenRecording.isGranted {
+            let fix = NSMenuItem(title: "Allow Screen Recording…", action: #selector(showWelcome), keyEquivalent: "")
+            fix.target = self
+            fix.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
+            menu.addItem(fix)
+            menu.addItem(.separator())
+        }
         let area = NSMenuItem(title: "Capture Area", action: #selector(captureArea), keyEquivalent: "")
-        if settings.captureHotkeyEnabled { area.title = "Capture Area      ⇧⌘S" }
+        if settings.captureHotkeyEnabled, let s = Shortcut(settings.captureShortcut) {
+            // Shown, not bound: the global hotkey does the work.
+            area.keyEquivalent = s.key.count == 1 ? s.key : ""
+            area.keyEquivalentModifierMask = s.modifierFlags
+        }
         for i in [area,
                   NSMenuItem(title: "Capture Window", action: #selector(captureWindow), keyEquivalent: ""),
                   NSMenuItem(title: "Capture Full Screen", action: #selector(captureScreen), keyEquivalent: ""),
@@ -165,6 +179,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func openFolder() {
         try? FileManager.default.createDirectory(at: settings.saveFolder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(settings.saveFolder)
+    }
+
+    @objc func showWelcome() {
+        if welcomeWindow == nil { welcomeWindow = WelcomeWindowController(app: self) }
+        welcomeWindow?.present()
     }
 
     @objc func showSettings() {

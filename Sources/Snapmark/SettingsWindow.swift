@@ -5,14 +5,16 @@ final class SettingsWindowController: NSWindowController {
     private weak var app: AppDelegate?
     private let folderLabel = NSTextField(labelWithString: "")
     private let copyBox = NSButton(checkboxWithTitle: "Copy every capture to the clipboard", target: nil, action: nil)
-    private let hotkeyBox = NSButton(checkboxWithTitle: "⇧⌘S captures an area", target: nil, action: nil)
+    private let hotkeyBox = NSButton(checkboxWithTitle: "Capture an area with", target: nil, action: nil)
+    private let shortcutField = NSTextField(string: "")
+    private let permissionLabel = NSTextField(labelWithString: "")
     private let menuBox = NSButton(checkboxWithTitle: "Show Snapmark in the menu bar", target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: "Open Snapmark at login", target: nil, action: nil)
     private let commands = NSTextView()
 
     init(app: AppDelegate) {
         self.app = app
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 420),
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 480),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Snapmark Settings"
         window.isReleasedWhenClosed = false
@@ -36,6 +38,15 @@ final class SettingsWindowController: NSWindowController {
         let folderRow = NSStackView(views: [folderLabel, choose])
 
         for b in [copyBox, hotkeyBox, menuBox, loginBox] { b.target = self; b.action = #selector(changed) }
+        shortcutField.placeholderString = Settings.defaultShortcut
+        shortcutField.target = self
+        shortcutField.action = #selector(changed)
+        shortcutField.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        shortcutField.toolTip = "For example cmd+shift+s or ctrl+option+2. Press Return to apply."
+        let shortcutRow = NSStackView(views: [hotkeyBox, shortcutField])
+
+        let fix = NSButton(title: "Set Up…", target: self, action: #selector(showWelcome))
+        let permissionRow = NSStackView(views: [permissionLabel, fix])
 
         let help = NSTextField(wrappingLabelWithString:
             "Extra shortcuts, one per line: shortcut = command. The command runs in your login shell.\n"
@@ -54,8 +65,9 @@ final class SettingsWindowController: NSWindowController {
         let save = NSButton(title: "Save Shortcuts", target: self, action: #selector(changed))
 
         let stack = NSStackView(views: [
+            permissionRow,
             NSTextField(labelWithString: "Save screenshots to:"), folderRow,
-            copyBox, hotkeyBox, menuBox, loginBox, help, scroll, save,
+            copyBox, shortcutRow, menuBox, loginBox, help, scroll, save,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -80,6 +92,10 @@ final class SettingsWindowController: NSWindowController {
         folderLabel.stringValue = (s.saveFolder.path as NSString).abbreviatingWithTildeInPath
         copyBox.state = s.copyOnCapture ? .on : .off
         hotkeyBox.state = s.captureHotkeyEnabled ? .on : .off
+        shortcutField.stringValue = s.captureShortcut
+        shortcutField.isEnabled = s.captureHotkeyEnabled
+        permissionLabel.stringValue = ScreenRecording.isGranted ? "✓ Screen Recording is allowed"
+            : "⚠︎ Screen Recording is off, so Snapmark can't capture"
         menuBox.state = s.showMenuBarIcon ? .on : .off
         loginBox.state = (app?.launchAtLogin ?? false) ? .on : .off
         commands.string = s.commandHotkeys.sorted { $0.key < $1.key }.map { "\($0.key) = \($0.value)" }
@@ -91,6 +107,10 @@ final class SettingsWindowController: NSWindowController {
         var s = app.settings
         s.copyOnCapture = copyBox.state == .on
         s.captureHotkeyEnabled = hotkeyBox.state == .on
+        let typed = shortcutField.stringValue.trimmingCharacters(in: .whitespaces)
+        if Shortcut(typed) != nil { s.captureShortcut = typed.lowercased() } else if !typed.isEmpty {
+            NSSound.beep()
+        }
         s.showMenuBarIcon = menuBox.state == .on
         var map: [String: String] = [:]
         for line in commands.string.split(separator: "\n") {
@@ -103,6 +123,8 @@ final class SettingsWindowController: NSWindowController {
         app.applySettings()
         load()
     }
+
+    @objc private func showWelcome() { app?.showWelcome() }
 
     @objc private func chooseFolder() {
         let panel = NSOpenPanel()

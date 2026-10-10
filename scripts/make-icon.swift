@@ -13,9 +13,19 @@ for (name, px) in [("16x16", 16), ("16x16@2x", 32), ("32x32", 32), ("32x32@2x", 
     let squircle = CGPath(roundedRect: rect, cornerWidth: rect.width * 0.225, cornerHeight: rect.width * 0.225, transform: nil)
     ctx.addPath(squircle)
     ctx.clip()
-    let colors = [CGColor(srgbRed: 0.18, green: 0.20, blue: 0.27, alpha: 1), CGColor(srgbRed: 0.07, green: 0.08, blue: 0.11, alpha: 1)]
+    // Deep indigo to near-black, with a soft glow behind the subject.
+    let colors = [CGColor(srgbRed: 0.20, green: 0.22, blue: 0.36, alpha: 1), CGColor(srgbRed: 0.06, green: 0.07, blue: 0.11, alpha: 1)]
     ctx.drawLinearGradient(CGGradient(colorsSpace: nil, colors: colors as CFArray, locations: [0, 1])!,
                            start: CGPoint(x: 0, y: s), end: CGPoint(x: 0, y: 0), options: [])
+    let glow = [CGColor(srgbRed: 0.91, green: 0.26, blue: 0.29, alpha: 0.22), CGColor(srgbRed: 0.91, green: 0.26, blue: 0.29, alpha: 0)]
+    ctx.drawRadialGradient(CGGradient(colorsSpace: nil, colors: glow as CFArray, locations: [0, 1])!,
+                           startCenter: CGPoint(x: rect.midX, y: rect.midY), startRadius: 0,
+                           endCenter: CGPoint(x: rect.midX, y: rect.midY), endRadius: rect.width * 0.5, options: [])
+    // A thin top highlight gives the tile an edge on dark Docks.
+    ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.10))
+    ctx.setLineWidth(max(1, s / 256))
+    ctx.addPath(squircle)
+    ctx.strokePath()
     // Viewfinder corners.
     let w = rect.width, lw = max(1.5, w * 0.06), arm = w * 0.2
     let box = rect.insetBy(dx: w * 0.2, dy: w * 0.2)
@@ -28,6 +38,7 @@ for (name, px) in [("16x16", 16), ("16x16@2x", 32), ("32x32", 32), ("32x32@2x", 
     }
     ctx.strokePath()
     // An arrow in the accent red, the editor's default color.
+    ctx.setShadow(offset: CGSize(width: 0, height: -w * 0.012), blur: w * 0.04, color: CGColor(gray: 0, alpha: 0.5))
     ctx.setStrokeColor(CGColor(srgbRed: 0.91, green: 0.26, blue: 0.29, alpha: 1))
     ctx.setFillColor(CGColor(srgbRed: 0.91, green: 0.26, blue: 0.29, alpha: 1))
     ctx.setLineWidth(lw * 1.1)

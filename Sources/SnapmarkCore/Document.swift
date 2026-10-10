@@ -97,6 +97,39 @@ public struct Mark: Identifiable, Equatable, Sendable {
                width: abs(end.x - start.x), height: abs(end.y - start.y))
     }
 
+    /// Grab points for resizing: the two ends of an arrow, the four corners of a shape.
+    /// Text and steps resize with the size control instead.
+    public var handles: [CGPoint] {
+        switch tool {
+        case .arrow: [start, end]
+        case .box, .ellipse, .highlight, .redact:
+            [start, end, CGPoint(x: start.x, y: end.y), CGPoint(x: end.x, y: start.y)]
+        default: []
+        }
+    }
+
+    /// The mark with handle `i` (an index into `handles`) moved to `p`. A shape keeps the opposite corner fixed.
+    public func moving(handle i: Int, to p: CGPoint) -> Mark {
+        var m = self
+        let h = handles
+        guard h.indices.contains(i) else { return m }
+        if tool == .arrow {
+            if i == 0 { m.start = p } else { m.end = p }
+            return m
+        }
+        let opposite = CGPoint(x: h[i].x == start.x ? end.x : start.x, y: h[i].y == start.y ? end.y : start.y)
+        m.start = opposite
+        m.end = p
+        return m
+    }
+
+    /// A copy with a new identity, nudged so it doesn't hide the original.
+    public func duplicate(offset d: CGFloat) -> Mark {
+        var m = offset(by: CGVector(dx: d, dy: -d))
+        m = Mark(tool: m.tool, color: m.color, size: m.size, start: m.start, end: m.end, text: m.text, number: m.number)
+        return m
+    }
+
     public func offset(by d: CGVector) -> Mark {
         var m = self
         m.start = CGPoint(x: start.x + d.dx, y: start.y + d.dy)
@@ -151,6 +184,15 @@ public final class Document {
         guard marks.contains(where: { $0.id == id }) else { return }
         checkpoint()
         marks.removeAll { $0.id == id }
+    }
+
+    /// Moves a mark to the top (drawn last) or the bottom of the stack.
+    public func reorder(id: UUID, toFront: Bool) {
+        guard let i = marks.firstIndex(where: { $0.id == id }), marks.count > 1,
+              toFront ? i != marks.count - 1 : i != 0 else { return }
+        checkpoint()
+        let m = marks.remove(at: i)
+        if toFront { marks.append(m) } else { marks.insert(m, at: 0) }
     }
 
     public func setCrop(_ rect: CGRect?) {
