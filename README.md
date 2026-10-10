@@ -74,6 +74,9 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | **Redact for real** | Redaction draws a solid bar. Blur and pixelation can sometimes be reversed; this can't |
 | **Draw past the edge** | Drag a mark outside the screenshot and the canvas grows to fit, filled with the screenshot's own border color, so callouts never get cramped |
 | **Edit like a canvas** | New marks are selected as you draw them. Drag handles to resize, Delete to remove, ⌘D to duplicate, arrow keys to nudge, right-click for more |
+| **Text that fits** | Click to type, or drag to set the width it wraps at. Drag a label to move it, its corner to scale it, its side to rewrap it. ⌥Return starts a new line |
+| **Lines up by itself** | Dragged marks snap to the edges and centers of the image and of each other, with guides. Hold ⌘ to place freely |
+| **Arrows that stay put** | Drop an arrow's end on a mark and it stays attached when that mark moves or resizes |
 | **Paste anywhere** | The clipboard gets PNG, TIFF and the file, so chat apps, documents, Finder and terminal tools such as Claude Code all accept it |
 | **Safe with your files** | An image you open is never overwritten. Edits go to `name (edited).png` beside it |
 | **Retina-correct** | Captures keep their real size when pasted, instead of doubling |
@@ -94,6 +97,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | B | Redact | | ⌘Z / ⇧⌘Z | Undo / redo |
 | N | Numbered step | | 1–6, [ ] | Color, smaller / larger |
 | C | Crop | | ⇧⌘C | Copy the file path instead of the image |
+| | | | ⌥⌘C / ⌥⌘V | Copy a mark's style / paste it onto the selection |
 | | | | ⌘S | Save a copy elsewhere |
 | | | | ⌘⌫ | Move the capture to the Trash |
 

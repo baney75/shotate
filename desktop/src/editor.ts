@@ -4,8 +4,9 @@
 import { api } from "./api";
 import { icon } from "./icons";
 import {
-  Doc, Geometry, PALETTE, TEXT_BOX_HEIGHT, TOOLS, anchorText, css, duplicate, handles, inset, mark, markFontSize,
-  moveHandle, offset, resizeText, strokeWidth, textOrStepRect, type Mark, type Point, type Rect, type StrokeSize, type Tool,
+  Doc, Geometry, LINE_HEIGHT, PAD_X, PAD_Y, PALETTE, Snap, TOOLS, css, duplicate, inset, mark, markFontSize, markHandles,
+  moveMarkHandle, rewrapped, styled, type Binding, type Guide,
+  moveHandle, offset, strokeWidth, textOrStepRect, type Mark, type Point, type Rect, type StrokeSize, type Tool,
 } from "./core/model";
 import { FONT, drawBackground, drawMark, edgeColor, flatten, ink } from "./core/render";
 import { resolveToolKeys } from "./core/settings";
@@ -35,10 +36,17 @@ class Editor {
   dragHandle: number | null = null;
   cropDraft: Rect | null = null;
   frozen: Rect | null = null;
-  input: HTMLInputElement | null = null;
+  input: HTMLTextAreaElement | null = null;
   editingId: string | null = null;
   textAt: Point = { x: 0, y: 0 };
   textFontSize: number | undefined;
+  textWidth: number | undefined;
+  /** Snap guides to draw while dragging. */
+  guides: Guide[] = [];
+  /** The mark an arrow end being dragged would attach to, outlined as a drop target. */
+  bindTarget: string | null = null;
+  /** The style Ctrl+Alt+C copied, which Ctrl+Alt+V puts on the selection and on new marks. */
+  copiedStyle: Mark | null = null;
   /** A box being dragged with the Text tool to place and size a new label. */
   textBox: Rect | null = null;
   /** A label pressed with the Text tool: released in place it opens for editing, dragged it moves. */
@@ -151,6 +159,8 @@ class Editor {
     let marks = this.doc.marks;
     if (this.live) marks = marks.map((m) => (m.id === this.live!.id ? this.live! : m));
     if (this.draft) marks = [...marks, this.draft];
+    // Arrows attached to a mark being dragged follow it live.
+    if (this.live) marks = this.doc.resolveBindings(marks);
     const canvas = this.doc.canvasIncluding(marks);
 
     ctx.save();
@@ -177,6 +187,18 @@ class Editor {
       ctx.strokeRect(crop.x, crop.y, crop.w, crop.h);
       ctx.restore();
     }
+    if (this.guides.length) {
+      ctx.save();
+      ctx.strokeStyle = "rgb(250,77,140)";
+      ctx.lineWidth = this.ppp;
+      ctx.beginPath();
+      for (const g of this.guides) {
+        ctx.moveTo(g.vertical ? g.at : g.from, g.vertical ? g.from : g.at);
+        ctx.lineTo(g.vertical ? g.at : g.to, g.vertical ? g.to : g.at);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
     if (this.textBox) {
       const b = this.textBox;
       ctx.save();
@@ -199,6 +221,15 @@ class Editor {
       ctx.strokeStyle = "rgba(59,130,246,0.5)";
       ctx.strokeRect(r.x, r.y, r.w, r.h);
     }
+    const target = marks.find((m) => m.id === this.bindTarget);
+    if (target) {
+      const r = outline(target);
+      ctx.save();
+      ctx.strokeStyle = "#3b82f6";
+      ctx.lineWidth = 2.5 * this.ppp;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+      ctx.restore();
+    }
     const sel = marks.find((m) => m.id === this.selectedId && m.id !== this.editingId);
     if (sel) {
       ctx.strokeStyle = "#3b82f6";
@@ -216,15 +247,28 @@ class Editor {
 
   // MARK: Pointer
 
-  /** A mark's grab points. A label has one, at the bottom-right corner of its box, to scale it. */
-  handlesOf(m: Mark): Point[] {
-    if (m.tool !== "text") return handles(m);
-    const r = textOrStepRect(m, this.doc.width, this.doc.measure);
-    return [{ x: r.x + r.w, y: r.y + r.h }];
-  }
+  handlesOf(m: Mark): Point[] { return markHandles(m, this.doc.width, this.doc.measure); }
 
   moveHandleOf(m: Mark, i: number, p: Point): Mark {
-    return m.tool === "text" ? resizeText(m, p, this.doc.width, this.doc.measure) : moveHandle(m, i, p);
+    return moveMarkHandle(m, i, p, this.doc.width, this.doc.measure);
+  }
+
+  /** The box a mark lines up by when snapping. */
+  snapRect(m: Mark): Rect { return this.doc.bindableRect(m) ?? rectOf(m); }
+
+  /** `p` lined up with the image and the other marks, unless Ctrl is held. Updates the guides. */
+  snapped(p: Point, e: PointerEvent, excluding: string[]): Point {
+    if (e.ctrlKey || e.metaKey) { this.guides = []; return p; }
+    const r = Snap.point(p, this.doc.snapTargets(new Set(excluding)), 6 * this.ppp);
+    this.guides = r.guides;
+    return r.p;
+  }
+
+  /** Where an arrow end at `p` attaches: the mark under it, outlined while dragging. */
+  bindAt(p: Point, arrow: string): Binding | null {
+    const b = this.doc.bindingAt(p, 2 * this.ppp, arrow);
+    this.bindTarget = b?.id ?? null;
+    return b;
   }
 
   handleAt(p: Point): number | null {
@@ -277,9 +321,16 @@ class Editor {
           this.dragOrigin = p;
           this.cropDraft = { x: p.x, y: p.y, w: 0, h: 0 };
           break;
-        default:
+        default: {
           this.select(null);
-          this.draft = mark(this.tool, this.color, p, p, { size: this.size });
+          const start = this.tool === "arrow" ? p : this.snapped(p, e, []);
+          this.guides = [];
+          this.draft = mark(this.tool, this.color, start, start, { size: this.size });
+          if (this.tool === "arrow") {
+            const b = this.doc.bindingAt(p, 2 * this.ppp, null);
+            if (b) this.draft.startBinding = b;
+          }
+        }
       }
       this.draw();
     });
@@ -297,28 +348,55 @@ class Editor {
       }
       if (this.dragHandle !== null && this.live) {
         const base = this.selected ?? this.live;
+        if (e.shiftKey) { this.guides = []; this.bindTarget = null; }
         if (e.shiftKey && base.tool !== "text") {
           const fixed = base.tool === "arrow" ? (this.dragHandle === 0 ? base.end : base.start)
             : moveHandle(base, this.dragHandle, p).start;
           p = base.tool === "arrow" ? Geometry.snap45(fixed, p) : Geometry.square(fixed, p);
         }
-        this.live = this.moveHandleOf(base, this.dragHandle, p);
+        if (base.tool === "arrow") {
+          // An arrow end attaches to the mark it's dropped on; elsewhere it snaps.
+          const b = e.shiftKey ? null : this.bindAt(p, base.id);
+          if (!b && !e.shiftKey) p = this.snapped(p, e, [base.id]); else this.guides = [];
+          const m = this.moveHandleOf(base, this.dragHandle, p);
+          const key = this.dragHandle === 0 ? "startBinding" : "endBinding";
+          if (b) m[key] = b; else delete m[key];
+          this.live = m;
+        } else {
+          if (base.tool !== "text" && !e.shiftKey) p = this.snapped(p, e, [base.id]);
+          this.live = this.moveHandleOf(base, this.dragHandle, p);
+        }
       } else if (this.textBox && this.dragOrigin) {
+        p = this.snapped(p, e, []);
         const o = this.dragOrigin;
         this.textBox = { x: Math.min(o.x, p.x), y: Math.min(o.y, p.y), w: Math.abs(p.x - o.x), h: Math.abs(p.y - o.y) };
-      } else if (this.pressedLabel && !this.live && this.dragOrigin
+      } else if ((this.tool === "select" || this.tool === "text") && !this.live && this.dragOrigin
                  && Math.hypot(p.x - this.dragOrigin.x, p.y - this.dragOrigin.y) < 3 * this.ppp) {
-        // A pressed label only starts to move past a few points, so a slightly shaky click still edits it.
+        // A mark only starts to move past a few points, so a slightly shaky click doesn't nudge it,
+        // snap it or let go of an arrow's attachments (and a pressed label still opens for editing).
         return;
       } else if ((this.tool === "select" || this.tool === "text") && this.dragOrigin && this.selected) {
         c.style.cursor = "grabbing";
-        this.live = offset(this.selected, p.x - this.dragOrigin.x, p.y - this.dragOrigin.y);
+        let moved = offset(this.selected, p.x - this.dragOrigin.x, p.y - this.dragOrigin.y);
+        if (e.ctrlKey || e.metaKey) this.guides = [];
+        else {
+          const snap = Snap.move(this.snapRect(moved), this.doc.snapTargets(new Set([this.selected.id])), 6 * this.ppp);
+          moved = offset(moved, snap.dx, snap.dy);
+          this.guides = snap.guides;
+        }
+        this.live = moved;
       } else if (this.tool === "crop" && this.dragOrigin) {
         const o = this.dragOrigin;
         this.cropDraft = { x: Math.min(o.x, p.x), y: Math.min(o.y, p.y), w: Math.abs(p.x - o.x), h: Math.abs(p.y - o.y) };
       } else if (this.draft) {
-        if (e.shiftKey) p = this.draft.tool === "arrow" ? Geometry.snap45(this.draft.start, p) : Geometry.square(this.draft.start, p);
-        this.draft = { ...this.draft, end: p };
+        const d: Mark = { ...this.draft };
+        if (d.tool === "arrow") {
+          const b = e.shiftKey ? null : this.bindAt(p, d.id);
+          if (b) { d.endBinding = b; this.guides = []; } else { delete d.endBinding; this.bindTarget = null; }
+        }
+        if (e.shiftKey) { p = d.tool === "arrow" ? Geometry.snap45(d.start, p) : Geometry.square(d.start, p); this.guides = []; }
+        else if (!d.endBinding) p = this.snapped(p, e, []);
+        this.draft = { ...d, end: p };
       }
       this.draw();
     });
@@ -327,6 +405,8 @@ class Editor {
       const pressed = this.pressedLabel, box = this.textBox;
       this.pressedLabel = null;
       this.textBox = null;
+      this.guides = [];
+      this.bindTarget = null;
       if (this.live) {
         this.doc.update(this.live);
         this.live = null;
@@ -335,11 +415,11 @@ class Editor {
         const current = this.doc.marks.find((m) => m.id === pressed.id)!;
         this.beginText(current.start, current);
       } else if (box) {
-        // A dragged box sets the text height; a click uses the preset size, centered on the click.
-        const sized = box.h > 6 * this.ppp ? Math.min(Math.max(box.h / TEXT_BOX_HEIGHT, 8), 600) : undefined;
-        const h = (sized ?? markFontSize(mark("text", this.color, box, box, { size: this.size }), this.doc.width)) * TEXT_BOX_HEIGHT;
-        const top = sized === undefined ? box.y - h / 2 : box.y;
-        this.beginText({ x: box.x, y: top + h }, null, sized);
+        // A drag sets the width the label wraps at, from its top-left corner; a click starts a
+        // label that grows with its text, centered on the click.
+        const font = markFontSize(mark("text", this.color, box, box, { size: this.size }), this.doc.width);
+        if (box.w > 12 * this.ppp) this.beginText({ x: box.x, y: box.y }, null, Math.max(font * 1.5, box.w - font * PAD_X * 2));
+        else this.beginText({ x: box.x, y: box.y - font * (LINE_HEIGHT + PAD_Y) / 2 }, null);
       } else if (this.tool === "crop" && this.cropDraft) {
         const d = this.cropDraft;
         if (d.w >= 4 * this.ppp && d.h >= 4 * this.ppp) this.doc.setCrop(d);
@@ -411,39 +491,53 @@ class Editor {
 
   // MARK: Text
 
-  beginText(at: Point, editing: Mark | null, sized?: number) {
-    const v = this.toView(at);
-    const probe = editing ?? mark("text", this.color, at, at, { size: this.size, fontSize: sized });
-    const size = markFontSize(probe, this.doc.width) * this.scale;
-    const input = document.createElement("input");
+  /** The label being edited, as it would be with `text`. */
+  editingMark(text: string): Mark {
+    const base = this.doc.marks.find((m) => m.id === this.editingId);
+    return mark("text", base?.color ?? this.color, this.textAt, this.textAt,
+                { size: base?.size ?? this.size, text, fontSize: this.textFontSize, textWidth: this.textWidth });
+  }
+
+  /** Opens the label editor with its top-left corner at `at`. A `wrap` width makes it wrap. */
+  beginText(at: Point, editing: Mark | null, wrap?: number) {
+    this.textAt = at;
+    this.textFontSize = editing?.fontSize;
+    this.textWidth = editing?.textWidth ?? wrap;
+    this.editingId = editing?.id ?? null;
+    const size = markFontSize(this.editingMark(""), this.doc.width) * this.scale;
+    const color = editing?.color ?? this.color;
+    const input = document.createElement("textarea");
     input.className = "label-input";
-    // The label sits above its anchor, like the drawn one (and the macOS app).
-    v.y -= size * TEXT_BOX_HEIGHT;
     input.value = editing?.text ?? "";
     input.placeholder = "Type, then Enter";
-    const color = editing?.color ?? this.color;
+    input.spellcheck = false;
+    // The editor lays text out like the drawn label: the same font, padding, line height and wrap width.
     Object.assign(input.style, {
-      left: `${v.x}px`, top: `${v.y}px`, height: `${size * TEXT_BOX_HEIGHT}px`, font: FONT(size),
+      font: FONT(size), lineHeight: `${size * LINE_HEIGHT}px`, padding: `${size * PAD_Y / 2}px ${size * PAD_X}px`,
       background: css(color, 0.92), color: css(ink(color)),
     });
-    // The field is the label's pill: it hugs the text (or the hint) and grows as you type.
-    const measure = document.createElement("canvas").getContext("2d")!;
-    measure.font = FONT(size);
-    const fit = () => { input.style.width = `${measure.measureText(input.value || input.placeholder).width + size * 0.9 + 2}px`; };
+    const fit = () => {
+      const r = textOrStepRect(this.editingMark(input.value || input.placeholder), this.doc.width, this.doc.measure);
+      const v = this.toView({ x: r.x, y: r.y });
+      Object.assign(input.style, {
+        left: `${v.x}px`, top: `${v.y}px`, height: `${r.h * this.scale}px`,
+        width: `${r.w * this.scale + (this.textWidth === undefined ? 2 : 0)}px`,
+      });
+    };
     fit();
     input.addEventListener("input", fit);
     input.addEventListener("keydown", (e) => {
       e.stopPropagation();
-      if (e.key === "Enter") { e.preventDefault(); this.commitText(); }
+      // Enter commits; Shift+Enter or Alt+Enter starts a new line.
+      if (e.key === "Enter" && e.altKey) { e.preventDefault(); input.setRangeText("\n", input.selectionStart, input.selectionEnd, "end"); fit(); }
+      else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.commitText(); }
       if (e.key === "Escape") { e.preventDefault(); this.cancelText(); }
     });
     this.stage.append(input);
     input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
     requestAnimationFrame(() => input.focus());
     this.input = input;
-    this.textAt = at;
-    this.textFontSize = editing?.fontSize ?? sized;
-    this.editingId = editing?.id ?? null;
     this.draw();
   }
 
@@ -459,7 +553,7 @@ class Editor {
       else { this.doc.update({ ...editing, text }); this.select(editing.id); }
     } else if (text && !this.editingId) {
       // An open label that was undone meanwhile has nothing to update.
-      const m = this.doc.add(mark("text", this.color, this.textAt, this.textAt, { size: this.size, text, fontSize: this.textFontSize }));
+      const m = this.doc.add(this.editingMark(text));
       this.select(m.id);
     }
     this.editingId = null;
@@ -488,6 +582,21 @@ class Editor {
     this.draw();
   }
 
+  /** Puts the copied style on the selection and on new marks. */
+  pasteStyle() {
+    const s = this.copiedStyle;
+    if (!s) return;
+    const i = PALETTE.findIndex((p) => css(p.color) === css(s.color));
+    if (i >= 0) this.colorIndex = i;
+    this.size = s.size;
+    const m = this.selected;
+    if (m) {
+      this.doc.update(rewrapped(styled(m, s), m, this.doc.width));
+      this.changed();
+    }
+    this.refresh();
+  }
+
   setColor(i: number) {
     this.colorIndex = i;
     const m = this.selected;
@@ -499,9 +608,9 @@ class Editor {
     this.size = s;
     const m = this.selected;
     if (m?.tool === "text") {
-      // A preset replaces a hand-set size; the label keeps its top-left corner.
-      const top = textOrStepRect(m, this.doc.width, this.doc.measure).y;
-      this.doc.update(anchorText({ ...m, size: s, fontSize: undefined }, top, this.doc.width));
+      // A preset replaces a hand-set size, and the wrap width scales with it.
+      const { fontSize: _f, ...rest } = m;
+      this.doc.update(rewrapped({ ...rest, size: s }, m, this.doc.width));
       this.changed();
     } else if (m) { this.doc.update({ ...m, size: s }); this.changed(); }
     this.refresh();
@@ -531,10 +640,15 @@ class Editor {
   }
 
   key(e: KeyboardEvent) {
-    if (this.modal || this.input || (e.target as HTMLElement).tagName === "INPUT") return;
+    if (this.modal || this.input || ["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName)) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
     const done = () => { e.preventDefault(); return; };
+    if (ctrl && e.altKey && (e.code === "KeyC" || e.code === "KeyV")) {
+      done();
+      if (e.code === "KeyC") { if (this.selected) this.copiedStyle = this.selected; return; }
+      return this.pasteStyle();
+    }
     if (ctrl) {
       if (k === "z") return done(), this.action(e.shiftKey ? "redo" : "undo");
       if (k === "y") return done(), this.action("redo");

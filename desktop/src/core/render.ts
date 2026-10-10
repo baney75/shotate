@@ -1,6 +1,6 @@
 // Draws marks with the 2D canvas. Used both for the live editor and the exported PNG, so what you
 // see is exactly what gets copied. Mirrors the macOS renderer.
-import { type Doc, type Mark, type RGBA, type Rect, css, fontSize, markFontSize, markRect, rgba, strokeWidth, textOrStepRect } from "./model";
+import { LINE_HEIGHT, PAD_X, PAD_Y, type Doc, type Mark, type RGBA, type Rect, css, fontSize, markFontSize, markRect, rgba, strokeWidth, textLines, textOrStepRect } from "./model";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -84,7 +84,8 @@ export function drawMark(ctx: Ctx, m: Mark, imageWidth: number) {
       ctx.fillStyle = css(ink(m.color));
       ctx.font = FONT(size);
       ctx.textBaseline = "middle";
-      ctx.fillText(m.text, box.x + size * 0.45, box.y + box.h / 2 + size * 0.04);
+      textLines(m, size, measure).forEach((line, i) =>
+        ctx.fillText(line, box.x + size * PAD_X, box.y + size * (PAD_Y / 2 + LINE_HEIGHT * (i + 0.5) + 0.04)));
       break;
     }
     case "step": {

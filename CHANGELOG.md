@@ -2,12 +2,22 @@
 
 ## Unreleased
 
+### Added
+- **Wrapping text.** Drag with the Text tool to set the width a label wraps at; drag a label's side
+  handle to rewrap it. ⌥Return (Shift+Enter on Windows and Linux) starts a new line. Labels grow
+  downward from their top-left corner.
+- **Snapping.** Moving, drawing and resizing line marks up with the edges and centers of the image
+  and of other marks, with guide lines. Hold ⌘ (Ctrl) to place freely.
+- **Attached arrows.** An arrow end dropped on a mark stays attached when that mark moves or
+  resizes, in the same undo step. Dragging the whole arrow detaches it.
+- **Copy and paste style.** ⌥⌘C copies the selected mark's color and size, ⌥⌘V puts them on the
+  selection and on new marks (Ctrl+Alt+C / Ctrl+Alt+V on Windows and Linux).
+
 ### Changed
 - **Text is easier to place and size.** Click with the Text tool to start a label centered on the
-  click, or drag a box to set its size as you place it. The typing field now looks like the finished
-  label and grows as you type, instead of a bar across the whole window. Drag a label (with Text or
-  Select) to move it, click it to edit, and drag its corner handle to scale it to any size. The size
-  buttons still set the presets.
+  click. The typing field looks like the finished label and grows as you type, instead of a bar
+  across the whole window. Drag a label (with Text or Select) to move it, click it to edit, and drag
+  its corner handle to scale it to any size. The size buttons still set the presets.
 
 ## 0.11.0 (2026-10-10)
 

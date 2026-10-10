@@ -382,4 +382,93 @@ final class SnapmarkCoreTests: XCTestCase {
         doc.add(big)
         XCTAssertEqual(doc.hitTest(CGPoint(x: br.maxX - 2, y: br.midY), tolerance: 0)?.id, big.id)
     }
+
+    func testLabelsWrapAtTheirWidthAndGrowDownward() {
+        let red = RGBA.palette[0]
+        let one = Mark(tool: .text, color: red, start: CGPoint(x: 100, y: 500), end: .zero, text: "Deploy the build now")
+        let r1 = Renderer.textOrStepRect(one, imageWidth: 1000)
+        var wrapped = one
+        wrapped.textWidth = r1.width / 2
+        let r2 = Renderer.textOrStepRect(wrapped, imageWidth: 1000)
+        XCTAssertGreaterThan(r2.height, r1.height * 1.5)   // two or more lines
+        XCTAssertLessThan(r2.width, r1.width)
+        XCTAssertEqual(r2.maxY, 500, accuracy: 0.01)      // the top-left corner is the anchor
+        XCTAssertEqual(r1.maxY, 500, accuracy: 0.01)
+        // Line breaks typed with Option-Return add lines too.
+        var broken = one
+        broken.text = "Deploy\nnow"
+        XCTAssertEqual(Renderer.textOrStepRect(broken, imageWidth: 1000).height, r1.height + Renderer.fontSize(of: one, imageWidth: 1000) * Renderer.lineHeight, accuracy: 0.5)
+        // The side handle sets the width; the corner scales width and font together.
+        let side = Renderer.moving(wrapped, handle: 1, to: CGPoint(x: r2.maxX + 50, y: r2.midY), imageWidth: 1000)
+        XCTAssertEqual(side.textWidth!, wrapped.textWidth! + 50, accuracy: 0.01)
+        let corner = Renderer.moving(wrapped, handle: 0, to: CGPoint(x: r2.minX + r2.width * 2, y: r2.minY), imageWidth: 1000)
+        XCTAssertEqual(corner.textWidth! / wrapped.textWidth!, corner.fontSize! / Renderer.fontSize(of: wrapped, imageWidth: 1000), accuracy: 0.001)
+    }
+
+    func testArrowsFollowTheMarksTheyAreAttachedTo() {
+        let doc = Document(image: solidImage(1000, 600))
+        let box = Mark(tool: .box, color: RGBA.palette[1], start: CGPoint(x: 100, y: 100), end: CGPoint(x: 300, y: 200))
+        doc.add(box)
+        let b = doc.binding(at: CGPoint(x: 300, y: 150), tolerance: 0, excluding: nil)!
+        XCTAssertEqual(b.id, box.id)
+        XCTAssertEqual(b.anchor.x, 1, accuracy: 0.001)
+        XCTAssertEqual(b.anchor.y, 0.5, accuracy: 0.001)
+        XCTAssertNil(doc.binding(at: CGPoint(x: 600, y: 400), tolerance: 0, excluding: nil))
+        let arrow = Mark(tool: .arrow, color: RGBA.palette[0], start: CGPoint(x: 600, y: 400), end: CGPoint(x: 300, y: 150), endBinding: b)
+        doc.add(arrow)
+        // Moving the box drags the arrow's end with it, in one undo step.
+        doc.update(box.offset(by: CGVector(dx: 50, dy: -20)))
+        XCTAssertEqual(doc.marks.last!.end, CGPoint(x: 350, y: 130))
+        XCTAssertEqual(doc.marks.last!.start, CGPoint(x: 600, y: 400))
+        // Live previews resolve the same way without touching the document.
+        var marks = doc.marks
+        marks[0] = marks[0].offset(by: CGVector(dx: 10, dy: 0))
+        XCTAssertEqual(doc.resolvingBindings(marks).last!.end, CGPoint(x: 360, y: 130))
+        doc.undo()
+        XCTAssertEqual(doc.marks.last!.end, CGPoint(x: 300, y: 150))
+        // Moving the arrow itself lets go; deleting the box leaves the arrow where it is, detached.
+        XCTAssertNil(arrow.offset(by: CGVector(dx: 5, dy: 5)).endBinding)
+        doc.remove(id: box.id)
+        XCTAssertNil(doc.marks.last!.endBinding)
+        XCTAssertEqual(doc.marks.last!.end, CGPoint(x: 300, y: 150))
+    }
+
+    func testDraggedMarksSnapToEdgesAndCenters() {
+        let targets = [CGRect(x: 0, y: 0, width: 1000, height: 600), CGRect(x: 100, y: 100, width: 200, height: 100)]
+        // A box 4 px right of the target's left edge snaps onto it, with a guide.
+        let (d, guides) = Snap.move(CGRect(x: 104, y: 400, width: 50, height: 50), to: targets, threshold: 6)
+        XCTAssertEqual(d.dx, -4)
+        XCTAssertEqual(d.dy, 0)
+        XCTAssertTrue(guides.contains { $0.vertical && $0.at == 100 })
+        // Centers line up too: the image's center is at x 500.
+        XCTAssertEqual(Snap.move(CGRect(x: 473, y: 400, width: 50, height: 20), to: targets, threshold: 6).0.dx, 2)
+        // Too far away: no snap and no guides.
+        let far = Snap.move(CGRect(x: 120, y: 400, width: 50, height: 50), to: targets, threshold: 6)
+        XCTAssertEqual(far.0, .zero)
+        XCTAssertTrue(far.1.isEmpty)
+        XCTAssertEqual(Snap.point(CGPoint(x: 297, y: 203), to: targets, threshold: 6).0, CGPoint(x: 300, y: 200))
+    }
+
+    func testPastingAStyleKeepsShapeAndText() {
+        let source = Mark(tool: .text, color: RGBA.palette[3], size: .thick, start: .zero, end: .zero, text: "A", fontSize: 40)
+        let target = Mark(tool: .text, color: RGBA.palette[0], start: CGPoint(x: 9, y: 9), end: .zero, text: "B")
+        let styled = target.styled(like: source)
+        XCTAssertEqual(styled.color, source.color)
+        XCTAssertEqual(styled.size, .thick)
+        XCTAssertEqual(styled.fontSize, 40)
+        XCTAssertEqual(styled.text, "B")
+        XCTAssertEqual(styled.start, target.start)
+    }
+
+    func testRestyledWrappingLabelsKeepTheirLines() {
+        var label = Mark(tool: .text, color: RGBA.palette[0], start: .zero, end: .zero, text: "Release notes go here", textWidth: 200)
+        let big = Mark(tool: .text, color: RGBA.palette[1], start: .zero, end: .zero, text: "x", fontSize: 90)
+        let lines = Renderer.textOrStepRect(label, imageWidth: 1000).height
+        let pasted = Renderer.rewrapped(label.styled(like: big), from: label, imageWidth: 1000)
+        XCTAssertEqual(pasted.textWidth! / 200, 90 / Renderer.fontSize(of: label, imageWidth: 1000), accuracy: 0.001)
+        XCTAssertEqual(Renderer.textOrStepRect(pasted, imageWidth: 1000).height / lines, 90 / Renderer.fontSize(of: label, imageWidth: 1000), accuracy: 0.01)
+        // A shape's style drops a label's hand-set size back to its preset.
+        label.fontSize = 50
+        XCTAssertNil(label.styled(like: Mark(tool: .box, color: RGBA.palette[2], start: .zero, end: .zero)).fontSize)
+    }
 }

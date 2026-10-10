@@ -75,7 +75,16 @@ public enum StrokeSize: Int, CaseIterable, Sendable {
     }
 }
 
+/// An arrow end attached to another mark: it follows that mark, at the same spot in its box.
+public struct Binding: Equatable, Sendable {
+    public var id: UUID
+    /// Where in the target's box the end sits, as fractions of its width and height.
+    public var anchor: CGPoint
+    public init(id: UUID, anchor: CGPoint) { self.id = id; self.anchor = anchor }
+}
+
 /// One annotation, in image pixel coordinates with the origin at the bottom left.
+/// A text label's `start` is the top-left corner of its box, so new lines grow downward.
 public struct Mark: Identifiable, Equatable, Sendable {
     public let id: UUID
     public var tool: Tool
@@ -87,11 +96,28 @@ public struct Mark: Identifiable, Equatable, Sendable {
     public var number: Int
     /// A label's font size in image pixels when it was sized by hand; nil follows `size`.
     public var fontSize: CGFloat?
+    /// A label's wrapping width in image pixels (inside its padding); nil grows with the text.
+    public var textWidth: CGFloat?
+    /// The marks an arrow's ends are attached to.
+    public var startBinding: Binding?
+    public var endBinding: Binding?
 
     public init(tool: Tool, color: RGBA, size: StrokeSize = .medium, start: CGPoint, end: CGPoint,
-                text: String = "", number: Int = 0, fontSize: CGFloat? = nil, id: UUID = UUID()) {
+                text: String = "", number: Int = 0, fontSize: CGFloat? = nil, textWidth: CGFloat? = nil,
+                startBinding: Binding? = nil, endBinding: Binding? = nil, id: UUID = UUID()) {
         self.id = id; self.tool = tool; self.color = color; self.size = size
         self.start = start; self.end = end; self.text = text; self.number = number; self.fontSize = fontSize
+        self.textWidth = textWidth; self.startBinding = startBinding; self.endBinding = endBinding
+    }
+
+    /// The same mark with another's color and size, and a label takes a label's text size. Use
+    /// `Renderer.rewrapped` afterwards so a wrapping label's width scales with its new font.
+    public func styled(like o: Mark) -> Mark {
+        var m = self
+        m.color = o.color
+        m.size = o.size
+        if tool == .text { m.fontSize = o.tool == .text ? o.fontSize : nil }
+        return m
     }
 
     public var rect: CGRect {
@@ -100,7 +126,7 @@ public struct Mark: Identifiable, Equatable, Sendable {
     }
 
     /// Grab points for resizing: the two ends of an arrow, the four corners of a shape.
-    /// Text resizes from the corner of its box (see `Renderer.resizing`); steps use the size control.
+    /// Text has its own handles (see `Renderer.handles`); steps use the size control.
     public var handles: [CGPoint] {
         switch tool {
         case .arrow: [start, end]
@@ -129,12 +155,15 @@ public struct Mark: Identifiable, Equatable, Sendable {
     public func duplicate(offset d: CGFloat) -> Mark {
         var m = offset(by: CGVector(dx: d, dy: -d))
         m = Mark(tool: m.tool, color: m.color, size: m.size, start: m.start, end: m.end, text: m.text, number: m.number,
-                 fontSize: m.fontSize)
+                 fontSize: m.fontSize, textWidth: m.textWidth)
         return m
     }
 
+    /// The mark moved. A moved arrow lets go of what it was attached to.
     public func offset(by d: CGVector) -> Mark {
         var m = self
+        m.startBinding = nil
+        m.endBinding = nil
         m.start = CGPoint(x: start.x + d.dx, y: start.y + d.dy)
         m.end = CGPoint(x: end.x + d.dx, y: end.y + d.dy)
         return m
@@ -240,18 +269,75 @@ public final class Document {
         var m = mark
         if m.tool == .step { m.number = nextStepNumber }
         marks.append(m)
+        marks = resolvingBindings(marks)
     }
 
+    /// Replaces a mark. Arrows attached to it follow, in the same undo step.
     public func update(_ mark: Mark) {
         guard let i = marks.firstIndex(where: { $0.id == mark.id }), marks[i] != mark else { return }
         checkpoint()
         marks[i] = mark
+        marks = resolvingBindings(marks)
     }
 
+    /// Removes a mark. Arrows attached to it stay where they are and let go.
     public func remove(id: UUID) {
         guard marks.contains(where: { $0.id == id }) else { return }
         checkpoint()
         marks.removeAll { $0.id == id }
+        for i in marks.indices {
+            if marks[i].startBinding?.id == id { marks[i].startBinding = nil }
+            if marks[i].endBinding?.id == id { marks[i].endBinding = nil }
+        }
+    }
+
+    // MARK: Arrow bindings
+
+    /// The box an arrow end can attach to, or nil for marks that take no arrows.
+    public func bindableRect(_ m: Mark) -> CGRect? {
+        switch m.tool {
+        case .box, .ellipse, .highlight, .redact: m.rect
+        case .text, .step: Renderer.textOrStepRect(m, imageWidth: image.width)
+        case .arrow, .crop, .select: nil
+        }
+    }
+
+    /// The attachment for an arrow end dropped at `p`: the topmost mark under it, other than `excluding`.
+    public func binding(at p: CGPoint, tolerance: CGFloat, excluding: UUID?, in marks: [Mark]? = nil) -> Binding? {
+        for m in (marks ?? self.marks).reversed() where m.id != excluding {
+            // Edges count as inside: an arrow dropped right on a box's outline attaches to it.
+            guard let r = bindableRect(m), r.width > 0, r.height > 0 else { continue }
+            let t = r.insetBy(dx: -tolerance, dy: -tolerance)
+            guard p.x >= t.minX, p.x <= t.maxX, p.y >= t.minY, p.y <= t.maxY else { continue }
+            let a = CGPoint(x: min(max((p.x - r.minX) / r.width, 0), 1), y: min(max((p.y - r.minY) / r.height, 0), 1))
+            return Binding(id: m.id, anchor: a)
+        }
+        return nil
+    }
+
+    /// The marks with every attached arrow end moved onto its target. Used for the document and for
+    /// live previews, so an arrow follows a box while the box is still being dragged.
+    public func resolvingBindings(_ marks: [Mark]) -> [Mark] {
+        guard marks.contains(where: { $0.startBinding != nil || $0.endBinding != nil }) else { return marks }
+        var rects: [UUID: CGRect] = [:]
+        for m in marks { rects[m.id] = bindableRect(m) }
+        func point(_ b: Binding?) -> CGPoint? {
+            guard let b, let r = rects[b.id] else { return nil }
+            return CGPoint(x: r.minX + b.anchor.x * r.width, y: r.minY + b.anchor.y * r.height)
+        }
+        return marks.map { m in
+            var m = m
+            if let p = point(m.startBinding) { m.start = p }
+            if let p = point(m.endBinding) { m.end = p }
+            return m
+        }
+    }
+
+    // MARK: Snapping
+
+    /// The boxes a dragged mark lines up with: the image and every other mark that has a box.
+    public func snapTargets(excluding ids: Set<UUID>, in marks: [Mark]? = nil) -> [CGRect] {
+        [bounds] + (marks ?? self.marks).filter { !ids.contains($0.id) }.compactMap(bindableRect)
     }
 
     /// Moves a mark to the top (drawn last) or the bottom of the stack.
@@ -348,5 +434,63 @@ public enum Geometry {
     public static func square(from a: CGPoint, to b: CGPoint) -> CGPoint {
         let side = max(abs(b.x - a.x), abs(b.y - a.y))
         return CGPoint(x: a.x + (b.x >= a.x ? side : -side), y: a.y + (b.y >= a.y ? side : -side))
+    }
+}
+
+/// Lining marks up with the image and with each other, as in canvas editors: an edge or center that
+/// comes within a few points of another edge or center jumps to it, and a guide line shows the match.
+public enum Snap {
+    public struct Guide: Equatable, Sendable {
+        /// A vertical guide at x = `at` (else horizontal at y = `at`), from `from` to `to` along it.
+        public var vertical: Bool
+        public var at: CGFloat
+        public var from: CGFloat
+        public var to: CGFloat
+    }
+
+    static func stops(_ r: CGRect, vertical: Bool) -> [CGFloat] {
+        vertical ? [r.minX, r.midX, r.maxX] : [r.minY, r.midY, r.maxY]
+    }
+
+    /// The closest stop in `targets` to any of `own`, as the shift to reach it, within `threshold`.
+    static func best(_ own: [CGFloat], _ targets: [CGRect], vertical: Bool, threshold: CGFloat) -> CGFloat? {
+        var best: CGFloat?
+        for t in targets {
+            for a in stops(t, vertical: vertical) {
+                for b in own where abs(a - b) <= threshold && abs(a - b) < abs(best ?? .infinity) { best = a - b }
+            }
+        }
+        return best
+    }
+
+    /// Guides along every target stop that `r` now meets.
+    static func guides(for r: CGRect, _ targets: [CGRect]) -> [Guide] {
+        var out: [Guide] = []
+        for vertical in [true, false] {
+            for t in targets {
+                for a in stops(t, vertical: vertical) where stops(r, vertical: vertical).contains(where: { abs($0 - a) < 0.5 }) {
+                    let lo = vertical ? min(r.minY, t.minY) : min(r.minX, t.minX)
+                    let hi = vertical ? max(r.maxY, t.maxY) : max(r.maxX, t.maxX)
+                    let g = Guide(vertical: vertical, at: a, from: lo, to: hi)
+                    if !out.contains(g) { out.append(g) }
+                }
+            }
+        }
+        return out
+    }
+
+    /// How far to shift a box being moved so it lines up, and the guides to show.
+    public static func move(_ r: CGRect, to targets: [CGRect], threshold: CGFloat) -> (CGVector, [Guide]) {
+        let dx = best(stops(r, vertical: true), targets, vertical: true, threshold: threshold) ?? 0
+        let dy = best(stops(r, vertical: false), targets, vertical: false, threshold: threshold) ?? 0
+        return (CGVector(dx: dx, dy: dy), guides(for: r.offsetBy(dx: dx, dy: dy), targets))
+    }
+
+    /// A point being drawn or dragged (a corner or an arrow end), lined up, and the guides to show.
+    public static func point(_ p: CGPoint, to targets: [CGRect], threshold: CGFloat) -> (CGPoint, [Guide]) {
+        let dx = best([p.x], targets, vertical: true, threshold: threshold) ?? 0
+        let dy = best([p.y], targets, vertical: false, threshold: threshold) ?? 0
+        let q = CGPoint(x: p.x + dx, y: p.y + dy)
+        return (q, guides(for: CGRect(origin: q, size: .zero), targets))
     }
 }
