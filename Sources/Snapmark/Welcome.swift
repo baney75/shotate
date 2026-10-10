@@ -15,10 +15,30 @@ enum ScreenRecording {
     static var hasAsked: Bool { UserDefaults.standard.bool(forKey: askedKey) }
 
     /// Shows the system prompt, which also adds Snapmark to the list in System Settings.
-    static func request() {
-        if hasAsked { resetOwnEntry() }
+    ///
+    /// The stale-entry reset runs at most once per installed build. A second click must never wipe a
+    /// grant the user just made in System Settings, which this process can't see until it relaunches.
+    static func request(completion: @escaping () -> Void = {}) {
+        let build = buildStamp
+        let needsReset = hasAsked && UserDefaults.standard.string(forKey: "resetForBuild") != build
         UserDefaults.standard.set(true, forKey: askedKey)
-        _ = CGRequestScreenCaptureAccess()
+        DispatchQueue.global(qos: .userInitiated).async {
+            if needsReset {
+                resetOwnEntry()
+                UserDefaults.standard.set(build, forKey: "resetForBuild")
+            }
+            DispatchQueue.main.async {
+                _ = CGRequestScreenCaptureAccess()
+                completion()
+            }
+        }
+    }
+
+    /// Identifies this installed build: the executable changes on every build and install.
+    private static var buildStamp: String {
+        let path = Bundle.main.executablePath ?? ""
+        let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        return "\(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "")-\(date?.timeIntervalSince1970 ?? 0)"
     }
 
     /// Removes only Snapmark's Screen Recording entry (never another app's), so macOS asks again.
@@ -40,13 +60,26 @@ enum ScreenRecording {
     }
 
     /// Quits and reopens Snapmark so it picks up a permission granted in System Settings.
+    /// macOS ends an app's helper processes with it, so a helper can't do the reopening. Instead
+    /// LaunchServices starts a second copy, which waits for this one to exit (see main.swift) and
+    /// then opens the welcome window so the user sees the result.
     static func relaunch() {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; open \"$2\"", "sh",
-                       String(ProcessInfo.processInfo.processIdentifier), Bundle.main.bundlePath]
-        try? p.run()
-        NSApp.terminate(nil)
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        config.activates = true
+        config.arguments = ["--wait-for", String(ProcessInfo.processInfo.processIdentifier), "--welcome"]
+        // The new copy reports in only after this one exits, so don't wait for the completion to quit;
+        // just give a launch error a moment to arrive.
+        var failed = false
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, error in
+            guard let error else { return }
+            DispatchQueue.main.async {
+                failed = true
+                Alerts.show("Snapmark couldn't relaunch itself", "Quit it from the menu bar and open it again.\n\n"
+                            + error.localizedDescription)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if !failed { NSApp.terminate(nil) } }
     }
 }
 
@@ -92,6 +125,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
+        window.collectionBehavior.insert(.moveToActiveSpace)  // open on the Space the user is looking at
         window.title = "Welcome to Snapmark"
         super.init(window: window)
         window.delegate = self
@@ -146,7 +180,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         shortcutLabel.textColor = .secondaryLabelColor
         let shortcut = row(symbol: "keyboard", title: "Capture from anywhere", detail: shortcutLabel, trailing: [])
         let mark = row(symbol: "pencil.tip.crop.circle", title: "Mark it up, press Return",
-                       detail: NSTextField(labelWithString: "The image is copied and saved. Esc closes."),
+                       detail: NSTextField(labelWithString: "Return (or Esc) copies it and closes. It is saved too."),
                        trailing: [])
 
         loginBox.target = self
@@ -223,12 +257,13 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         statusIcon.contentTintColor = .systemGreen
         statusIcon.symbolConfiguration = .init(pointSize: 18, weight: .regular)
         statusIcon.isHidden = !granted
-        allowButton.isHidden = granted
+        // Before asking: Allow. After: Relaunch is the next step, System Settings the fallback.
+        allowButton.isHidden = granted || openedSettings
         relaunchButton.isHidden = granted || !openedSettings
+        relaunchButton.bezelColor = .controlAccentColor
         settingsLink.isHidden = granted || !openedSettings
-        allowButton.title = openedSettings ? "Ask Again" : "Allow…"
         statusLabel.stringValue = granted ? "Allowed. Snapmark can capture your screen."
-            : openedSettings ? "Turn Snapmark on in the macOS prompt or in System Settings, then click Relaunch."
+            : openedSettings ? "Turn Snapmark on when macOS asks (or in System Settings), then click Relaunch."
             : "Needed to capture your screen. Snapmark never sends it anywhere."
         let s = app?.settings
         if let keys = s?.captureShortcut?.displayString {
@@ -241,9 +276,12 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func allow() {
-        ScreenRecording.request()
-        openedSettings = true
-        refresh()
+        allowButton.isEnabled = false
+        ScreenRecording.request { [weak self] in
+            self?.allowButton.isEnabled = true
+            self?.openedSettings = true
+            self?.refresh()
+        }
     }
 
     @objc private func openSystemSettings() { ScreenRecording.openSettings() }

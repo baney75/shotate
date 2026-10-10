@@ -13,6 +13,12 @@
   local certificate, so the permission sticks.
 
 ### Added
+- Draw past the edge: marks outside the screenshot grow the canvas, filled with the screenshot's
+  border color (like Shottr).
+- Esc steps back: from a drawing tool to Select, then clears the selection, then copies and closes.
+- A standard macOS Settings window with General, Shortcuts, Commands and Advanced panes, click-to-record
+  shortcuts, editor tool keys, one row per command shortcut, and instant apply.
+- Relaunch that reliably comes back (LaunchServices starts the new copy) and reopens the welcome window.
 - One plain config file, `~/.config/snapmark/config.json`, for people and agents alike. Snapmark
   reloads it the moment it changes. It holds shortcuts for area, window and full-screen capture,
   command shortcuts, and the editor's tool keys. Existing settings move into it automatically.
@@ -27,7 +33,6 @@
 
 ### Changed
 - Snapmark stays in the menu bar only; it no longer shows a Dock icon while editing.
-- Esc deselects the current mark before it closes the editor.
 - A refreshed toolbar with stroke-size dots, a status line showing where the image was saved, and a
   Copy & Close button.
 

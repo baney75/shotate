@@ -219,6 +219,36 @@ final class SnapmarkCoreTests: XCTestCase {
         XCTAssertEqual(Set(Tool.allCases.map(s.key(for:))).count, Tool.allCases.count)
     }
 
+    /// Whatever the file says, every tool must keep a key of its own.
+    func testEveryToolStaysReachableUnderAnyRemap() {
+        let letters = ["a", "b", "c", "v", "r", "x", "1", "", "bb"]
+        let names = Tool.allCases.map { $0.title.lowercased() }
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<2000 {
+            var s = Settings()
+            for n in names where Bool.random(using: &rng) { s.toolKeys[n] = letters.randomElement(using: &rng)! }
+            for t in Tool.allCases {
+                XCTAssertEqual(s.tool(forKey: s.key(for: t)), t, "\(s.toolKeys)")
+            }
+        }
+        var s = Settings()
+        s.toolKeys = ["arrow": "b", "redact": "1"]  // "1" is not a tool key, so Redact keeps its default "b" and Arrow cannot take it
+        XCTAssertEqual(s.key(for: .redact), "b")
+        XCTAssertEqual(s.key(for: .arrow), "a")
+        s.toolKeys = ["arrow": "b", "redact": "x"]  // Redact moves away, so Arrow may take "b"
+        XCTAssertEqual(s.key(for: .arrow), "b")
+        XCTAssertEqual(s.key(for: .redact), "x")
+    }
+
+    func testNormalizedSettingsEqualWhatTheFileLoads() throws {
+        let url = tempConfig()
+        var s = Settings()
+        s.toolKeys = ["arrow": "w"]
+        try s.save(to: url)
+        s.normalize()
+        XCTAssertEqual(try Settings.load(from: url), s)
+    }
+
     func testMigratesOldDefaults() {
         let d = UserDefaults(suiteName: "snapmark-test-\(UUID().uuidString)")!
         d.set(false, forKey: "captureHotkeyEnabled")
@@ -277,5 +307,35 @@ final class SnapmarkCoreTests: XCTestCase {
         let before = doc.revision
         doc.reorder(id: b.id, toFront: true)  // already on top: no change, no undo step
         XCTAssertEqual(doc.revision, before)
+    }
+
+    /// Like Shottr: drawing past the edge grows the image, and the new area matches the border.
+    func testMarksPastTheEdgeExtendTheCanvasWithTheBorderColor() throws {
+        let doc = Document(image: solidImage(400, 300, gray: 0.8))
+        XCTAssertEqual(doc.canvas, doc.bounds)
+        doc.add(Mark(tool: .box, color: RGBA.palette[0], start: CGPoint(x: 100, y: 100), end: CGPoint(x: 200, y: 200)))
+        XCTAssertEqual(doc.canvas, doc.bounds, "marks inside the image don't change its size")
+        doc.add(Mark(tool: .arrow, color: RGBA.palette[0], start: CGPoint(x: 300, y: 150), end: CGPoint(x: 520, y: 150)))
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        XCTAssertGreaterThan(flat.width, 520)
+        XCTAssertEqual(flat.height, 300, "only the side that was drawn past grows")
+        let corner = pixel(flat, flat.width - 2, 2), inside = pixel(flat, 10, 10)
+        XCTAssertEqual(Int(corner.0), Int(inside.0), accuracy: 2, "the fill matches the image's edge")
+        XCTAssertEqual(Int(corner.2), Int(inside.2), accuracy: 2)
+        doc.undo()
+        XCTAssertEqual(try XCTUnwrap(Renderer.flatten(doc)).width, 400, "undo shrinks it back")
+    }
+
+    func testBorderColorIsTheEdgeNotTheMiddle() {
+        let ctx = CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(srgbRed: 0.1, green: 0.2, blue: 0.9, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 10, y: 10, width: 180, height: 80))
+        let c = Document(image: ctx.makeImage()!).borderColor
+        XCTAssertEqual(c.b, 0.9, accuracy: 0.02)
+        XCTAssertEqual(c.r, 0.1, accuracy: 0.02)
     }
 }

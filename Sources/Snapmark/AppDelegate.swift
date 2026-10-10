@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var welcomeWindow: WelcomeWindowController?
     private var capturing = false
     private var configSource: DispatchSourceFileSystemObject?
+    /// True while the config file has a JSON error. Snapmark then never writes it, so a typo
+    /// can't cost someone their settings.
+    private(set) var configBroken = false
     /// Shortcuts that registered (or failed) last time, so a conflict is reported once, not on every change.
     private var lastShortcuts: [String: String] = [:]
     var settings = Settings()
@@ -22,12 +25,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                      forEventClass: AEEventClass(kInternetEventClass),
                                                      andEventID: AEEventID(kAEGetURL))
         NSApp.mainMenu = MainMenu.build(target: self)
+        // While a shortcut is being recorded, global shortcuts step aside so the keys reach the recorder.
+        ShortcutRecorder.onRecordingChange = { [weak self] recording in
+            if recording { self?.hotkeys.removeAll() } else { self?.applySettings(save: false) }
+        }
         settings = loadConfig() ?? settings
+        settings.normalize()
         applySettings(save: !FileManager.default.fileExists(atPath: Settings.configURL.path))
         watchConfig()
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--open"), i + 1 < args.count { open(URL(fileURLWithPath: args[i + 1])) }
         if args.contains("--capture") { capture(.area) }
+        if args.contains("--welcome") { showWelcome() }
         // Only the first launch opens the welcome window. After that a missing permission shows in the
         // menu bar menu, and the welcome window opens when a capture needs it.
         if !UserDefaults.standard.bool(forKey: "onboarded") { showWelcome() }
@@ -66,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "welcome", "permissions": showWelcome()
         case "config": openConfig()
         case "reload": reloadConfig()
+        case "relaunch": ScreenRecording.relaunch()
         default: break
         }
     }
@@ -79,10 +89,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return Settings.migrated(from: .standard)
         }
-        do { return try Settings.load(from: url) } catch {
+        do {
+            let s = try Settings.load(from: url)
+            configBroken = false
+            return s
+        } catch {
+            configBroken = true
             Alerts.show("Snapmark couldn't read its config file",
                         "\((url.path as NSString).abbreviatingWithTildeInPath): \(error.localizedDescription)\n\n"
-                        + "Snapmark keeps its current settings until the file is fixed.")
+                        + "Snapmark keeps its current settings and won't change the file until it is fixed.")
             return nil
         }
     }
@@ -95,7 +110,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         configSource = nil
         let fd = Darwin.open(Settings.configURL.path, O_EVTONLY)
         guard fd >= 0 else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.watchConfig() }
+            // No file yet (or it was deleted): look again shortly, and load it once it's back.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self else { return }
+                let back = FileManager.default.fileExists(atPath: Settings.configURL.path)
+                self.watchConfig()
+                if back { self.reloadConfig() }
+            }
             return
         }
         let source = DispatchSource.makeFileSystemObjectSource(
@@ -115,7 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func reloadConfig() {
         guard FileManager.default.fileExists(atPath: Settings.configURL.path),
-              let fresh = loadConfig(), fresh != settings else { return }
+              var fresh = loadConfig() else { return }
+        fresh.normalize()
+        guard fresh != settings else { return }
         settings = fresh
         log.notice("Reloaded \(Settings.configURL.path, privacy: .public)")
         applySettings(save: false)
@@ -131,7 +154,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Applies settings to the running app; with `save`, also writes the config file.
     func applySettings(save: Bool = true) {
-        if save {
+        if save, configBroken {
+            Alerts.show("Fix the config file first",
+                        "\((Settings.configURL.path as NSString).abbreviatingWithTildeInPath) has an error, so Snapmark "
+                        + "won't overwrite it. Fix or delete the file; your change applies to this session only.")
+        } else if save {
+            settings.normalize()
             do { try settings.save() } catch {
                 Alerts.show("Snapmark couldn't save its settings", error: error)
             }

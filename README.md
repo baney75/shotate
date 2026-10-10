@@ -48,6 +48,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | **Capture** | Area, window or full screen from a global shortcut, the menu bar, or `snapmark://` URLs |
 | **Annotate** | Arrow, box, ellipse, highlight, text label, numbered step, crop |
 | **Redact for real** | Redaction draws a solid bar. Blur and pixelation can sometimes be reversed; this can't |
+| **Draw past the edge** | Drag a mark outside the screenshot and the canvas grows to fit, filled with the screenshot's own border color, so callouts never get cramped |
 | **Edit like a canvas** | New marks are selected as you draw them. Drag handles to resize, Delete to remove, ⌘D to duplicate, arrow keys to nudge, right-click for more |
 | **Paste anywhere** | The clipboard gets PNG, TIFF and the file, so chat apps, documents, Finder and terminal tools such as Claude Code all accept it |
 | **Safe with your files** | An image you open is never overwritten. Edits go to `name (edited).png` beside it |
@@ -60,7 +61,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | Key | Tool | | Key | Action |
 | --- | --- | --- | --- | --- |
 | V | Select and move | | Return | Copy and close |
-| A | Arrow (Shift snaps to 45°) | | Esc | Deselect, then close |
+| A | Arrow (Shift snaps to 45°) | | Esc | Back to Select, then deselect, then copy and close |
 | R | Box (Shift for a square) | | Delete | Delete the selected mark |
 | O | Ellipse | | ⌘D | Duplicate the selected mark |
 | H | Highlight | | Arrow keys | Nudge (Shift: 10 points) |

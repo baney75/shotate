@@ -56,23 +56,34 @@ final class CanvasView: NSView, NSTextFieldDelegate {
 
     // MARK: Geometry
 
-    /// Where the image sits inside the view, aspect-fit and centered.
-    var imageRect: CGRect {
-        let iw = CGFloat(doc.image.width), ih = CGFloat(doc.image.height)
-        let s = min(bounds.width / iw, bounds.height / ih)
-        let w = iw * s, h = ih * s
-        return CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
+    /// The area shown, in image pixels: the canvas (the image, grown by any mark drawn past its edge)
+    /// plus a margin to draw into. It holds still during a drag so the view doesn't zoom under the
+    /// pointer, and catches up when the drag ends.
+    private var frozenLayout: CGRect?
+    private var layoutRect: CGRect {
+        if let frozenLayout { return frozenLayout }
+        let c = doc.canvas
+        let margin = 0.07 * CGFloat(max(doc.image.width, doc.image.height))
+        return c.insetBy(dx: -margin, dy: -margin)
     }
-    private var pixelsPerPoint: CGFloat { CGFloat(doc.image.width) / max(imageRect.width, 1) }
+    private var scale: CGFloat {
+        let l = layoutRect
+        return min(bounds.width / max(l.width, 1), bounds.height / max(l.height, 1))
+    }
+    /// Where image pixel (0, 0) lands in the view.
+    private var origin: CGPoint {
+        let l = layoutRect, s = scale
+        return CGPoint(x: (bounds.width - l.width * s) / 2 - l.minX * s, y: (bounds.height - l.height * s) / 2 - l.minY * s)
+    }
+    private var pixelsPerPoint: CGFloat { 1 / max(scale, 0.0001) }
 
     func imagePoint(_ e: NSEvent) -> CGPoint {
-        let p = convert(e.locationInWindow, from: nil)
-        let r = imageRect
-        return CGPoint(x: (p.x - r.minX) * pixelsPerPoint, y: (p.y - r.minY) * pixelsPerPoint)
+        let p = convert(e.locationInWindow, from: nil), o = origin
+        return CGPoint(x: (p.x - o.x) * pixelsPerPoint, y: (p.y - o.y) * pixelsPerPoint)
     }
     func viewPoint(_ p: CGPoint) -> CGPoint {
-        let r = imageRect
-        return CGPoint(x: r.minX + p.x / pixelsPerPoint, y: r.minY + p.y / pixelsPerPoint)
+        let o = origin
+        return CGPoint(x: o.x + p.x / pixelsPerPoint, y: o.y + p.y / pixelsPerPoint)
     }
 
     var selectedMark: Mark? { selectedID.flatMap { id in doc.marks.first { $0.id == id } } }
@@ -94,15 +105,23 @@ final class CanvasView: NSView, NSTextFieldDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let r = imageRect
+        let o = origin
         ctx.saveGState()
-        ctx.translateBy(x: r.minX, y: r.minY)
+        ctx.translateBy(x: o.x, y: o.y)
         ctx.scaleBy(x: 1 / pixelsPerPoint, y: 1 / pixelsPerPoint)
         ctx.interpolationQuality = .high
-        ctx.draw(doc.image, in: doc.bounds)
         var marks = doc.marks
         if let l = live, let i = marks.firstIndex(where: { $0.id == l.id }) { marks[i] = l }
         if let d = draft { marks.append(d) }
+        // The canvas as it will export: grown past the edge where marks reach, in the border color.
+        let canvas = doc.canvas(including: marks)
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -2 * pixelsPerPoint), blur: 10 * pixelsPerPoint,
+                      color: CGColor(gray: 0, alpha: 0.35))
+        ctx.setFillColor(doc.borderColor.cgColor)
+        ctx.fill(canvas)
+        ctx.restoreGState()
+        Renderer.drawBackground(doc, canvas: canvas, in: ctx)
         for m in marks where m.id != editingID {
             Renderer.draw(m, in: ctx, imageWidth: doc.image.width)
         }
@@ -110,7 +129,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         if let crop = cropDraft ?? doc.crop {
             ctx.setFillColor(CGColor(gray: 0, alpha: 0.55))
             let path = CGMutablePath()
-            path.addRect(doc.bounds)
+            path.addRect(canvas)
             path.addRect(crop)
             ctx.addPath(path)
             ctx.fillPath(using: .evenOdd)
@@ -147,7 +166,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         case .text: .iBeam
         default: .crosshair
         }
-        addCursorRect(imageRect, cursor: cursor)
+        addCursorRect(bounds, cursor: cursor)
     }
 
     // MARK: Mouse
@@ -164,6 +183,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
+        frozenLayout = layoutRect
         let p = imagePoint(e)
         let tolerance = 8 * pixelsPerPoint
         if textField != nil { commitText() }
@@ -232,7 +252,13 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     }
 
     override func mouseUp(with e: NSEvent) {
-        defer { dragOrigin = nil; dragHandle = nil }
+        defer {
+            dragOrigin = nil
+            dragHandle = nil
+            frozenLayout = nil
+            needsDisplay = true
+            window?.invalidateCursorRects(for: self)
+        }
         if let m = live {
             live = nil
             doc.update(m)

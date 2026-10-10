@@ -39,22 +39,37 @@ public struct Settings: Equatable {
     // MARK: Tool keys
 
     /// The single key that picks a tool in the editor.
-    public func key(for tool: Tool) -> String {
-        let k = toolKeys[tool.title.lowercased()]?.lowercased() ?? ""
-        return Settings.isToolKey(k) && !toolKeyClashes(k, except: tool) ? k : tool.rawValue
-    }
+    public func key(for tool: Tool) -> String { resolvedToolKeys[tool] ?? tool.rawValue }
 
-    public func tool(forKey k: String) -> Tool? { Tool.allCases.first { key(for: $0) == k } }
+    public func tool(forKey k: String) -> Tool? { resolvedToolKeys.first { $0.value == k }?.key }
 
     static func isToolKey(_ k: String) -> Bool { k.count == 1 && k.first!.isLetter && k.first!.isASCII }
 
-    /// A custom key that is already another tool's key is ignored, so every tool stays reachable.
-    private func toolKeyClashes(_ k: String, except tool: Tool) -> Bool {
-        Tool.allCases.contains { other in
-            guard other != tool else { return false }
-            let custom = toolKeys[other.title.lowercased()]?.lowercased()
-            return custom == k || (custom == nil && other.rawValue == k)
+    /// Every tool's key, guaranteed unique so every tool stays reachable. A custom key is dropped
+    /// (the tool keeps its default) when it isn't a letter, when an earlier tool already claimed it,
+    /// or when it is the default of a tool that has no custom key. Dropping one custom key can
+    /// expose another clash, so this repeats until nothing changes.
+    public var resolvedToolKeys: [Tool: String] {
+        var custom: [Tool: String] = [:]
+        for t in Tool.allCases {
+            if let k = toolKeys[t.title.lowercased()]?.lowercased(), Settings.isToolKey(k), k != t.rawValue { custom[t] = k }
         }
+        var changed = true
+        while changed {
+            changed = false
+            var claimed: Set<String> = []
+            for t in Tool.allCases {
+                guard let k = custom[t] else { continue }
+                let stealsDefault = Tool.allCases.contains { $0 != t && custom[$0] == nil && $0.rawValue == k }
+                if claimed.contains(k) || stealsDefault { custom[t] = nil; changed = true } else { claimed.insert(k) }
+            }
+        }
+        return Dictionary(uniqueKeysWithValues: Tool.allCases.map { ($0, custom[$0] ?? $0.rawValue) })
+    }
+
+    /// Spells out every tool key, the way the file stores them, so memory and disk compare equal.
+    public mutating func normalize() {
+        toolKeys = Dictionary(uniqueKeysWithValues: resolvedToolKeys.map { ($0.key.title.lowercased(), $0.value) })
     }
 
     // MARK: File
@@ -86,7 +101,7 @@ public struct Settings: Equatable {
         let home = NSHomeDirectory()
         let folder = saveFolder.path.hasPrefix(home + "/") ? "~" + saveFolder.path.dropFirst(home.count) : saveFolder.path
         var tools: [String: String] = [:]
-        for t in Tool.allCases { tools[t.title.lowercased()] = key(for: t) }
+        for (t, k) in resolvedToolKeys { tools[t.title.lowercased()] = k }
         let o: [String: Any] = [
             "_help": "Snapmark settings. Edit and save; Snapmark reloads right away. "
                 + "Docs: https://github.com/baney75/snapmark#configuration",

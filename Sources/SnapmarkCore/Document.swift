@@ -150,9 +150,58 @@ public final class Document {
     private var undoStack: [([Mark], CGRect?)] = []
     private var redoStack: [([Mark], CGRect?)] = []
 
+    /// The color along the screenshot's edge. Marks drawn past the edge grow the canvas, and the new
+    /// area is filled with this color so it looks like the screenshot simply continues.
+    public let borderColor: RGBA
+
     public init(image: CGImage, dpi: CGFloat = 72) {
         self.image = image
         self.dpi = dpi > 0 ? dpi : 72
+        borderColor = Document.edgeColor(of: image)
+    }
+
+    /// The image plus every mark that reaches past it, with a margin so nothing touches the edge.
+    /// Equal to `bounds` while every mark stays inside the image.
+    public var canvas: CGRect { canvas(including: marks) }
+
+    public func canvas(including marks: [Mark]) -> CGRect {
+        var r = bounds
+        for m in marks {
+            let e = Renderer.extent(of: m, imageWidth: image.width)
+            if !bounds.contains(e) {
+                let pad = max(12, m.size.width(forImageWidth: image.width) * 2.5)
+                r = r.union(e.insetBy(dx: -pad, dy: -pad))
+            }
+        }
+        return r.integral
+    }
+
+    /// The most common color in the outermost row and column of pixels on each side.
+    static func edgeColor(of image: CGImage) -> RGBA {
+        let w = image.width, h = image.height
+        guard w > 0, h > 0 else { return RGBA(1, 1, 1) }
+        // CGImage cropping uses a top-left origin; strips are one pixel thick.
+        let strips = [CGRect(x: 0, y: 0, width: w, height: 1), CGRect(x: 0, y: h - 1, width: w, height: 1),
+                      CGRect(x: 0, y: 0, width: 1, height: h), CGRect(x: w - 1, y: 0, width: 1, height: h)]
+        var buckets: [Int: (n: Int, r: Int, g: Int, b: Int)] = [:]
+        for rect in strips {
+            guard let strip = image.cropping(to: rect) else { continue }
+            let sw = strip.width, sh = strip.height
+            var px = [UInt8](repeating: 0, count: sw * sh * 4)
+            guard let ctx = CGContext(data: &px, width: sw, height: sh, bitsPerComponent: 8, bytesPerRow: sw * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { continue }
+            ctx.draw(strip, in: CGRect(x: 0, y: 0, width: sw, height: sh))
+            for i in stride(from: 0, to: px.count, by: 4) {
+                let (r, g, b) = (Int(px[i]), Int(px[i + 1]), Int(px[i + 2]))
+                let key = (r >> 3) << 10 | (g >> 3) << 5 | (b >> 3)
+                let e = buckets[key] ?? (0, 0, 0, 0)
+                buckets[key] = (e.n + 1, e.r + r, e.g + g, e.b + b)
+            }
+        }
+        guard let top = buckets.values.max(by: { $0.n < $1.n }) else { return RGBA(1, 1, 1) }
+        let n = CGFloat(top.n) * 255
+        return RGBA(CGFloat(top.r) / n, CGFloat(top.g) / n, CGFloat(top.b) / n)
     }
 
     public var bounds: CGRect { CGRect(x: 0, y: 0, width: image.width, height: image.height) }
@@ -196,7 +245,7 @@ public final class Document {
     }
 
     public func setCrop(_ rect: CGRect?) {
-        let clipped = rect.map { $0.integral.intersection(bounds) }
+        let clipped = rect.map { $0.integral.intersection(canvas) }
         let value = (clipped?.width ?? 0) >= 4 && (clipped?.height ?? 0) >= 4 ? clipped : nil
         guard value != crop else { return }
         checkpoint()

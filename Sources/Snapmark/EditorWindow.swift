@@ -43,6 +43,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         window.representedURL = fileURL
         window.minSize = CGSize(width: 720, height: 320)
         window.isReleasedWhenClosed = false
+        window.collectionBehavior.insert(.moveToActiveSpace)  // open on the Space the user is looking at
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -139,7 +140,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         status.font = .systemFont(ofSize: 11)
         status.lineBreakMode = .byTruncatingMiddle
         status.translatesAutoresizingMaskIntoConstraints = false
-        let hint = NSTextField(labelWithString: "Return copies · Esc closes · ⌘Z undo")
+        let hint = NSTextField(labelWithString: "Return or Esc copies and closes · ⌘Z undo")
         hint.textColor = .tertiaryLabelColor
         hint.font = .systemFont(ofSize: 11)
         hint.translatesAutoresizingMaskIntoConstraints = false
@@ -250,8 +251,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         let step: CGFloat = mods == [.shift] ? 10 : 1
         switch e.keyCode {
         case 36, 76: finish(copyImage: true); return true                       // Return
-        case 53:                                                                // Esc: deselect, then close
-            if canvas.hasSelection { canvas.deselect() } else { closeAsking() }
+        case 53:
+            // Esc steps back one level at a time: drawing tool → Select tool → no selection → copy and close.
+            if canvas.tool != .select { select(tool: .select) }
+            else if canvas.hasSelection { canvas.deselect() }
+            else { finish(copyImage: true) }
             return true
         case 51, 117: canvas.deleteSelection(); return true                     // Delete, Forward Delete
         case 123: canvas.nudgeSelection(dx: -step, dy: 0); return true
