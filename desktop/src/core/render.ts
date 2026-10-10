@@ -1,13 +1,13 @@
 // Draws marks with the 2D canvas. Used both for the live editor and the exported PNG, so what you
 // see is exactly what gets copied. Mirrors the macOS renderer.
-import { type Doc, type Mark, type RGBA, type Rect, css, fontSize, markRect, rgba, strokeWidth, textOrStepRect } from "./model";
+import { type Doc, type Mark, type RGBA, type Rect, css, fontSize, markFontSize, markRect, rgba, strokeWidth, textOrStepRect } from "./model";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 export const FONT = (size: number) => `600 ${size}px system-ui, "Segoe UI", Ubuntu, "Noto Sans", sans-serif`;
 
 /** Black text on light colors, white on dark ones. */
-function ink(c: RGBA): RGBA {
+export function ink(c: RGBA): RGBA {
   return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b > 0.62 ? rgba(0.08, 0.08, 0.09) : rgba(1, 1, 1);
 }
 
@@ -74,7 +74,7 @@ export function drawMark(ctx: Ctx, m: Mark, imageWidth: number) {
       break;
     }
     case "text": {
-      const size = fontSize(m.size, imageWidth);
+      const size = markFontSize(m, imageWidth);
       const box = textOrStepRect(m, imageWidth, measure);
       shadow(ctx, size * 0.3, size * 0.06);
       ctx.fillStyle = css(m.color);

@@ -1,4 +1,4 @@
-import { Doc, Geometry, PALETTE, mark, handles, moveHandle, duplicate, markRect } from "./model";
+import { Doc, Geometry, PALETTE, mark, handles, moveHandle, duplicate, markRect, markFontSize, resizeText, textOrStepRect } from "./model";
 import { resolveToolKeys, shortcutLabel } from "./settings";
 import { TOOLS } from "./model";
 
@@ -113,5 +113,22 @@ describe("settings", () => {
     expect(shortcutLabel("ctrl+shift+s")).toBe("Ctrl+Shift+S");
     expect(shortcutLabel("cmd+option+2")).toBe("Ctrl+Alt+2");
     expect(shortcutLabel("")).toBe("");
+  });
+});
+
+describe("text labels", () => {
+  it("scale from their corner about the top-left and keep a hand size through duplication", () => {
+    const label = mark("text", red, { x: 100, y: 200 }, { x: 100, y: 200 }, { text: "Hello" });
+    const r = textOrStepRect(label, 1000, measure);
+    const big = resizeText(label, { x: r.x + r.w * 2, y: r.y + r.h }, 1000, measure);
+    const br = textOrStepRect(big, 1000, measure);
+    expect(big.fontSize).toBeCloseTo(markFontSize(label, 1000) * 2);
+    expect(br.x).toBeCloseTo(r.x);
+    expect(br.y).toBeCloseTo(r.y);
+    expect(resizeText(label, { x: 0, y: 0 }, 1000, measure).fontSize).toBe(8);
+    expect(duplicate(big, 5).fontSize).toBe(big.fontSize);
+    const doc = new Doc(1000, 600, measure);
+    doc.add(big);
+    expect(doc.hitTest({ x: br.x + br.w - 2, y: br.y + br.h / 2 }, 0)?.id).toBe(big.id);
   });
 });

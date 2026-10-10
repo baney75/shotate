@@ -11,8 +11,33 @@ public enum Renderer {
         min(72, max(22, CGFloat(w) / 38)) * [0.8, 1.0, 1.35][size.rawValue - 1]
     }
 
+    /// The font size a text or step mark draws with: its own when sized by hand, else its preset.
+    public static func fontSize(of m: Mark, imageWidth w: Int) -> CGFloat {
+        m.fontSize ?? fontSize(imageWidth: w, size: m.size)
+    }
+
+    /// The label line height plus padding, as a multiple of the font size.
+    public static let textBoxHeight: CGFloat = 1.25 + 0.45 * 0.6
+
+    /// The label scaled so the bottom-right corner of its box follows `p`; the top-left corner stays put.
+    public static func resizing(text m: Mark, toCorner p: CGPoint, imageWidth: Int) -> Mark {
+        let r = textOrStepRect(m, imageWidth: imageWidth)
+        let scale = max((p.x - r.minX) / max(r.width, 1), (r.maxY - p.y) / max(r.height, 1))
+        var out = m
+        out.fontSize = min(max(fontSize(of: m, imageWidth: imageWidth) * scale, 8), 600)
+        return anchored(out, top: r.maxY, imageWidth: imageWidth)
+    }
+
+    /// The label moved so the top of its box is at `top`, its left edge unchanged.
+    public static func anchored(_ m: Mark, top: CGFloat, imageWidth: Int) -> Mark {
+        var out = m
+        out.start.y = top - textOrStepRect(m, imageWidth: imageWidth).height
+        out.end = out.start
+        return out
+    }
+
     /// Black text on light colors, white on dark ones.
-    static func ink(on c: RGBA) -> RGBA {
+    public static func ink(on c: RGBA) -> RGBA {
         (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) > 0.62 ? RGBA(0.08, 0.08, 0.09) : RGBA(1, 1, 1)
     }
 
@@ -26,7 +51,7 @@ public enum Renderer {
 
     /// The label box for a text mark, or the disc for a step, in image coordinates.
     public static func textOrStepRect(_ m: Mark, imageWidth: Int) -> CGRect {
-        let size = fontSize(imageWidth: imageWidth, size: m.size)
+        let size = fontSize(of: m, imageWidth: imageWidth)
         if m.tool == .step {
             let r = size * 0.95
             return CGRect(x: m.start.x - r, y: m.start.y - r, width: r * 2, height: r * 2)
@@ -34,7 +59,7 @@ public enum Renderer {
         let l = line(m.text.isEmpty ? " " : m.text, size: size, color: m.color)
         let w = CTLineGetTypographicBounds(l, nil, nil, nil)
         let pad = size * 0.45
-        return CGRect(x: m.start.x, y: m.start.y, width: CGFloat(w) + pad * 2, height: size * 1.25 + pad * 0.6)
+        return CGRect(x: m.start.x, y: m.start.y, width: CGFloat(w) + pad * 2, height: size * textBoxHeight)
     }
 
     /// The image, plus the area a canvas grows into: each side continues the screenshot's outermost
@@ -100,7 +125,7 @@ public enum Renderer {
             drawArrow(from: m.start, to: m.end, color: m.color, width: w, in: ctx)
         case .text:
             let r = textOrStepRect(m, imageWidth: imageWidth)
-            let size = fontSize(imageWidth: imageWidth, size: m.size)
+            let size = fontSize(of: m, imageWidth: imageWidth)
             ctx.setShadow(offset: CGSize(width: 0, height: -size * 0.06), blur: size * 0.3,
                           color: CGColor(gray: 0, alpha: 0.35))
             ctx.setFillColor(m.color.cgColor)
