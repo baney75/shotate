@@ -17,7 +17,7 @@ enum CaptureMode: String {
     }
 }
 
-/// A finished capture: screencapture's PNG, still in a temporary file, and the image decoded from it.
+/// A finished capture: its PNG, in a temporary file and in memory, and the image.
 struct Shot {
     let doc: Document
     let png: Data
@@ -25,10 +25,34 @@ struct Shot {
 }
 
 enum Capture {
-    /// Runs screencapture off the main thread; calls back on main with the shot, or nil if cancelled.
-    /// The caller moves `file` into place: screencapture already wrote a PNG with the right DPI, so
-    /// encoding it again would only delay the editor.
+    /// Captures with ScreenCaptureKit (screencapture before macOS 14, or if that fails before anything
+    /// is picked); calls back on main with the shot, or nil if cancelled. The caller moves `file` into
+    /// place, so the PNG is encoded once.
     static func run(_ mode: CaptureMode, completion: @escaping (Shot?) -> Void) {
+        guard #available(macOS 14.0, *) else { return runScreencapture(mode, completion: completion) }
+        NativeCapture.run(mode) { result in
+            switch result {
+            case .cancelled: completion(nil)
+            case .failed: runScreencapture(mode, completion: completion)
+            case let .image(image, dpi): save(image, dpi: dpi, completion: completion)
+            }
+        }
+    }
+
+    /// Encodes and writes the PNG off the main thread.
+    private static func save(_ image: CGImage, dpi: CGFloat, completion: @escaping (Shot?) -> Void) {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("snap-\(UUID().uuidString).png")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var shot: Shot?
+            if let png = Renderer.pngData(image, dpi: dpi), (try? png.write(to: tmp)) != nil {
+                shot = Shot(doc: Document(image: image, dpi: dpi), png: png, file: tmp)
+            }
+            DispatchQueue.main.async { completion(shot) }
+        }
+    }
+
+    /// Runs screencapture off the main thread. It already writes a PNG with the right DPI.
+    private static func runScreencapture(_ mode: CaptureMode, completion: @escaping (Shot?) -> Void) {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("snap-\(UUID().uuidString).png")
         DispatchQueue.global(qos: .userInitiated).async {
             let p = Process()

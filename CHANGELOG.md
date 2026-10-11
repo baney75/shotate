@@ -18,6 +18,11 @@
   click. The typing field looks like the finished label and grows as you type, instead of a bar
   across the whole window. Drag a label (with Text or Select) to move it, click it to edit, and drag
   its corner handle to scale it to any size. The size buttons still set the presets.
+- **Captures land instantly on macOS.** Snapmark now captures with ScreenCaptureKit and its own
+  area picker instead of macOS's screencapture tool, which took 0.4 to 3 seconds to write each
+  capture. Area capture freezes the screen when you press the shortcut, so the editor opens as soon
+  as you let go of the mouse. Drag for an area, press Space to switch to picking a window, and Esc or
+  a right-click cancels. macOS 13 still uses screencapture.
 - **Faster on macOS.** The editor opens about 0.6 s sooner after a 5K capture: Snapmark keeps
   screencapture's PNG instead of encoding the image twice more on the main thread, and Copy & Close
   copies the saved file instead of rendering and encoding again. Marks that aren't moving are drawn
