@@ -20,20 +20,47 @@ public enum Renderer {
     public static let lineHeight: CGFloat = 1.25
     static let padX: CGFloat = 0.45, padY: CGFloat = 0.27
 
+    /// A label laid out: its lines and the width of the widest one.
+    final class TextLayout {
+        let lines: [CTLine]
+        let widest: CGFloat
+        init(lines: [CTLine], widest: CGFloat) { self.lines = lines; self.widest = widest }
+    }
+
+    /// Layouts by text, font size, wrap width and ink. Hit testing, the canvas size and every redraw
+    /// measure each label, and Core Text layout is the slow part, so each layout is made once.
+    private static let layouts: NSCache<NSString, TextLayout> = {
+        let c = NSCache<NSString, TextLayout>()
+        c.countLimit = 500
+        return c
+    }()
+    /// How many layouts were built rather than reused; tests use it to keep the cache working.
+    static var layoutsBuilt: Int { layoutLock.withLock { built } }
+    private static var built = 0
+    private static let layoutLock = NSLock()
+
     /// The lines a label draws: its own line breaks, plus wrapping when it has a width.
-    static func lines(_ m: Mark, size: CGFloat) -> [CTLine] {
+    static func layout(_ m: Mark, size: CGFloat) -> TextLayout {
+        let ink = ink(on: m.color)
+        let width = m.textWidth.map { max($0, size) } ?? 100_000
+        let key = "\(size) \(width) \(ink.r) \(ink.g) \(ink.b)\n\(m.text)" as NSString
+        if let hit = layouts.object(forKey: key) { return hit }
         let text = m.text.isEmpty ? " " : m.text
         let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, size, nil)
             ?? CTFontCreateWithName("Helvetica-Bold" as CFString, size, nil)
-        let attrs: [CFString: Any] = [kCTFontAttributeName: font, kCTForegroundColorAttributeName: ink(on: m.color).cgColor]
+        let attrs: [CFString: Any] = [kCTFontAttributeName: font, kCTForegroundColorAttributeName: ink.cgColor]
         let str = CFAttributedStringCreate(nil, text as CFString, attrs as CFDictionary)!
         let setter = CTFramesetterCreateWithAttributedString(str)
-        let width = m.textWidth.map { max($0, size) } ?? 100_000
         let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0),
                                              CGPath(rect: CGRect(x: 0, y: 0, width: width, height: 100_000), transform: nil), nil)
-        let lines = CTFrameGetLines(frame) as? [CTLine] ?? []
+        var lines = CTFrameGetLines(frame) as? [CTLine] ?? []
         // A trailing line break starts an empty last line, which the caret is on while typing.
-        return text.hasSuffix("\n") ? lines + [line(" ", size: size, color: m.color)] : lines
+        if text.hasSuffix("\n") { lines.append(line(" ", size: size, color: m.color)) }
+        let widest = lines.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil)) - CGFloat(CTLineGetTrailingWhitespaceWidth($0)) }.max() ?? 0
+        let out = TextLayout(lines: lines, widest: widest)
+        layouts.setObject(out, forKey: key)
+        layoutLock.withLock { built += 1 }
+        return out
     }
 
     /// The label scaled so the bottom-right corner of its box follows `p`; the top-left corner stays put.
@@ -97,10 +124,9 @@ public enum Renderer {
             let r = size * 0.95
             return CGRect(x: m.start.x - r, y: m.start.y - r, width: r * 2, height: r * 2)
         }
-        let lines = lines(m, size: size)
-        let widest = lines.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil)) - CGFloat(CTLineGetTrailingWhitespaceWidth($0)) }.max() ?? 0
-        let w = (m.textWidth.map { max($0, size) } ?? widest) + size * padX * 2
-        let h = size * (lineHeight * CGFloat(max(lines.count, 1)) + padY)
+        let layout = layout(m, size: size)
+        let w = (m.textWidth.map { max($0, size) } ?? layout.widest) + size * padX * 2
+        let h = size * (lineHeight * CGFloat(max(layout.lines.count, 1)) + padY)
         return CGRect(x: m.start.x, y: m.start.y - h, width: w, height: h)
     }
 
@@ -128,6 +154,22 @@ public enum Renderer {
             ctx.restoreGState()
         }
         ctx.draw(img, in: b)
+    }
+
+    /// The glyphs a label paints, which combining marks or tall scripts can push past its box.
+    public static func inkRect(of m: Mark, imageWidth: Int) -> CGRect {
+        let r = textOrStepRect(m, imageWidth: imageWidth)
+        guard m.tool == .text else { return r }
+        let size = fontSize(of: m, imageWidth: imageWidth)
+        var ink = r
+        for (i, l) in layout(m, size: size).lines.enumerated() {
+            var descent: CGFloat = 0
+            _ = CTLineGetTypographicBounds(l, nil, &descent, nil)
+            let b = CTLineGetImageBounds(l, nil)
+            guard !b.isNull, b.width.isFinite, b.height.isFinite else { continue }
+            ink = ink.union(b.offsetBy(dx: r.minX + size * padX, dy: r.maxY - size * lineHeight * CGFloat(i + 1) + descent))
+        }
+        return ink
     }
 
     /// Everything a mark paints, including stroke width, arrowhead and shadow.
@@ -168,13 +210,12 @@ public enum Renderer {
         case .text:
             let r = textOrStepRect(m, imageWidth: imageWidth)
             let size = fontSize(of: m, imageWidth: imageWidth)
-            ctx.setShadow(offset: CGSize(width: 0, height: -size * 0.06), blur: size * 0.3,
-                          color: CGColor(gray: 0, alpha: 0.35))
+            shadow(in: ctx, drop: size * 0.06, blur: size * 0.3)
             ctx.setFillColor(m.color.cgColor)
             ctx.addPath(CGPath(roundedRect: r, cornerWidth: size * 0.35, cornerHeight: size * 0.35, transform: nil))
             ctx.fillPath()
             ctx.setShadow(offset: .zero, blur: 0)
-            for (i, l) in lines(m, size: size).enumerated() {
+            for (i, l) in layout(m, size: size).lines.enumerated() {
                 var descent: CGFloat = 0
                 _ = CTLineGetTypographicBounds(l, nil, &descent, nil)
                 ctx.textPosition = CGPoint(x: r.minX + size * padX, y: r.maxY - size * lineHeight * CGFloat(i + 1) + descent)
@@ -183,8 +224,7 @@ public enum Renderer {
         case .step:
             let r = textOrStepRect(m, imageWidth: imageWidth)
             let size = fontSize(imageWidth: imageWidth, size: m.size)
-            ctx.setShadow(offset: CGSize(width: 0, height: -size * 0.05), blur: size * 0.25,
-                          color: CGColor(gray: 0, alpha: 0.35))
+            shadow(in: ctx, drop: size * 0.05, blur: size * 0.25)
             ctx.setFillColor(m.color.cgColor)
             ctx.fillEllipse(in: r)
             ctx.setShadow(offset: .zero, blur: 0)
@@ -207,6 +247,15 @@ public enum Renderer {
         }
     }
 
+    /// A drop shadow measured in image pixels. Core Graphics sizes shadows in the context's base space
+    /// and ignores the CTM, so the CTM's scale is applied here. That holds for bitmap contexts, whose
+    /// base space is pixels: marks are only drawn into those (the export, and the editor's `MarkLayer`),
+    /// never straight into a view, whose base space is points.
+    static func shadow(in ctx: CGContext, drop: CGFloat, blur: CGFloat) {
+        let s = hypot(ctx.ctm.a, ctx.ctm.b)
+        ctx.setShadow(offset: CGSize(width: 0, height: -drop * s), blur: blur * s, color: CGColor(gray: 0, alpha: 0.35))
+    }
+
     static func drawArrow(from a: CGPoint, to b: CGPoint, color: RGBA, width w: CGFloat, in ctx: CGContext) {
         let angle = atan2(b.y - a.y, b.x - a.x)
         let head = max(w * 4.5, 10)
@@ -216,7 +265,7 @@ public enum Renderer {
                            y: b.y - sin(angle) * head + sin(angle + .pi / 2) * wing)
         let right = CGPoint(x: b.x - cos(angle) * head - cos(angle + .pi / 2) * wing,
                             y: b.y - sin(angle) * head - sin(angle + .pi / 2) * wing)
-        ctx.setShadow(offset: CGSize(width: 0, height: -w * 0.3), blur: w * 1.2, color: CGColor(gray: 0, alpha: 0.35))
+        shadow(in: ctx, drop: w * 0.3, blur: w * 1.2)
         ctx.setStrokeColor(color.cgColor)
         ctx.setFillColor(color.cgColor)
         ctx.setLineWidth(w)
@@ -267,8 +316,12 @@ public enum Renderer {
     /// Reads the bytes into memory and decodes now: a URL-backed CGImage decodes lazily from the
     /// file, so deleting the capture's temp file (or editing the original) broke every later save.
     public static func loadDocument(at url: URL) -> Document? {
-        guard let data = try? Data(contentsOf: url),
-              let src = CGImageSourceCreateWithData(data as CFData, nil),
+        (try? Data(contentsOf: url)).flatMap(loadDocument(data:))
+    }
+
+    /// The image in `data` (any format ImageIO reads) and its DPI, decoded now.
+    public static func loadDocument(data: Data) -> Document? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(
                   src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else { return nil }
         let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]

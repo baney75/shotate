@@ -18,6 +18,15 @@
   click. The typing field looks like the finished label and grows as you type, instead of a bar
   across the whole window. Drag a label (with Text or Select) to move it, click it to edit, and drag
   its corner handle to scale it to any size. The size buttons still set the presets.
+- **Faster on macOS.** The editor opens about 0.6 s sooner after a 5K capture: Snapmark keeps
+  screencapture's PNG instead of encoding the image twice more on the main thread, and Copy & Close
+  copies the saved file instead of rendering and encoding again. Marks that aren't moving are drawn
+  once and reused, so a drag redraws only what moves (a 40-mark frame drops from about 47 ms to
+  7 ms), and labels are laid out once instead of on every pointer move and redraw.
+
+### Fixed
+- **Shadows in the editor match the saved image.** Arrow, label and step shadows were sized in
+  screen points, so on a large capture the editor showed them several times bigger than the PNG.
 
 ## 0.11.0 (2026-10-10)
 

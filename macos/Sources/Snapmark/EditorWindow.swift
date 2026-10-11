@@ -23,8 +23,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     /// For the editor's tool keys and the fallback save folder.
     let settings: Settings
 
-    init(document: Document, fileURL: URL, ownsFile: Bool, settings: Settings) {
+    /// The capture's PNG as screencapture wrote it, for copying before any edit is saved.
+    private let capturePNG: Data?
+
+    init(document: Document, fileURL: URL, ownsFile: Bool, capturePNG: Data? = nil, settings: Settings) {
         doc = document
+        self.capturePNG = capturePNG
         self.settings = settings
         self.fileURL = fileURL
         self.ownsFile = ownsFile
@@ -337,13 +341,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     func finish(copyImage: Bool, copyPath: Bool = false) {
         guard !finished, let url = saveEdits() else { return }
         finished = true
-        if copyImage, !(flattened().map { Output.copy($0, fileURL: url, dpi: doc.dpi) } ?? false) {
+        if copyImage, !copy(savedAt: url) {
             finished = false
             Alerts.show("Snapmark couldn't copy the image", "It is saved at \(url.path).", in: window)
             return
         }
         if copyPath { Output.copyPath(url) }
         window?.close()
+    }
+
+    /// Copies the image `saveEdits` just saved at `url` without rendering and encoding it again: an
+    /// unedited capture copies the bytes it was captured with, and a PNG Snapmark saved copies that
+    /// file. An opened original may be another format, so it is rendered.
+    private func copy(savedAt url: URL) -> Bool {
+        if savedRevision == 0, let png = capturePNG { return Output.copy(png: png, fileURL: url) }
+        if ownsFile || url == savedCopy, let png = try? Data(contentsOf: url) { return Output.copy(png: png, fileURL: url) }
+        return flattened().map { Output.copy($0, fileURL: url, dpi: doc.dpi) } ?? false
     }
 
     /// Esc and the close button: discard unsaved edits only after asking.
@@ -470,12 +483,24 @@ enum Output {
         try data.write(to: url, options: .atomic)
     }
 
+    /// Moves a finished PNG (a fresh capture) to `url`, making its folder if needed.
+    static func place(_ file: URL, at url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: file, to: url)
+    }
+
     /// One clipboard item with PNG data, a TIFF made only if an app asks for it, and the file.
     /// Terminals such as Claude Code paste the image with Ctrl+V; Finder and chat apps get the file.
     /// Returns false when nothing was copied.
     @discardableResult
     static func copy(_ image: CGImage, fileURL: URL, dpi: CGFloat) -> Bool {
         guard let png = Renderer.pngData(image, dpi: dpi) else { return false }
+        return copy(png: png, fileURL: fileURL)
+    }
+
+    /// The same, from PNG data already in hand.
+    @discardableResult
+    static func copy(png: Data, fileURL: URL) -> Bool {
         let item = NSPasteboardItem()
         item.setData(png, forType: .png)
         item.setDataProvider(TIFFProvider(png: png), forTypes: [.tiff])
