@@ -250,3 +250,9 @@ Snapmark is designed and built by **Donovan Baney**.
 ## License
 
 [MIT](LICENSE) © 2026 Donovan Baney
+
+## Sponsors
+
+<!-- sponsors:start -->
+No sponsors yet. [Sponsor on GitHub](https://github.com/sponsors/baney75) and your name appears here automatically.
+<!-- sponsors:end -->
