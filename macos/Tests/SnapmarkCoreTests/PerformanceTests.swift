@@ -127,3 +127,16 @@ final class PerformanceTests: XCTestCase {
         XCTAssertNil(Renderer.loadDocument(data: Data("not an image".utf8)))
     }
 }
+
+final class CaptureGeometryTests: XCTestCase {
+    /// An area chosen on screen maps to the pixels showing it: AppKit counts up from the bottom,
+    /// image pixels down from the top, and a second screen sits at its own origin.
+    func testAreaMapsToImagePixels() {
+        let main = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        XCTAssertEqual(CaptureGeometry.pixelRect(of: CGRect(x: 200, y: 150, width: 300, height: 200), screenFrame: main, scale: 2),
+                       CGRect(x: 400, y: 1264, width: 600, height: 400))
+        let side = CGRect(x: -1920, y: 100, width: 1920, height: 1080)
+        XCTAssertEqual(CaptureGeometry.pixelRect(of: CGRect(x: -1900, y: 1080, width: 100, height: 100), screenFrame: side, scale: 1),
+                       CGRect(x: 20, y: 0, width: 100, height: 100))
+    }
+}
