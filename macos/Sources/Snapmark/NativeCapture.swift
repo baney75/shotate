@@ -106,18 +106,25 @@ enum NativeCapture {
         let window: SCWindow
     }
 
-    /// Ordinary app windows, frontmost first (ScreenCaptureKit doesn't promise an order; the window
-    /// server list does).
+    /// Windows screencapture -W could pick (app windows, panels, the Dock, the menu bar), frontmost
+    /// first: ScreenCaptureKit doesn't promise an order; the window server list does. Full-screen
+    /// windows above the normal level are skipped, since they are overlays that would hide every
+    /// window under them.
     private static func pickableWindows(_ content: SCShareableContent) -> [PickableWindow] {
         let byID = Dictionary(content.windows.map { ($0.windowID, $0) }, uniquingKeysWith: { a, _ in a })
         let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[CFString: Any]] ?? []
         let top = NSScreen.screens.first?.frame.maxY ?? 0
+        // Screens in window-server coordinates (top-left origin), to spot full-screen overlays.
+        let screens = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: top - $0.frame.maxY,
+                                                     width: $0.frame.width, height: $0.frame.height) }
         return info.compactMap { w in
-            guard (w[kCGWindowLayer] as? Int) == 0, (w[kCGWindowAlpha] as? Double ?? 1) > 0,
+            guard let layer = w[kCGWindowLayer] as? Int, layer >= 0, layer < Int(CGWindowLevelForKey(.screenSaverWindow)),
+                  (w[kCGWindowAlpha] as? Double ?? 1) > 0,
                   let id = w[kCGWindowNumber] as? CGWindowID, let sc = byID[id],
                   let dict = w[kCGWindowBounds], let r = CGRect(dictionaryRepresentation: dict as! CFDictionary),
-                  r.width >= 40, r.height >= 40 else { return nil }
+                  r.width >= 8, r.height >= 8 else { return nil }
+            if layer != 0, screens.contains(where: { r.contains($0) }) { return nil }
             return PickableWindow(id: id, frame: CGRect(x: r.minX, y: top - r.maxY, width: r.width, height: r.height),
                                   window: sc)
         }
@@ -153,7 +160,8 @@ final class Picker {
         current = p
         p.screens = shots.map(\.0)
         p.overlays = shots.map { PickerWindow(screen: $0.0, image: $0.1, picker: p) }
-        NSApp.activate(ignoringOtherApps: true)
+        // The overlays take keys without activating Snapmark, so the app being captured keeps its
+        // active look and its focus comes back on Esc.
         let mouse = NSEvent.mouseLocation
         for w in p.overlays { w.orderFrontRegardless() }
         (p.overlays.first { $0.frame.contains(mouse) } ?? p.overlays[0]).makeKey()
@@ -233,16 +241,20 @@ final class Picker {
         Picker.current = nil
         for w in overlays { w.orderOut(nil) }
         overlays = []
+        NSCursor.arrow.set()
         done(choice)
     }
 }
 
-private final class PickerWindow: NSWindow {
+private final class PickerWindow: NSPanel {
     let overlay: PickerView
 
     init(screen: NSScreen, image: CGImage, picker: Picker) {
         overlay = PickerView(screen: screen, image: image, picker: picker)
-        super.init(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+                   defer: false)
+        becomesKeyOnlyIfNeeded = false
+        hidesOnDeactivate = false
         setFrame(screen.frame, display: false)
         level = .screenSaver
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
@@ -252,9 +264,16 @@ private final class PickerWindow: NSWindow {
         isOpaque = true
         backgroundColor = .black
         contentView = overlay
+        initialFirstResponder = overlay
+        makeFirstResponder(overlay)
     }
 
     override var canBecomeKey: Bool { true }
+
+    override func becomeKey() {
+        super.becomeKey()
+        makeFirstResponder(overlay)
+    }
 }
 
 /// One screen's frozen image with the selection drawn over it. Layers do the drawing, so moving the
