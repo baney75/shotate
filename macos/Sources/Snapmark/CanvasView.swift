@@ -42,6 +42,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
     /// The mark an arrow end being dragged would attach to, outlined as a drop target.
     private var bindTarget: UUID? { didSet { if oldValue != bindTarget { needsDisplay = true } } }
     private var tracking: NSTrackingArea?
+    private let markLayer = MarkLayer()
 
     init(document: Document) {
         doc = document
@@ -162,9 +163,20 @@ final class CanvasView: NSView, NSTextViewDelegate {
         ctx.fill(canvas)
         ctx.restoreGState()
         Renderer.drawBackground(doc, canvas: canvas, in: ctx)
-        for m in marks where m.id != editingID {
-            Renderer.draw(m, in: ctx, imageWidth: doc.image.width)
-        }
+        // Marks up to the first one a drag or draft changes come from the cached layer; the rest are
+        // drawn fresh. Without a drag that is every mark, so hovering and selecting redraw nothing.
+        // A live resize changes the size every frame, so the layer would never be reused.
+        let committed = doc.marks
+        let stable = inLiveResize ? 0 : marks.indices.first { $0 >= committed.count || marks[$0] != committed[$0] } ?? marks.count
+        let backing = convertToBacking(bounds).size
+        let (bw, bh) = (Int(backing.width.rounded()), Int(backing.height.rounded()))
+        let toBacking = CGAffineTransform(scaleX: backing.width / max(bounds.width, 1), y: backing.height / max(bounds.height, 1))
+            .translatedBy(x: o.x, y: o.y).scaledBy(x: 1 / pixelsPerPoint, y: 1 / pixelsPerPoint)
+        let space = window?.colorSpace?.cgColorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        markLayer.draw(marks[..<stable].filter { $0.id != editingID }, imageWidth: doc.image.width, transform: toBacking,
+                       width: bw, height: bh, space: space, in: ctx)
+        MarkLayer.drawUncached(marks[stable...].filter { $0.id != editingID }, imageWidth: doc.image.width,
+                               transform: toBacking, width: bw, height: bh, space: space, in: ctx)
         // Dim everything outside the crop.
         if let crop = cropDraft ?? doc.effectiveCrop {
             ctx.setFillColor(CGColor(gray: 0, alpha: 0.55))

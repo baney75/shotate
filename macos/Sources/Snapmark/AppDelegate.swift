@@ -210,20 +210,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !capturing else { return }
         guard ScreenRecording.isGranted else { showWelcome(); return }
         capturing = true
-        Capture.run(mode) { [weak self] doc in
+        Capture.run(mode) { [weak self] shot in
             guard let self else { return }
             self.capturing = false
-            guard let doc else { return }  // cancelled with Esc
+            guard let shot else { return }  // cancelled with Esc
+            defer { try? FileManager.default.removeItem(at: shot.file) }  // gone already once moved
             let url = self.settings.newCaptureURL()
-            do { try Output.write(doc.image, to: url, dpi: doc.dpi) } catch {
+            do { try Output.place(shot.file, at: url) } catch {
                 Alerts.show("Snapmark couldn't save the capture to \(url.deletingLastPathComponent().path)",
                             error: error)
                 return
             }
-            if self.settings.copyOnCapture, !Output.copy(doc.image, fileURL: url, dpi: doc.dpi) {
+            if self.settings.copyOnCapture, !Output.copy(png: shot.png, fileURL: url) {
                 Alerts.show("Snapmark couldn't copy the capture", "It is saved at \(url.path).")
             }
-            self.edit(doc, fileURL: url, ownsFile: true)
+            self.edit(shot.doc, fileURL: url, ownsFile: true)
         }
     }
 

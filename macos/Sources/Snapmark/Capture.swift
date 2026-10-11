@@ -16,9 +16,18 @@ enum CaptureMode: String {
     }
 }
 
+/// A finished capture: screencapture's PNG, still in a temporary file, and the image decoded from it.
+struct Shot {
+    let doc: Document
+    let png: Data
+    let file: URL
+}
+
 enum Capture {
-    /// Runs screencapture off the main thread; calls back on main with the image, or nil if cancelled.
-    static func run(_ mode: CaptureMode, completion: @escaping (Document?) -> Void) {
+    /// Runs screencapture off the main thread; calls back on main with the shot, or nil if cancelled.
+    /// The caller moves `file` into place: screencapture already wrote a PNG with the right DPI, so
+    /// encoding it again would only delay the editor.
+    static func run(_ mode: CaptureMode, completion: @escaping (Shot?) -> Void) {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("snap-\(UUID().uuidString).png")
         DispatchQueue.global(qos: .userInitiated).async {
             let p = Process()
@@ -33,9 +42,13 @@ enum Capture {
             p.waitUntilExit()
             let message = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             if !message.isEmpty { NSLog("Snapmark: screencapture: %@", message) }
-            let doc = FileManager.default.fileExists(atPath: tmp.path) ? Renderer.loadDocument(at: tmp) : nil
-            try? FileManager.default.removeItem(at: tmp)
-            DispatchQueue.main.async { completion(doc) }
+            var shot: Shot?
+            if let png = try? Data(contentsOf: tmp), let doc = Renderer.loadDocument(data: png) {
+                shot = Shot(doc: doc, png: png, file: tmp)
+            } else {
+                try? FileManager.default.removeItem(at: tmp)
+            }
+            DispatchQueue.main.async { completion(shot) }
         }
     }
 }
