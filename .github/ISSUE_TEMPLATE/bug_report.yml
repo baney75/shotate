@@ -10,10 +10,10 @@ body:
     validations:
       required: true
   - type: input
-    id: macos
+    id: system
     attributes:
-      label: macOS version
-      placeholder: "e.g. macOS 15.3 on an M2 MacBook Air"
+      label: System
+      placeholder: "e.g. macOS 15.3 on an M2, Windows 11, or Ubuntu 24.04 (GNOME, Wayland)"
     validations:
       required: true
   - type: input
@@ -25,5 +25,5 @@ body:
     id: logs
     attributes:
       label: Logs (optional)
-      description: "Output of: /usr/bin/log show --last 10m --predicate 'process == \"Snapmark\"' --style compact"
+      description: "On macOS: /usr/bin/log show --last 10m --predicate 'process == \"Snapmark\"' --style compact. On Windows or Linux, run snapmark from a terminal and paste what it prints."
       render: text
