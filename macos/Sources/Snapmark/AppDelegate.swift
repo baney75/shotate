@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if self.settings.copyOnCapture, !Output.copy(png: shot.png, fileURL: url) {
                 Alerts.show("Snapmark couldn't copy the capture", "It is saved at \(url.path).")
             }
-            self.edit(shot.doc, fileURL: url, ownsFile: true)
+            self.edit(shot.doc, fileURL: url, ownsFile: true, capturePNG: shot.png)
         }
     }
 
@@ -239,8 +239,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Snapmark lives in the menu bar only: no Dock icon, even while an editor is open. The editor
     /// window activates the app to take keyboard focus, and the hidden main menu still routes ⌘V,
     /// ⌘A and friends to text labels.
-    private func edit(_ doc: Document, fileURL: URL, ownsFile: Bool) {
-        let editor = EditorWindowController(document: doc, fileURL: fileURL, ownsFile: ownsFile, settings: settings)
+    private func edit(_ doc: Document, fileURL: URL, ownsFile: Bool, capturePNG: Data? = nil) {
+        let editor = EditorWindowController(document: doc, fileURL: fileURL, ownsFile: ownsFile, capturePNG: capturePNG,
+                                            settings: settings)
         editor.onClose = { [weak self] e in self?.editors.removeAll { $0 === e } }
         editors.append(editor)
         editor.present()

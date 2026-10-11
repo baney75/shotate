@@ -23,8 +23,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     /// For the editor's tool keys and the fallback save folder.
     let settings: Settings
 
-    init(document: Document, fileURL: URL, ownsFile: Bool, settings: Settings) {
+    /// The capture's PNG as screencapture wrote it, for copying before any edit is saved.
+    private let capturePNG: Data?
+
+    init(document: Document, fileURL: URL, ownsFile: Bool, capturePNG: Data? = nil, settings: Settings) {
         doc = document
+        self.capturePNG = capturePNG
         self.settings = settings
         self.fileURL = fileURL
         self.ownsFile = ownsFile
@@ -346,10 +350,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         window?.close()
     }
 
-    /// Copies the image `saveEdits` just saved at `url`. A PNG Snapmark wrote (the capture or the
-    /// edited copy) already is this image, so its bytes go to the clipboard without rendering and
-    /// encoding it again. An opened original may be another format, so it is rendered.
+    /// Copies the image `saveEdits` just saved at `url` without rendering and encoding it again: an
+    /// unedited capture copies the bytes it was captured with, and a PNG Snapmark saved copies that
+    /// file. An opened original may be another format, so it is rendered.
     private func copy(savedAt url: URL) -> Bool {
+        if savedRevision == 0, let png = capturePNG { return Output.copy(png: png, fileURL: url) }
         if ownsFile || url == savedCopy, let png = try? Data(contentsOf: url) { return Output.copy(png: png, fileURL: url) }
         return flattened().map { Output.copy($0, fileURL: url, dpi: doc.dpi) } ?? false
     }

@@ -49,7 +49,7 @@ public final class MarkLayer {
 
     /// Everything a mark paints, shadow included, with room to spare.
     static func reachRect(_ m: Mark, imageWidth: Int) -> CGRect {
-        let e = Renderer.extent(of: m, imageWidth: imageWidth)
+        let e = Renderer.extent(of: m, imageWidth: imageWidth).union(Renderer.inkRect(of: m, imageWidth: imageWidth))
         let w = m.size.width(forImageWidth: imageWidth)
         let pad: CGFloat = switch m.tool {
         case .text, .step: Renderer.fontSize(of: m, imageWidth: imageWidth) * 0.8

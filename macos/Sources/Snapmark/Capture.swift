@@ -6,12 +6,13 @@ enum CaptureMode: String {
     case area, window, screen
 
     /// screencapture flags: -i interactive (drag, or Space to switch to window picking), -o no window
-    /// shadow, -x no shutter sound.
+    /// shadow, -x no shutter sound, -t png even when the user set another screenshot format, since
+    /// Snapmark keeps the file as it is.
     var arguments: [String] {
         switch self {
-        case .area: ["-i", "-o", "-x"]
-        case .window: ["-i", "-W", "-o", "-x"]
-        case .screen: ["-m", "-x"]
+        case .area: ["-i", "-o", "-x", "-t", "png"]
+        case .window: ["-i", "-W", "-o", "-x", "-t", "png"]
+        case .screen: ["-m", "-x", "-t", "png"]
         }
     }
 }

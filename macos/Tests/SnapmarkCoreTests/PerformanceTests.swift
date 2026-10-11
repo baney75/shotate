@@ -32,7 +32,10 @@ final class PerformanceTests: XCTestCase {
         let before = Renderer.layoutsBuilt
         let first = Renderer.textOrStepRect(m, imageWidth: 800)
         for _ in 0..<20 { XCTAssertEqual(Renderer.textOrStepRect(m, imageWidth: 800), first) }
-        _ = Document(image: image(800, 300)).hitTest(.zero, tolerance: 4)
+        let doc = Document(image: image(800, 300))
+        doc.add(m)
+        XCTAssertNil(doc.hitTest(.zero, tolerance: 4))
+        XCTAssertEqual(doc.hitTest(CGPoint(x: first.midX, y: first.midY), tolerance: 4)?.id, m.id)
         XCTAssertEqual(Renderer.layoutsBuilt - before, 1)
         // New text, a wrap width or an ink change each lay the label out again.
         var longer = m; longer.text += " more"
@@ -89,6 +92,9 @@ final class PerformanceTests: XCTestCase {
     func testMovingMarksAreNotClippedByTheirBitmap() {
         // Each mark alone through its cropped bitmap matches the full-size layer: no shadow is cut off.
         let doc = marked()
+        // Stacked combining marks draw far above the label's box.
+        doc.add(Mark(tool: .text, color: RGBA.palette[5], start: CGPoint(x: 300, y: 220), end: .zero,
+                     text: "Z" + String(repeating: "\u{346}", count: 20) + "a", fontSize: 60))
         for m in doc.marks {
             let full = render(doc) { MarkLayer().draw([m], imageWidth: 600, transform: t, width: w, height: h, space: space, in: $0) }
             let cropped = render(doc) { MarkLayer.drawUncached([m], imageWidth: 600, transform: t, width: w, height: h, space: space, in: $0) }

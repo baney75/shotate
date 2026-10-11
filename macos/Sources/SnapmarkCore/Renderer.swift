@@ -156,6 +156,22 @@ public enum Renderer {
         ctx.draw(img, in: b)
     }
 
+    /// The glyphs a label paints, which combining marks or tall scripts can push past its box.
+    public static func inkRect(of m: Mark, imageWidth: Int) -> CGRect {
+        let r = textOrStepRect(m, imageWidth: imageWidth)
+        guard m.tool == .text else { return r }
+        let size = fontSize(of: m, imageWidth: imageWidth)
+        var ink = r
+        for (i, l) in layout(m, size: size).lines.enumerated() {
+            var descent: CGFloat = 0
+            _ = CTLineGetTypographicBounds(l, nil, &descent, nil)
+            let b = CTLineGetImageBounds(l, nil)
+            guard !b.isNull, b.width.isFinite, b.height.isFinite else { continue }
+            ink = ink.union(b.offsetBy(dx: r.minX + size * padX, dy: r.maxY - size * lineHeight * CGFloat(i + 1) + descent))
+        }
+        return ink
+    }
+
     /// Everything a mark paints, including stroke width, arrowhead and shadow.
     public static func extent(of m: Mark, imageWidth: Int) -> CGRect {
         let w = m.size.width(forImageWidth: imageWidth)
@@ -232,8 +248,9 @@ public enum Renderer {
     }
 
     /// A drop shadow measured in image pixels. Core Graphics sizes shadows in the context's base space
-    /// and ignores the CTM, so without the scale the editor's zoom and Retina backing would change how
-    /// big a shadow looks; the export (scale 1) is the reference.
+    /// and ignores the CTM, so the CTM's scale is applied here. That holds for bitmap contexts, whose
+    /// base space is pixels: marks are only drawn into those (the export, and the editor's `MarkLayer`),
+    /// never straight into a view, whose base space is points.
     static func shadow(in ctx: CGContext, drop: CGFloat, blur: CGFloat) {
         let s = hypot(ctx.ctm.a, ctx.ctm.b)
         ctx.setShadow(offset: CGSize(width: 0, height: -drop * s), blur: blur * s, color: CGColor(gray: 0, alpha: 0.35))
