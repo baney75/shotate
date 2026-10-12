@@ -1,6 +1,6 @@
 // The Rust commands the UI calls. Outside Tauri (a plain browser during development) the calls fall
 // back to harmless stand-ins, so the editor can be opened and checked with `npm run dev`.
-import type { Config } from "./core/settings";
+import type { BuildInfo, Config, FolderPreset, UpdateStatus } from "./core/settings";
 
 const tauri = "__TAURI_INTERNALS__" in window;
 
@@ -25,12 +25,22 @@ function fallback(cmd: string, args: Record<string, unknown>): unknown {
   // ?platform=windows previews the Windows look in a browser during development.
   if (cmd === "platform") return new URLSearchParams(location.search).get("platform") ?? "linux";
   if (cmd === "output_path") return "/home/you/Pictures/Screenshots/sample (edited).png";
+  if (cmd === "build_info") return devBuild;
+  if (cmd === "folder_presets") return [
+    { id: "pictures", path: "~/Pictures/Screenshots" }, { id: "desktop", path: "~/Desktop" }, { id: "downloads", path: "~/Downloads" },
+  ];
+  if (cmd === "get_update_status" || cmd === "check_updates") {
+    return { current: devBuild, channel: "stable", checking: false, installing: false, checkedAt: Date.now(), error: null, available: null };
+  }
   return null;
 }
+
+const devBuild: BuildInfo = { version: "0.0.0", commit: "unknown", channel: "nightly", date: "" };
 
 const defaults: Config = {
   saveFolder: "~/Pictures/Screenshots", copyOnCapture: true, showMenuBarIcon: true,
   shortcuts: { captureArea: "ctrl+shift+s", captureWindow: "", captureScreen: "" }, commands: {}, toolKeys: {},
+  checkForUpdates: true,
 };
 
 export const api = {
@@ -56,6 +66,13 @@ export const api = {
   autostart: (enable?: boolean) => call<boolean>("autostart", { enable }),
   openUrl: (url: string) => call<void>("open_url", { url }),
   closeWindow: () => call<void>("close_window"),
+  buildInfo: () => call<BuildInfo>("build_info"),
+  folderPresets: () => call<FolderPreset[]>("folder_presets"),
+  updateStatus: () => call<UpdateStatus>("get_update_status"),
+  /** Always checks, even with automatic checks off. */
+  checkUpdates: () => call<UpdateStatus>("check_updates"),
+  /** Installs the available update; Shotate quits and the new one starts. */
+  installUpdate: () => call<void>("install_update"),
 };
 
 export interface OverlayInfo {

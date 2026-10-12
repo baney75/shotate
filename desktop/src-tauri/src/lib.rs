@@ -3,6 +3,7 @@
 //! side owns capture, files, the clipboard, global shortcuts, the tray and the config file.
 
 mod config;
+mod updates;
 
 use config::Config;
 use image::RgbaImage;
@@ -16,7 +17,7 @@ use tauri::{
     AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::ManagerExt as _;
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
 
@@ -39,6 +40,7 @@ struct State {
     /// Which config entry each registered shortcut belongs to: "captureArea" or "cmd:<keys>".
     bindings: Mutex<Vec<(Shortcut, String)>>,
     tray: Mutex<Option<TrayIcon>>,
+    updates: Mutex<UpdateState>,
     _watcher: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
@@ -427,7 +429,18 @@ fn set_config(app: AppHandle, config: Config) -> Result<(), String> {
 
 /// Applies settings to the running app: shortcuts and the tray icon.
 fn apply(app: &AppHandle, c: Config) {
+    let channel_before = update_channel(app);
     *app.state::<State>().config.lock().unwrap() = c;
+    if update_channel(app) != channel_before {
+        // An update found on the other channel no longer applies; the next check decides afresh.
+        let state = app.state::<State>();
+        let mut u = state.updates.lock().unwrap();
+        u.available = None;
+        u.checked_at = None;
+        u.error = None;
+        drop(u);
+        update_changed(app);
+    }
     register_shortcuts(app);
     let show = app
         .state::<State>()
@@ -767,27 +780,297 @@ fn error(app: &AppHandle, title: &str, detail: &str) {
         .show(|_| {});
 }
 
+// MARK: - Updates
+
+#[derive(Default)]
+struct UpdateState {
+    checking: bool,
+    installing: bool,
+    /// Milliseconds since the epoch of the last successful check.
+    checked_at: Option<i64>,
+    /// The newer build on the selected channel, and why it's offered.
+    available: Option<(updates::Manifest, updates::Offer)>,
+    /// The last manual check's failure. Automatic checks fail silently.
+    error: Option<String>,
+}
+
+/// The channel to follow: the config's, or this build's own when the config doesn't say.
+fn update_channel(app: &AppHandle) -> String {
+    app.state::<State>()
+        .config
+        .lock()
+        .unwrap()
+        .update_channel
+        .clone()
+        .unwrap_or_else(|| updates::Build::current().channel)
+}
+
+/// "Update to Shotate 0.12.1…" or "Switch to Stable 0.12.0…" for an available update.
+fn update_label(m: &updates::Manifest, offer: updates::Offer) -> String {
+    match offer {
+        updates::Offer::Update => format!("Update to Shotate {}…", m.version),
+        updates::Offer::SwitchToStable => format!("Switch to Stable {}…", m.version),
+    }
+}
+
+fn update_status(app: &AppHandle) -> serde_json::Value {
+    let u = app.state::<State>();
+    let u = u.updates.lock().unwrap();
+    serde_json::json!({
+        "current": updates::Build::current(),
+        "channel": update_channel(app),
+        "checking": u.checking,
+        "installing": u.installing,
+        "checkedAt": u.checked_at,
+        "error": u.error,
+        "available": u.available.as_ref().map(|(m, o)| serde_json::json!({
+            "version": m.version,
+            "notes": m.notes_url(),
+            "offer": o,
+            "label": update_label(m, *o).trim_end_matches('…'),
+        })),
+    })
+}
+
+fn update_changed(app: &AppHandle) {
+    refresh_tray_menu(app);
+    let _ = app.emit("update-status", ());
+}
+
+/// One check of the selected channel. Manual checks record their errors; automatic ones don't.
+fn run_check(app: &AppHandle, manual: bool) {
+    {
+        let state = app.state::<State>();
+        let mut u = state.updates.lock().unwrap();
+        if u.checking {
+            return;
+        }
+        u.checking = true;
+        if manual {
+            u.error = None;
+        }
+    }
+    update_changed(app);
+    let channel = update_channel(app);
+    let result = updates::fetch_manifest(&channel);
+    {
+        let state = app.state::<State>();
+        let mut u = state.updates.lock().unwrap();
+        u.checking = false;
+        match result {
+            Ok(m) => {
+                u.checked_at = Some(chrono::Utc::now().timestamp_millis());
+                u.error = None;
+                u.available =
+                    updates::offer(&updates::Build::current(), &m, &channel).map(|o| (m, o));
+            }
+            Err(e) => {
+                eprintln!("Shotate: update check failed: {e}");
+                if manual {
+                    u.error = Some(e);
+                }
+            }
+        }
+    }
+    update_changed(app);
+}
+
+/// Checks on launch (after a short wait) and every 24 hours, only while checkForUpdates is on.
+fn schedule_checks(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+        const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+        loop {
+            let enabled = app
+                .state::<State>()
+                .config
+                .lock()
+                .unwrap()
+                .check_for_updates;
+            let last = app.state::<State>().updates.lock().unwrap().checked_at;
+            let due = last.is_none_or(|t| chrono::Utc::now().timestamp_millis() - t >= DAY_MS);
+            if enabled && due {
+                run_check(&app, false);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(60 * 60));
+        }
+    });
+}
+
+/// Downloads and installs the available update. On success Shotate quits (the new one starts on
+/// its own) or, where it can't update itself, opens the release page.
+fn install_available(app: &AppHandle) -> Result<(), String> {
+    let manifest = {
+        let state = app.state::<State>();
+        let mut u = state.updates.lock().unwrap();
+        if u.installing {
+            return Err("An update is already installing.".into());
+        }
+        let m = u
+            .available
+            .as_ref()
+            .map(|(m, _)| m.clone())
+            .ok_or("No update is available.")?;
+        u.installing = true;
+        m
+    };
+    update_changed(app);
+    let result = updates::install(&manifest, &updates::detect_route());
+    app.state::<State>().updates.lock().unwrap().installing = false;
+    update_changed(app);
+    match result? {
+        updates::Installed::Quit => {
+            app.exit(0);
+            Ok(())
+        }
+        updates::Installed::OpenPage(url) => open_url(app.clone(), url),
+    }
+}
+
+/// The tray's update prompt: version, release notes link, Install Update or Later.
+fn prompt_update(app: &AppHandle) {
+    let available = app
+        .state::<State>()
+        .updates
+        .lock()
+        .unwrap()
+        .available
+        .clone();
+    let Some((m, offer)) = available else {
+        return;
+    };
+    let current = updates::Build::current().version;
+    let install = app
+        .dialog()
+        .message(format!(
+            "Shotate {} is available. You have {current}.\n\nWhat's new: {}",
+            m.version,
+            m.notes_url()
+        ))
+        .title(update_label(&m, offer).trim_end_matches('…'))
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Install Update".into(),
+            "Later".into(),
+        ))
+        .blocking_show();
+    if install {
+        if let Err(e) = install_available(app) {
+            error(app, "Shotate couldn't install the update", &e);
+        }
+    }
+}
+
+/// "Check for Updates…" in the tray: always checks, then says what it found.
+fn check_from_tray(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        run_check(&app, true);
+        let (found, err) = {
+            let state = app.state::<State>();
+            let u = state.updates.lock().unwrap();
+            (u.available.is_some(), u.error.clone())
+        };
+        if let Some(e) = err {
+            error(&app, "Shotate couldn't check for updates", &e);
+        } else if found {
+            prompt_update(&app);
+        } else {
+            let b = updates::Build::current();
+            app.dialog()
+                .message(format!(
+                    "Shotate {} is the newest version on the {} channel.",
+                    b.version,
+                    update_channel(&app)
+                ))
+                .title("Shotate is up to date")
+                .blocking_show();
+        }
+    });
+}
+
+#[tauri::command]
+fn build_info() -> updates::Build {
+    updates::Build::current()
+}
+
+#[tauri::command]
+fn get_update_status(app: AppHandle) -> serde_json::Value {
+    update_status(&app)
+}
+
+#[tauri::command]
+async fn check_updates(app: AppHandle) -> serde_json::Value {
+    let handle = app.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || run_check(&handle, true)).await;
+    update_status(&app)
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || install_available(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The named save folders for Settings: [{ id: "pictures", path: "~/Pictures/Screenshots" }, …].
+#[tauri::command]
+fn folder_presets() -> Vec<serde_json::Value> {
+    config::folder_presets()
+        .into_iter()
+        .map(|(id, path)| serde_json::json!({ "id": id, "path": path }))
+        .collect()
+}
+
 // MARK: - Tray
 
-fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
+fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
-    let menu = Menu::with_items(
-        app,
-        &[
-            &item("area", "Capture Area")?,
-            &item("window", "Capture Window")?,
-            &item("screen", "Capture Full Screen")?,
-            &PredefinedMenuItem::separator(app)?,
-            &item("open", "Open Image…")?,
-            &item("folder", "Open Screenshots Folder")?,
-            &PredefinedMenuItem::separator(app)?,
-            &item("settings", "Settings…")?,
-            &item("config", "Edit Config File…")?,
-            &item("about", "About Shotate")?,
-            &PredefinedMenuItem::separator(app)?,
-            &item("quit", "Quit Shotate")?,
-        ],
-    )?;
+    let update = app
+        .state::<State>()
+        .updates
+        .lock()
+        .unwrap()
+        .available
+        .as_ref()
+        .map(|(m, o)| update_label(m, *o));
+    let menu = Menu::new(app)?;
+    if let Some(label) = update {
+        menu.append(&item("update", &label)?)?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    menu.append_items(&[
+        &item("area", "Capture Area")?,
+        &item("window", "Capture Window")?,
+        &item("screen", "Capture Full Screen")?,
+        &PredefinedMenuItem::separator(app)?,
+        &item("open", "Open Image…")?,
+        &item("folder", "Open Screenshots Folder")?,
+        &PredefinedMenuItem::separator(app)?,
+        &item("settings", "Settings…")?,
+        &item("config", "Edit Config File…")?,
+        &item("check", "Check for Updates…")?,
+        &item("about", "About Shotate")?,
+        &PredefinedMenuItem::separator(app)?,
+        &item("quit", "Quit Shotate")?,
+    ])?;
+    Ok(menu)
+}
+
+fn refresh_tray_menu(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Ok(menu) = tray_menu(&handle) else {
+            return;
+        };
+        if let Some(tray) = handle.state::<State>().tray.lock().unwrap().as_ref() {
+            let _ = tray.set_menu(Some(menu));
+        }
+    });
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
+    let menu = tray_menu(app)?;
     TrayIconBuilder::with_id("shotate")
         .icon(
             app.default_window_icon()
@@ -810,6 +1093,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
             "settings" => show_view(app, "settings", "Shotate Settings", (620.0, 560.0)),
             "config" => {
                 let _ = open_config(app.clone());
+            }
+            "check" => check_from_tray(app),
+            "update" => {
+                let handle = app.clone();
+                std::thread::spawn(move || prompt_update(&handle));
             }
             "about" => show_view(app, "welcome", "About Shotate", (560.0, 600.0)),
             "quit" => app.exit(0),
@@ -932,6 +1220,11 @@ pub fn run() {
             open_url,
             autostart,
             platform,
+            build_info,
+            get_update_status,
+            check_updates,
+            install_update,
+            folder_presets,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -950,6 +1243,7 @@ pub fn run() {
                     .show_menu_bar_icon,
             );
             *handle.state::<State>().tray.lock().unwrap() = Some(tray);
+            schedule_checks(&handle);
             let args: Vec<String> = std::env::args().collect();
             if !args.iter().any(|a| a == "--autostart") {
                 handle_args(&handle, &args, first_run);
