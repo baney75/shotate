@@ -4,6 +4,9 @@
 $ErrorActionPreference = "Stop"
 $repo = "baney75/shotate"
 # Stable releases are macOS only for now, so Windows always gets the nightly preview.
+if ($env:SHOTATE_CHANNEL -and $env:SHOTATE_CHANNEL -ne "nightly") {
+  Write-Host "Stable releases are macOS only for now, so this installs the Windows preview (nightly)."
+}
 $path = "tags/nightly"
 Write-Host "==> Finding the newest Shotate preview for Windows (nightly)"
 $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/$path" -Headers @{ "User-Agent" = "shotate-installer" }

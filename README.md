@@ -188,7 +188,7 @@ carry over the first time Shotate starts.
 | `showMenuBarIcon` | Show the menu bar icon. URLs and shortcuts work either way. |
 | `shortcuts` | Global shortcuts for `captureArea`, `captureWindow` and `captureScreen`. An empty string turns one off. |
 | `commands` | Extra global shortcuts that run a shell command in your login shell. |
-| `updateChannel` | `stable` or `nightly`. Leave it out to follow the build you installed. |
+| `updateChannel` | macOS: `stable` or `nightly`. Leave it out to follow the build you installed. Windows and Linux always follow `nightly`. |
 | `checkForUpdates` | Check GitHub for updates once a day. `false` means Shotate makes no network request at all. |
 | `toolKeys` | The single letter that picks each editor tool. A letter already used by another tool is ignored, so every tool stays reachable. |
 

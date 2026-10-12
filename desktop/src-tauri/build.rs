@@ -4,17 +4,11 @@
 use std::process::Command;
 
 fn main() {
-    let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
     let commit = env("SHOTATE_COMMIT")
         .or_else(|| git(&["rev-parse", "HEAD"]))
         .unwrap_or_else(|| "unknown".into());
-    // Stable only when HEAD is exactly the release tag for this version.
-    let channel = env("SHOTATE_CHANNEL").unwrap_or_else(|| {
-        let tag = format!("v{version}");
-        let tagged = git(&["tag", "--points-at", "HEAD"])
-            .is_some_and(|tags| tags.lines().any(|t| t.trim() == tag));
-        if tagged { "stable" } else { "nightly" }.into()
-    });
+    // Windows and Linux builds are nightly previews; stable releases are macOS only for now.
+    let channel = env("SHOTATE_CHANNEL").unwrap_or_else(|| "nightly".into());
     let date = env("SHOTATE_BUILD_DATE").unwrap_or_else(now_utc);
 
     println!("cargo:rustc-env=SHOTATE_COMMIT={commit}");
