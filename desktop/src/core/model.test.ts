@@ -1,6 +1,7 @@
-import { Doc, Geometry, LINE_HEIGHT, PALETTE, Snap, mark, handles, moveHandle, moveMarkHandle, duplicate, markRect, markFontSize, offset, resizeText, rewrapped, styled, textLines, textOrStepRect } from "./model";
+import { Doc, Geometry, LINE_HEIGHT, PALETTE, Snap, mark, markHandles, handles, moveHandle, moveMarkHandle, duplicate, markRect, markFontSize, offset, resizeText, rewrapped, styled, textLines, textOrStepRect } from "./model";
 import { resolveToolKeys, shortcutLabel } from "./settings";
-import { TOOLS } from "./model";
+import { TOOLS, arrowLabel, calloutAnchor, curveBounds, endNear, midpoint, parameterAt, pinned, pointAt, removeThinRuns } from "./model";
+import { edgeStrips } from "./render";
 
 const measure = (text: string, size: number) => text.length * size * 0.6;
 const red = PALETTE[0].color;
@@ -206,5 +207,107 @@ describe("restyling and wrapping details", () => {
     const m = mark("text", red, { x: 0, y: 0 }, { x: 0, y: 0 }, { text: "state-of-the-art", textWidth: 55 });
     expect(textLines(m, 10, measure)).toEqual(["state-of-", "the-art"]);
     expect(textLines({ ...m, text: "a\n\nb" }, 10, measure)).toEqual(["a", " ", "b"]);
+  });
+});
+
+describe("arrows", () => {
+  it("bend from their middle handle, and the curve is what hits", () => {
+    const doc = new Doc(600, 300, measure);
+    const arrow = mark("arrow", red, { x: 100, y: 100 }, { x: 500, y: 100 });
+    expect(handles(arrow)).toHaveLength(3);
+    expect(handles(arrow)[2]).toEqual({ x: 300, y: 100 });
+    const bent = moveHandle(arrow, 2, { x: 260, y: 180 });
+    expect(bent.bend).toBeCloseTo(80);
+    expect(midpoint(bent).y).toBeCloseTo(180);
+    expect(midpoint(bent).x).toBeCloseTo(300);
+    doc.add(bent);
+    expect(doc.hitTest({ x: 300, y: 178 }, 6)?.id).toBe(bent.id);
+    expect(doc.hitTest({ x: 300, y: 100 }, 6)).toBeUndefined();
+    expect(curveBounds(bent).y + curveBounds(bent).h).toBeCloseTo(180);
+    expect(doc.canvas).toEqual(doc.bounds);
+    // The bend is relative, survives moving and copying, and dragging back to the line clears it.
+    expect(moveHandle(bent, 1, { x: 500, y: 140 }).bend).toBeCloseTo(80);
+    expect(duplicate(bent, 5).bend).toBeCloseTo(80);
+    expect(moveHandle(bent, 2, { x: 300, y: 100 }).bend).toBeUndefined();
+  });
+
+  it("get a label at a double-clicked end that they point at, in one undo step", () => {
+    const doc = new Doc(1000, 600, measure);
+    const arrow = doc.add(mark("arrow", red, { x: 100, y: 300 }, { x: 400, y: 300 }));
+    expect(endNear(arrow, { x: 405, y: 302 }, 10)).toBe(1);
+    expect(endNear(arrow, { x: 98, y: 300 }, 10)).toBe(0);
+    expect(endNear(arrow, { x: 250, y: 300 }, 10)).toBeNull();
+    const anchor = calloutAnchor(arrow, 1);
+    expect(anchor).toEqual({ x: 0, y: 0.5 });
+    const label = pinned(mark("text", red, { x: 0, y: 0 }, { x: 0, y: 0 }, { text: "Here" }), arrow.end, anchor, 1000, measure);
+    const r = textOrStepRect(label, 1000, measure);
+    expect(r.x).toBeCloseTo(400);
+    expect(r.y + r.h / 2).toBeCloseTo(300);
+    const before = doc.revision;
+    doc.addCallout(label, arrow.id, 1, anchor);
+    expect(doc.revision).toBe(before + 1);
+    expect(doc.marks[0].endBinding?.id).toBe(label.id);
+    doc.update(offset(label, 30, 40));
+    expect(doc.marks[0].end).toEqual({ x: 430, y: 340 });
+    doc.undo(); doc.undo();
+    expect(doc.marks.map((m) => m.id)).toEqual([arrow.id]);
+    expect(doc.marks[0].endBinding).toBeUndefined();
+    // Pointing down the screen, the label hangs below the tip.
+    const down = mark("arrow", red, { x: 100, y: 100 }, { x: 110, y: 400 });
+    expect(calloutAnchor(down, 1)).toEqual({ x: 0.5, y: 0 });
+    expect(calloutAnchor(down, 0)).toEqual({ x: 0.5, y: 1 });
+  });
+
+  it("carry a label on the middle of the curve", () => {
+    const doc = new Doc(1000, 600, measure);
+    const arrow = doc.add(mark("arrow", red, { x: 100, y: 300 }, { x: 700, y: 300 }, { bend: 120, text: "Step two" }));
+    expect(arrowLabel({ ...arrow, text: "" }, 1000, measure)).toBeNull();
+    const r = textOrStepRect(arrowLabel(arrow, 1000, measure)!, 1000, measure);
+    expect(r.x + r.w / 2).toBeCloseTo(400);
+    expect(r.y + r.h / 2).toBeCloseTo(420);
+    expect(doc.hitTest({ x: r.x + 3, y: r.y + 3 }, 0)?.id).toBe(arrow.id);
+    // The middle handle sits just outside the label, and dragging it moves the curve by as much.
+    const h = markHandles(arrow, 1000, measure)[2];
+    expect(h.x).toBeCloseTo(400);
+    expect(h.y).toBeGreaterThan(r.y + r.h);
+    expect(moveMarkHandle(arrow, 2, { x: h.x, y: h.y + 30 }, 1000, measure).bend).toBeCloseTo(150);
+    // Dragged across to the other side, the handle stays under the pointer there.
+    const flipped = moveMarkHandle(arrow, 2, { x: 400, y: 100 }, 1000, measure);
+    expect(flipped.bend!).toBeLessThan(0);
+    expect(markHandles(flipped, 1000, measure)[2].y).toBeCloseTo(100);
+  });
+
+  it("meet their head on long curves", () => {
+    const arrow = mark("arrow", red, { x: 0, y: 0 }, { x: 2000, y: 0 }, { bend: 200 });
+    const q = pointAt(arrow, parameterAt(arrow, 49.7, true));
+    expect(Math.hypot(q.x - 2000, q.y)).toBeCloseTo(49.7, 2);
+    expect(parameterAt(arrow, 5000, true)).toBe(0);
+  });
+});
+
+describe("growing the canvas", () => {
+  it("takes thin detail off the edge strips but keeps bands and gradients", () => {
+    // A 100-pixel strip: a gradient, a 2-pixel red line, then a wide gray band.
+    const px = new Uint8ClampedArray(400);
+    for (let i = 0; i < 100; i++) px.set(i < 60 ? [50, 50 + i, 80, 255] : [230, 230, 230, 255], i * 4);
+    px.set([255, 0, 0, 255, 255, 0, 0, 255], 30 * 4);
+    removeThinRuns(px);
+    expect([...px.subarray(30 * 4, 30 * 4 + 4)]).toEqual([50, 79, 80, 255]);
+    expect(px[10 * 4 + 1]).toBe(60);
+    expect(px[90 * 4]).toBe(230);
+    // A strip with no wide band at all becomes its most common color.
+    const busy = new Uint8ClampedArray(800);
+    for (let i = 0; i < 200; i++) busy.set(i % 8 < 5 ? [240, 240, 240, 255] : [20, 20, 20, 255], i * 4);
+    removeThinRuns(busy);
+    expect(busy.every((v, i) => (i % 4 === 3 ? v === 255 : v === 240))).toBe(true);
+    // Edge strips come off each side of the image.
+    const data = new Uint8ClampedArray(4 * 4 * 4);
+    for (let i = 0; i < 16; i++) data.set([i * 3, 0, 0, 255], i * 4);
+    const [l, r, t, b] = edgeStrips({ width: 4, height: 4, data } as ImageData);
+    const reds = (s: Uint8ClampedArray) => [0, 1, 2, 3].map((i) => s[i * 4]);
+    expect(reds(l)).toEqual([0, 12, 24, 36]);
+    expect(reds(r)).toEqual([9, 21, 33, 45]);
+    expect(reds(t)).toEqual([0, 3, 6, 9]);
+    expect(reds(b)).toEqual([36, 39, 42, 45]);
   });
 });

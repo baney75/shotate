@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+- **Curved arrows.** A selected arrow has a third handle in its middle: drag it to bend the arrow,
+  or drag it back to the line to straighten it. The curve keeps its shape when an attached end moves.
+- **Arrow labels.** Double-click an arrow's end to type a label there; the arrow points at it and
+  follows it when you move it. Double-click anywhere else along an arrow to label its middle; the
+  label rides on the arrow, and clearing its text removes it.
+
+### Fixed
+- **Drawing past the edge looks like the screenshot carries on.** Lines, text and icons that touch
+  the edge no longer streak across the new space; wide bands such as a title bar or a page background
+  still continue. The editor also zooms out while you drag past the edge, so the mark stays in sight.
+
 ### Changed
 - **Stable releases are macOS only for now**, because the Mac app is the one each release is tested
   on. Windows and Linux get preview builds from the nightly channel: their installers install it,

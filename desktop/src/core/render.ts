@@ -1,6 +1,9 @@
 // Draws marks with the 2D canvas. Used both for the live editor and the exported PNG, so what you
 // see is exactly what gets copied. Mirrors the macOS renderer.
-import { LINE_HEIGHT, PAD_X, PAD_Y, type Doc, type Mark, type RGBA, type Rect, css, fontSize, markFontSize, markRect, rgba, strokeWidth, textLines, textOrStepRect } from "./model";
+import {
+  LINE_HEIGHT, PAD_X, PAD_Y, type Doc, type Mark, type RGBA, type Rect, arrowLabel, control, css, fontSize, parameterAt,
+  markFontSize, markRect, pointAt, removeThinRuns, rgba, strokeWidth, textLines, textOrStepRect,
+} from "./model";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -55,14 +58,27 @@ export function drawMark(ctx: Ctx, m: Mark, imageWidth: number) {
       break;
     case "arrow": {
       const a = m.start, b = m.end;
-      const angle = Math.atan2(b.y - a.y, b.x - a.x);
       const head = Math.max(w * 4.5, 10);
+      // A curve stops where the head begins: split it at the point about the head's length from the
+      // tip, and aim the head from there so line and head meet on its axis.
+      let t = 1;
+      if (m.bend) {
+        t = parameterAt(m, head * 0.85, true);
+      }
+      const cut = m.bend ? pointAt(m, t) : a;
+      const angle = Math.atan2(b.y - cut.y, b.x - cut.x);
       const base = { x: b.x - Math.cos(angle) * head * 0.85, y: b.y - Math.sin(angle) * head * 0.85 };
       const wing = head * 0.55;
       shadow(ctx, w * 1.2, w * 0.3);
       ctx.strokeStyle = ctx.fillStyle = css(m.color);
       ctx.lineWidth = w;
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(base.x, base.y); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      if (m.bend) {
+        const c = control(m);
+        ctx.quadraticCurveTo(a.x + (c.x - a.x) * t, a.y + (c.y - a.y) * t, cut.x, cut.y);
+      } else ctx.lineTo(base.x, base.y);
+      ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(b.x, b.y);
       ctx.lineTo(b.x - Math.cos(angle) * head + Math.cos(angle + Math.PI / 2) * wing,
@@ -71,6 +87,8 @@ export function drawMark(ctx: Ctx, m: Mark, imageWidth: number) {
                  b.y - Math.sin(angle) * head - Math.sin(angle + Math.PI / 2) * wing);
       ctx.closePath();
       ctx.fill();
+      const label = arrowLabel(m, imageWidth, measure);
+      if (label) { ctx.restore(); ctx.save(); drawMark(ctx, label, imageWidth); }
       break;
     }
     case "text": {
@@ -131,28 +149,56 @@ export function edgeColor(data: ImageData): RGBA {
   return rgba(best[1].r / n, best[1].g / n, best[1].b / n);
 }
 
+/** How the canvas grows past the image: the corner color, and each side's outermost column or row of
+ *  pixels with thin detail taken out (see `removeThinRuns`), in the order left, right, top, bottom. */
+export interface Edges { color: RGBA; strips: CanvasImageSource[] }
+
+/** The cleaned edge strips of an image as RGBA bytes: left and right top to bottom, top and bottom
+ *  left to right. */
+export function edgeStrips(data: ImageData): Uint8ClampedArray[] {
+  const { width: w, height: h, data: px } = data;
+  const strip = (n: number, at: (i: number) => number) => {
+    const out = new Uint8ClampedArray(n * 4);
+    for (let i = 0; i < n; i++) out.set(px.subarray(at(i), at(i) + 4), i * 4);
+    removeThinRuns(out);
+    return out;
+  };
+  return [strip(h, (y) => y * w * 4), strip(h, (y) => (y * w + w - 1) * 4), strip(w, (x) => x * 4), strip(w, (x) => ((h - 1) * w + x) * 4)];
+}
+
+export function edges(data: ImageData): Edges {
+  const { width: w, height: h } = data;
+  const strips = edgeStrips(data).map((px, i) => {
+    const c = new OffscreenCanvas(i < 2 ? 1 : w, i < 2 ? h : 1);
+    c.getContext("2d")!.putImageData(new ImageData(px, c.width, c.height), 0, 0);
+    return c;
+  });
+  return { color: edgeColor(data), strips };
+}
+
 /**
- * The image, plus the area a canvas grows into: each side continues the screenshot's outermost row
- * or column of pixels (so a title bar carries on), and the corners take the border color.
+ * The image, plus the area a canvas grows into: each side stretches its cleaned edge strip, so a
+ * title bar or a page background carries on without streaks, and the corners take the border color.
  */
-export function drawBackground(ctx: Ctx, image: CanvasImageSource, doc: Doc, canvas: Rect, border: RGBA) {
+export function drawBackground(ctx: Ctx, image: CanvasImageSource, doc: Doc, canvas: Rect, edges: Edges) {
   const W = doc.width, H = doc.height;
   if (canvas.x < 0 || canvas.y < 0 || canvas.x + canvas.w > W || canvas.y + canvas.h > H) {
-    ctx.fillStyle = css(border);
+    ctx.fillStyle = css(edges.color);
     ctx.fillRect(canvas.x, canvas.y, canvas.w, canvas.h);
     ctx.imageSmoothingEnabled = false;
+    const [l, r, t, b] = edges.strips;
     const left = -canvas.x, right = canvas.x + canvas.w - W, top = -canvas.y, bottom = canvas.y + canvas.h - H;
-    if (left > 0) ctx.drawImage(image, 0, 0, 1, H, canvas.x, 0, left, H);
-    if (right > 0) ctx.drawImage(image, W - 1, 0, 1, H, W, 0, right, H);
-    if (top > 0) ctx.drawImage(image, 0, 0, W, 1, 0, canvas.y, W, top);
-    if (bottom > 0) ctx.drawImage(image, 0, H - 1, W, 1, 0, H, W, bottom);
+    if (left > 0) ctx.drawImage(l, canvas.x, 0, left, H);
+    if (right > 0) ctx.drawImage(r, W, 0, right, H);
+    if (top > 0) ctx.drawImage(t, 0, canvas.y, W, top);
+    if (bottom > 0) ctx.drawImage(b, 0, H, W, bottom);
     ctx.imageSmoothingEnabled = true;
   }
   ctx.drawImage(image, 0, 0, W, H);
 }
 
 /** The finished image: canvas background, marks in order, then the crop. */
-export function flatten(image: CanvasImageSource, doc: Doc, border: RGBA): OffscreenCanvas {
+export function flatten(image: CanvasImageSource, doc: Doc, border: Edges): OffscreenCanvas {
   const canvas = doc.canvas;
   const full = new OffscreenCanvas(canvas.w, canvas.h);
   const ctx = full.getContext("2d")!;

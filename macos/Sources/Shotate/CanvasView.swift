@@ -10,7 +10,8 @@ import ShotateCore
 /// Text is placed by clicking (or dragging to set the width it wraps at), moved by dragging it with
 /// the Text or Select tool, scaled from its corner handle and rewrapped from its side handle.
 /// Dragged marks snap to the image and to each other (hold ⌘ to place freely), and an arrow end
-/// dropped on a mark stays attached to it.
+/// dropped on a mark stays attached to it. An arrow's middle handle bends it; double-clicking an
+/// arrow's end adds a label it points at, and double-clicking along it labels its middle.
 final class CanvasView: NSView, NSTextViewDelegate {
     let doc: Document
     var tool: Tool = .arrow {
@@ -37,6 +38,10 @@ final class CanvasView: NSView, NSTextViewDelegate {
     /// A label pressed with the Text tool: released in place it opens for editing, dragged it moves.
     private var pressedLabel: Mark?
     private var textWidth: CGFloat?
+    /// Keeps the label being typed on a spot: the point, and where on the label's box it sits.
+    private var textPin: (point: CGPoint, anchor: CGPoint)?
+    /// The arrow end a new label is for, attached to it when the label is committed.
+    private var callout: (arrow: UUID, end: Int)?
     /// Snap guides to draw while dragging.
     private var guides: [Snap.Guide] = [] { didSet { needsDisplay = true } }
     /// The mark an arrow end being dragged would attach to, outlined as a drop target.
@@ -75,6 +80,8 @@ final class CanvasView: NSView, NSTextViewDelegate {
     /// plus a margin to draw into. It holds still during a drag so the view doesn't zoom under the
     /// pointer, and catches up when the drag ends.
     private var frozenLayout: CGRect?
+    /// How far a drag may widen the frozen view.
+    private var dragLimit: CGRect?
     private var layoutRect: CGRect {
         if let frozenLayout { return frozenLayout }
         let c = doc.canvas
@@ -105,7 +112,8 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     /// The outline drawn around a selected or hovered mark, in image pixels.
     private func outline(_ m: Mark) -> CGRect {
-        let r = (m.tool == .text || m.tool == .step) ? Renderer.textOrStepRect(m, imageWidth: doc.image.width) : m.rect
+        let r = (m.tool == .text || m.tool == .step) ? Renderer.textOrStepRect(m, imageWidth: doc.image.width)
+            : m.tool == .arrow ? m.curveBounds : m.rect
         let pad = 4 * pixelsPerPoint + m.size.width(forImageWidth: doc.image.width) / 2
         return r.insetBy(dx: -pad, dy: -pad)
     }
@@ -154,6 +162,8 @@ final class CanvasView: NSView, NSTextViewDelegate {
         if let d = draft { marks.append(d) }
         // Arrows attached to a mark being dragged follow it live.
         if live != nil { marks = doc.resolvingBindings(marks) }
+        // An arrow whose label is open shows the editor in place of its label.
+        if let id = editingID, let i = marks.firstIndex(where: { $0.id == id }), marks[i].tool == .arrow { marks[i].text = "" }
         // The canvas as it will export: grown past the edge where marks reach, in the border color.
         let canvas = doc.canvas(including: marks)
         ctx.saveGState()
@@ -173,9 +183,10 @@ final class CanvasView: NSView, NSTextViewDelegate {
         let toBacking = CGAffineTransform(scaleX: backing.width / max(bounds.width, 1), y: backing.height / max(bounds.height, 1))
             .translatedBy(x: o.x, y: o.y).scaledBy(x: 1 / pixelsPerPoint, y: 1 / pixelsPerPoint)
         let space = window?.colorSpace?.cgColorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
-        markLayer.draw(marks[..<stable].filter { $0.id != editingID }, imageWidth: doc.image.width, transform: toBacking,
+        let hidden = marks.first { $0.id == editingID }?.tool == .arrow ? nil : editingID
+        markLayer.draw(marks[..<stable].filter { $0.id != hidden }, imageWidth: doc.image.width, transform: toBacking,
                        width: bw, height: bh, space: space, in: ctx)
-        MarkLayer.drawUncached(marks[stable...].filter { $0.id != editingID }, imageWidth: doc.image.width,
+        MarkLayer.drawUncached(marks[stable...].filter { $0.id != hidden }, imageWidth: doc.image.width,
                                transform: toBacking, width: bw, height: bh, space: space, in: ctx)
         // Dim everything outside the crop.
         if let crop = cropDraft ?? doc.effectiveCrop {
@@ -261,8 +272,11 @@ final class CanvasView: NSView, NSTextViewDelegate {
         // this click is mapped to the image or a new text field is positioned.
         if textField != nil { commitText() }
         frozenLayout = layoutRect
+        dragLimit = layoutRect.insetBy(dx: -0.5 * CGFloat(max(doc.image.width, doc.image.height)),
+                                       dy: -0.5 * CGFloat(max(doc.image.width, doc.image.height)))
         let p = imagePoint(e)
         let tolerance = 8 * pixelsPerPoint
+        if e.clickCount == 2, tool != .step, tool != .crop, labelArrow(at: p) { return }
         // A selected mark's handles win over every tool, so a fresh arrow can be adjusted right away.
         if let i = handleIndex(at: p), let m = selectedMark {
             dragHandle = i
@@ -307,9 +321,18 @@ final class CanvasView: NSView, NSTextViewDelegate {
     }
 
     override func mouseDragged(with e: NSEvent) {
+        defer { followDrag(e) }
         var p = imagePoint(e)
         if let i = dragHandle, let m = live {
             let base = selectedMark ?? m
+            if base.tool == .arrow, i == 2 {
+                // The middle handle bends the arrow. Close to straight snaps straight, so a curve can be undone.
+                var bent = moving(base, handle: i, to: p)
+                if abs(bent.bend) < 6 * pixelsPerPoint { bent.bend = 0 }
+                guides = []
+                live = bent
+                return
+            }
             if e.modifierFlags.contains(.shift) {
                 // Same as drawing: 45° steps for an arrow, a square for a shape, from the fixed end.
                 if base.tool != .text {
@@ -370,6 +393,21 @@ final class CanvasView: NSView, NSTextViewDelegate {
         }
         d.end = p
         draft = d
+    }
+
+    /// Widens the frozen view when a drag reaches past it, so a mark drawn off the edge stays in sight.
+    /// Only while the pointer is inside the view: outside, every widening would map it further out and
+    /// widen again. It also stops at half the image's size past where the drag began.
+    private func followDrag(_ e: NSEvent) {
+        guard let f = frozenLayout, let limit = dragLimit, bounds.contains(convert(e.locationInWindow, from: nil)) else { return }
+        var marks = doc.marks
+        if let l = live, let i = marks.firstIndex(where: { $0.id == l.id }) { marks[i] = l }
+        if let d = draft { marks.append(d) }
+        let c = doc.canvas(including: doc.resolvingBindings(marks))
+        guard !f.contains(c) else { return }
+        let margin = 0.07 * CGFloat(max(doc.image.width, doc.image.height))
+        frozenLayout = f.union(c.insetBy(dx: -margin, dy: -margin)).intersection(limit)
+        needsDisplay = true
     }
 
     override func mouseUp(with e: NSEvent) {
@@ -454,9 +492,36 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     // MARK: Text
 
+    /// Double-clicking an arrow labels it. Near a free end it opens a new label for that end, which the
+    /// arrow then points at; near an end that already points at a label, that label. Anywhere else
+    /// along it (or near an end attached to a shape), the label in its middle. Returns false when the
+    /// topmost mark under `p` is not an arrow, so a label or shape there keeps its own double-click.
+    private func labelArrow(at p: CGPoint) -> Bool {
+        guard let arrow = doc.hitTest(p, tolerance: 8 * pixelsPerPoint), arrow.tool == .arrow else { return false }
+        if let end = arrow.end(near: p, tolerance: 10 * pixelsPerPoint) {
+            let bound = (end == 0 ? arrow.startBinding : arrow.endBinding).flatMap { b in doc.marks.first { $0.id == b.id } }
+            if let label = bound, label.tool == .text {
+                selectedID = label.id
+                beginText(at: label.start, editing: label)
+                return true
+            }
+            if bound == nil {
+                selectedID = nil
+                callout = (arrow.id, end)
+                textPin = (end == 0 ? arrow.start : arrow.end, arrow.calloutAnchor(end: end))
+                beginText(at: .zero, editing: nil, color: arrow.color)
+                return true
+            }
+        }
+        selectedID = arrow.id
+        beginText(at: .zero, editing: arrow)
+        return true
+    }
+
     /// Opens the label editor with its top-left corner at `p`.
-    private func beginText(at p: CGPoint, editing: Mark?, textWidth wrap: CGFloat? = nil) {
-        let markColor = editing?.color ?? color
+    private func beginText(at p: CGPoint, editing: Mark?, textWidth wrap: CGFloat? = nil, color labelColor: RGBA? = nil) {
+        let markColor = editing?.color ?? labelColor ?? color
+        labelColor.map { textColor = $0 }
         textOrigin = p
         textFontSize = editing?.fontSize
         textWidth = editing?.textWidth ?? wrap
@@ -497,11 +562,19 @@ final class CanvasView: NSView, NSTextViewDelegate {
         needsDisplay = true
     }
 
-    /// The label being edited, as it would be with `text`.
+    /// The color a new label takes when it is not the current color: a callout's arrow's color.
+    private var textColor: RGBA?
+
+    /// The label being edited, as it would be with `text`. An arrow's label sits on its middle.
     private func editingMark(text: String) -> Mark {
         let base = editingID.flatMap { id in doc.marks.first { $0.id == id } }
-        return Mark(tool: .text, color: base?.color ?? color, size: base?.size ?? size, start: textOrigin, end: textOrigin,
-                    text: text, fontSize: textFontSize, textWidth: textWidth)
+        let m = Mark(tool: .text, color: base?.color ?? textColor ?? color, size: base?.size ?? size, start: textOrigin,
+                     end: textOrigin, text: text, fontSize: textFontSize, textWidth: textWidth)
+        if let base, base.tool == .arrow {
+            return Renderer.pinned(m, at: base.midpoint, anchor: CGPoint(x: 0.5, y: 0.5), imageWidth: doc.image.width)
+        }
+        guard let pin = textPin else { return m }
+        return Renderer.pinned(m, at: pin.point, anchor: pin.anchor, imageWidth: doc.image.width)
     }
 
     /// Sizes the editor to the box the label will draw as, so typing looks like the result.
@@ -533,22 +606,33 @@ final class CanvasView: NSView, NSTextViewDelegate {
         if let id = editingID {
             // The label may have been undone while it was open; then there is nothing to update.
             if var m = doc.marks.first(where: { $0.id == id }) {
-                if text.isEmpty { doc.remove(id: id) } else { m.text = text; doc.update(m); selectedID = id }
+                // Clearing an arrow's label removes the label, not the arrow.
+                if m.tool == .arrow { m.text = text; doc.update(m); selectedID = id }
+                else if text.isEmpty { doc.remove(id: id) } else { m.text = text; doc.update(m); selectedID = id }
             }
         } else if !text.isEmpty {
             let m = editingMark(text: text)
-            doc.add(m)
+            if let c = callout, let pin = textPin { doc.addCallout(m, arrow: c.arrow, end: c.end, anchor: pin.anchor) }
+            else { doc.add(m) }
             selectedID = m.id
         }
         editingID = nil
+        resetLabelPlacement()
         changed()
         window?.makeFirstResponder(self)
+    }
+
+    private func resetLabelPlacement() {
+        textPin = nil
+        callout = nil
+        textColor = nil
     }
 
     private func cancelText() {
         textField?.removeFromSuperview()
         textField = nil
         editingID = nil
+        resetLabelPlacement()
         needsDisplay = true
         window?.makeFirstResponder(self)
     }

@@ -1,14 +1,17 @@
 // The annotation editor for Windows and Linux. Same behavior as the macOS editor: a new mark is
 // selected as soon as it is drawn, selected shapes show resize handles, Esc steps back one level
-// (tool → Select → no selection → copy and close), and marks past the edge grow the canvas.
+// (tool → Select → no selection → copy and close), and marks past the edge grow the canvas. An
+// arrow's middle handle bends it; double-clicking an arrow's end adds a label it points at, and
+// double-clicking along it labels its middle.
 import { api } from "./api";
 import { icon } from "./icons";
 import {
-  Doc, Geometry, LINE_HEIGHT, PAD_X, PAD_Y, PALETTE, Snap, TOOLS, css, duplicate, inset, mark, markFontSize, markHandles,
-  moveMarkHandle, rewrapped, styled, type Binding, type Guide,
+  Doc, Geometry, LINE_HEIGHT, PAD_X, PAD_Y, PALETTE, Snap, TOOLS, calloutAnchor, css, curveBounds, duplicate, endNear, inset, mark,
+  markFontSize, markHandles, midpoint, moveMarkHandle, pinned, rewrapped, styled, type Binding, type Guide, type RGBA, union,
+  intersection,
   moveHandle, offset, strokeWidth, textOrStepRect, type Mark, type Point, type Rect, type StrokeSize, type Tool,
 } from "./core/model";
-import { FONT, drawBackground, drawMark, edgeColor, flatten, ink } from "./core/render";
+import { FONT, drawBackground, drawMark, edges, flatten, ink, type Edges } from "./core/render";
 import { resolveToolKeys } from "./core/settings";
 
 export async function startEditor(root: HTMLElement, file: string, owns: boolean) {
@@ -16,7 +19,7 @@ export async function startEditor(root: HTMLElement, file: string, owns: boolean
   const image = await createImageBitmap(new Blob([bytes]));
   const probe = new OffscreenCanvas(image.width, image.height).getContext("2d")!;
   probe.drawImage(image, 0, 0);
-  const border = edgeColor(probe.getImageData(0, 0, image.width, image.height));
+  const border = edges(probe.getImageData(0, 0, image.width, image.height));
   const measureCtx = new OffscreenCanvas(1, 1).getContext("2d")!;
   const measure = (t: string, s: number) => { measureCtx.font = FONT(s); return measureCtx.measureText(t).width; };
   const doc = new Doc(image.width, image.height, measure);
@@ -36,11 +39,19 @@ class Editor {
   dragHandle: number | null = null;
   cropDraft: Rect | null = null;
   frozen: Rect | null = null;
+  /** How far a drag may widen the frozen view. */
+  dragLimit: Rect | null = null;
   input: HTMLTextAreaElement | null = null;
   editingId: string | null = null;
   textAt: Point = { x: 0, y: 0 };
   textFontSize: number | undefined;
   textWidth: number | undefined;
+  /** Keeps the label being typed on a spot: the point, and where on the label's box it sits. */
+  textPin: { at: Point; anchor: Point } | null = null;
+  /** The arrow end a new label is for, attached to it when the label is committed. */
+  callout: { arrow: string; end: number } | null = null;
+  /** The color a new label takes when it is not the current color: a callout's arrow's color. */
+  textColor: RGBA | null = null;
   /** Snap guides to draw while dragging. */
   guides: Guide[] = [];
   /** The mark an arrow end being dragged would attach to, outlined as a drop target. */
@@ -65,7 +76,7 @@ class Editor {
   buttons: Record<string, HTMLButtonElement> = {};
 
   constructor(private root: HTMLElement, private file: string, private owns: boolean, private doc: Doc,
-              private image: ImageBitmap, private border: ReturnType<typeof edgeColor>,
+              private image: ImageBitmap, private border: Edges,
               private keys: Record<Tool, string>) {
     this.build();
     this.bind();
@@ -167,11 +178,15 @@ class Editor {
     ctx.shadowColor = "rgba(0,0,0,0.35)";
     ctx.shadowBlur = 14 * this.ppp * s;
     ctx.shadowOffsetY = 2 * this.ppp * s;
-    ctx.fillStyle = css(this.border.a === 0 ? { r: 1, g: 1, b: 1, a: 1 } : this.border);
+    ctx.fillStyle = css(this.border.color.a === 0 ? { r: 1, g: 1, b: 1, a: 1 } : this.border.color);
     ctx.fillRect(canvas.x, canvas.y, canvas.w, canvas.h);
     ctx.restore();
     drawBackground(ctx, this.image, this.doc, canvas, this.border);
-    for (const m of marks) if (m.id !== this.editingId) drawMark(ctx, m, this.doc.width);
+    for (const m of marks) {
+      // An arrow whose label is open shows the editor in place of its label.
+      if (m.id !== this.editingId) drawMark(ctx, m, this.doc.width);
+      else if (m.tool === "arrow") drawMark(ctx, { ...m, text: "" }, this.doc.width);
+    }
 
     const crop = this.cropDraft ?? this.doc.effectiveCrop;
     if (crop) {
@@ -211,7 +226,7 @@ class Editor {
 
     const outline = (m: Mark) => {
       const r = m.tool === "text" || m.tool === "step" ? textOrStepRect(m, this.doc.width, this.doc.measure)
-        : { ...rectOf(m) };
+        : m.tool === "arrow" ? curveBounds(m) : rectOf(m);
       return inset(r, -(4 * this.ppp + strokeWidth(m.size, this.doc.width) / 2));
     };
     ctx.lineWidth = 1.5 * this.ppp;
@@ -289,8 +304,11 @@ class Editor {
       // Commit a label first: it may grow the canvas, and the layout must settle before mapping this click.
       if (this.input) this.commitText();
       this.frozen = this.layout;
+      this.dragLimit = inset(this.frozen, -0.5 * Math.max(this.doc.width, this.doc.height));
       const p = this.toImage(e);
       const tol = 8 * this.ppp;
+      const clicks = this.countClick(p);
+      if (clicks === 2 && this.tool !== "step" && this.tool !== "crop" && this.labelArrow(p)) { this.draw(); return; }
       const h = this.handleAt(p);
       if (h !== null && this.selected) { this.dragHandle = h; this.live = this.selected; return; }
       switch (this.tool) {
@@ -299,7 +317,7 @@ class Editor {
           this.select(hit?.id ?? null);
           if (hit) {
             this.dragOrigin = p;
-            if (e.detail === 2 && hit.tool === "text") this.beginText(hit.start, hit);
+            if (clicks === 2 && hit.tool === "text") this.beginText(hit.start, hit);
           }
           break;
         }
@@ -346,7 +364,14 @@ class Editor {
           : this.tool === "text" ? (hit ? "grab" : "text") : "crosshair";
         return;
       }
-      if (this.dragHandle !== null && this.live) {
+      if (this.dragHandle === 2 && this.live?.tool === "arrow") {
+        // The middle handle bends the arrow. Close to straight snaps straight, so a curve can be undone.
+        const base = this.selected ?? this.live;
+        const bent = this.moveHandleOf(base, 2, p);
+        if (Math.abs(bent.bend ?? 0) < 6 * this.ppp) delete bent.bend;
+        this.guides = [];
+        this.live = bent;
+      } else if (this.dragHandle !== null && this.live) {
         const base = this.selected ?? this.live;
         if (e.shiftKey) { this.guides = []; this.bindTarget = null; }
         if (e.shiftKey && base.tool !== "text") {
@@ -398,6 +423,7 @@ class Editor {
         else if (!d.endBinding) p = this.snapped(p, e, []);
         this.draft = { ...d, end: p };
       }
+      this.followDrag(e);
       this.draw();
     });
 
@@ -462,6 +488,31 @@ class Editor {
       })).catch(() => {});
   }
 
+  /** The press before this one, to count double-clicks: pointer events don't reliably carry a count. */
+  lastPress: { at: Point; time: number; count: number } | null = null;
+
+  /** 2 for the second press of a double-click (close in time and place), else 1. */
+  countClick(p: Point): number {
+    const now = performance.now(), last = this.lastPress;
+    const count = last && last.count === 1 && now - last.time < 450 && Math.hypot(p.x - last.at.x, p.y - last.at.y) < 6 * this.ppp ? 2 : 1;
+    this.lastPress = { at: p, time: now, count };
+    return count;
+  }
+
+  /** Widens the frozen view when a drag reaches past it, so a mark drawn off the edge stays in sight.
+   *  Only while the pointer is inside the view: outside, every widening would map it further out and
+   *  widen again. It also stops at half the image's size past where the drag began. */
+  followDrag(e: PointerEvent) {
+    const v = this.canvas.getBoundingClientRect();
+    if (!this.frozen || !this.dragLimit || e.clientX < v.left || e.clientX > v.right || e.clientY < v.top || e.clientY > v.bottom) return;
+    let marks = this.doc.marks;
+    if (this.live) marks = marks.map((m) => (m.id === this.live!.id ? this.live! : m));
+    if (this.draft) marks = [...marks, this.draft];
+    const c = this.doc.canvasIncluding(this.doc.resolveBindings(marks)), f = this.frozen;
+    if (c.x >= f.x && c.y >= f.y && c.x + c.w <= f.x + f.w && c.y + c.h <= f.y + f.h) return;
+    this.frozen = intersection(union(f, inset(c, -0.07 * Math.max(this.doc.width, this.doc.height))), this.dragLimit) ?? f;
+  }
+
   // MARK: Context menu
 
   menu: HTMLElement | null = null;
@@ -491,11 +542,39 @@ class Editor {
 
   // MARK: Text
 
-  /** The label being edited, as it would be with `text`. */
+  /** Double-clicking an arrow labels it. Near a free end it opens a new label for that end, which the
+   *  arrow then points at; near an end that already points at a label, that label. Anywhere else
+   *  along it (or near an end attached to a shape), the label in its middle. Returns false when the
+   *  topmost mark under `p` is not an arrow, so a label or shape there keeps its own double-click. */
+  labelArrow(p: Point): boolean {
+    const arrow = this.doc.hitTest(p, 8 * this.ppp);
+    if (arrow?.tool !== "arrow") return false;
+    const end = endNear(arrow, p, 10 * this.ppp);
+    if (end !== null) {
+      const id = (end === 0 ? arrow.startBinding : arrow.endBinding)?.id;
+      const bound = this.doc.marks.find((m) => m.id === id);
+      if (bound?.tool === "text") { this.select(bound.id); this.beginText(bound.start, bound); return true; }
+      if (!bound) {
+        this.select(null);
+        this.callout = { arrow: arrow.id, end };
+        this.textPin = { at: end === 0 ? arrow.start : arrow.end, anchor: calloutAnchor(arrow, end) };
+        this.textColor = arrow.color;
+        this.beginText({ x: 0, y: 0 }, null);
+        return true;
+      }
+    }
+    this.select(arrow.id);
+    this.beginText({ x: 0, y: 0 }, arrow);
+    return true;
+  }
+
+  /** The label being edited, as it would be with `text`. An arrow's label sits on its middle. */
   editingMark(text: string): Mark {
     const base = this.doc.marks.find((m) => m.id === this.editingId);
-    return mark("text", base?.color ?? this.color, this.textAt, this.textAt,
-                { size: base?.size ?? this.size, text, fontSize: this.textFontSize, textWidth: this.textWidth });
+    const m = mark("text", base?.color ?? this.textColor ?? this.color, this.textAt, this.textAt,
+                   { size: base?.size ?? this.size, text, fontSize: this.textFontSize, textWidth: this.textWidth });
+    const pin = base?.tool === "arrow" ? { at: midpoint(base), anchor: { x: 0.5, y: 0.5 } } : this.textPin;
+    return pin ? pinned(m, pin.at, pin.anchor, this.doc.width, this.doc.measure) : m;
   }
 
   /** Opens the label editor with its top-left corner at `at`. A `wrap` width makes it wrap. */
@@ -505,7 +584,7 @@ class Editor {
     this.textWidth = editing?.textWidth ?? wrap;
     this.editingId = editing?.id ?? null;
     const size = markFontSize(this.editingMark(""), this.doc.width) * this.scale;
-    const color = editing?.color ?? this.color;
+    const color = editing?.color ?? this.textColor ?? this.color;
     const input = document.createElement("textarea");
     input.className = "label-input";
     input.value = editing?.text ?? "";
@@ -549,21 +628,33 @@ class Editor {
     this.input = null;
     const editing = this.doc.marks.find((m) => m.id === this.editingId);
     if (editing) {
-      if (!text) this.doc.remove(editing.id);
+      // Clearing an arrow's label removes the label, not the arrow.
+      if (!text && editing.tool !== "arrow") this.doc.remove(editing.id);
       else { this.doc.update({ ...editing, text }); this.select(editing.id); }
     } else if (text && !this.editingId) {
       // An open label that was undone meanwhile has nothing to update.
-      const m = this.doc.add(this.editingMark(text));
+      const label = this.editingMark(text);
+      const m = this.callout && this.textPin
+        ? this.doc.addCallout(label, this.callout.arrow, this.callout.end, this.textPin.anchor)
+        : this.doc.add(label);
       this.select(m.id);
     }
     this.editingId = null;
+    this.resetLabelPlacement();
     this.changed();
+  }
+
+  resetLabelPlacement() {
+    this.textPin = null;
+    this.callout = null;
+    this.textColor = null;
   }
 
   cancelText() {
     this.input?.remove();
     this.input = null;
     this.editingId = null;
+    this.resetLabelPlacement();
     this.draw();
   }
 

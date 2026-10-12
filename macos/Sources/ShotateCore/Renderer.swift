@@ -89,9 +89,45 @@ public enum Renderer {
         return out
     }
 
+    /// `label` moved so the point at `anchor` (fractions of its box) sits on `p`. A label grows right
+    /// and down from its top-left corner as it gets text; pinning keeps it on its spot instead.
+    public static func pinned(_ label: Mark, at p: CGPoint, anchor a: CGPoint, imageWidth: Int) -> Mark {
+        let r = textOrStepRect(label, imageWidth: imageWidth)
+        var out = label
+        out.start = CGPoint(x: p.x - a.x * r.width, y: p.y + r.height - a.y * r.height)
+        out.end = out.start
+        return out
+    }
+
+    /// The label an arrow carries in its middle, as a text mark, or nil when it has none.
+    public static func arrowLabel(of m: Mark, imageWidth: Int) -> Mark? {
+        guard m.tool == .arrow, !m.text.isEmpty else { return nil }
+        let label = Mark(tool: .text, color: m.color, size: m.size, start: .zero, end: .zero, text: m.text, id: m.id)
+        return pinned(label, at: m.midpoint, anchor: CGPoint(x: 0.5, y: 0.5), imageWidth: imageWidth)
+    }
+
+    /// How far a labeled arrow's middle handle sits from its middle, along its normal: just outside the
+    /// label, on the side the arrow bends to, so the handle doesn't cover the text. 0 without a label.
+    static func labelClearance(of m: Mark, imageWidth: Int) -> CGFloat {
+        guard let label = arrowLabel(of: m, imageWidth: imageWidth) else { return 0 }
+        let r = textOrStepRect(label, imageWidth: imageWidth), n = m.normal
+        let side: CGFloat = m.bend < 0 ? -1 : 1
+        return side * (abs(n.x) * r.width / 2 + abs(n.y) * r.height / 2 + fontSize(of: label, imageWidth: imageWidth) * 0.3)
+    }
+
+    /// The bend that puts a labeled arrow's middle handle (which sits `k` past the middle, on the side
+    /// the arrow bends to) under a pointer `proj` off the chord. Inside the label's reach it is straight.
+    static func bend(forHandleAt proj: CGFloat, clearance k: CGFloat) -> CGFloat {
+        proj >= k ? proj - k : proj <= -k ? proj + k : 0
+    }
+
     /// A mark's grab points. A label has two: its bottom-right corner scales it, its right edge sets
-    /// where it wraps. Shapes and arrows use `Mark.handles`.
+    /// where it wraps. An arrow's middle handle clears its label. Shapes use `Mark.handles`.
     public static func handles(of m: Mark, imageWidth: Int) -> [CGPoint] {
+        if m.tool == .arrow {
+            let k = labelClearance(of: m, imageWidth: imageWidth), mid = m.midpoint, n = m.normal
+            return [m.start, m.end, CGPoint(x: mid.x + n.x * k, y: mid.y + n.y * k)]
+        }
         guard m.tool == .text else { return m.handles }
         let r = textOrStepRect(m, imageWidth: imageWidth)
         return [CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.midY)]
@@ -99,6 +135,11 @@ public enum Renderer {
 
     /// The mark with handle `i` (an index into `handles(of:)`) dragged to `p`.
     public static func moving(_ m: Mark, handle i: Int, to p: CGPoint, imageWidth: Int) -> Mark {
+        if m.tool == .arrow, i == 2 {
+            var out = m
+            out.bend = bend(forHandleAt: m.bend(through: p), clearance: abs(labelClearance(of: m, imageWidth: imageWidth)))
+            return out
+        }
         guard m.tool == .text else { return m.moving(handle: i, to: p) }
         return i == 0 ? resizing(text: m, toCorner: p, imageWidth: imageWidth)
             : resizing(text: m, toRightEdge: p.x, imageWidth: imageWidth)
@@ -131,8 +172,8 @@ public enum Renderer {
     }
 
     /// The image, plus the area a canvas grows into: each side continues the screenshot's outermost
-    /// row or column of pixels (so a title bar or a page background carries on), and the corners take
-    /// the border color.
+    /// row or column of pixels with thin detail taken out (see `Document.edgeStrips`), so a title bar
+    /// or a page background carries on without streaks, and the corners take the border color.
     public static func drawBackground(_ doc: Document, canvas: CGRect, in ctx: CGContext) {
         let img = doc.image, b = doc.bounds
         if canvas != b {
@@ -140,16 +181,13 @@ public enum Renderer {
             ctx.fill(canvas)
             ctx.saveGState()
             ctx.interpolationQuality = .none
-            let w = img.width, h = img.height
-            // Strips use CGImage's top-left origin; destinations use the context's bottom-left one.
-            let sides: [(CGRect, CGRect)] = [
-                (CGRect(x: 0, y: 0, width: 1, height: h), CGRect(x: canvas.minX, y: 0, width: -canvas.minX, height: b.height)),
-                (CGRect(x: w - 1, y: 0, width: 1, height: h), CGRect(x: b.maxX, y: 0, width: canvas.maxX - b.maxX, height: b.height)),
-                (CGRect(x: 0, y: h - 1, width: w, height: 1), CGRect(x: 0, y: canvas.minY, width: b.width, height: -canvas.minY)),
-                (CGRect(x: 0, y: 0, width: w, height: 1), CGRect(x: 0, y: b.maxY, width: b.width, height: canvas.maxY - b.maxY)),
-            ]
-            for (strip, dest) in sides where dest.width > 0 && dest.height > 0 {
-                if let s = img.cropping(to: strip) { ctx.draw(s, in: dest) }
+            // Left, right, bottom, top, as `Document.edgeStrips` orders them.
+            let sides = [CGRect(x: canvas.minX, y: 0, width: -canvas.minX, height: b.height),
+                         CGRect(x: b.maxX, y: 0, width: canvas.maxX - b.maxX, height: b.height),
+                         CGRect(x: 0, y: canvas.minY, width: b.width, height: -canvas.minY),
+                         CGRect(x: 0, y: b.maxY, width: b.width, height: canvas.maxY - b.maxY)]
+            for (strip, dest) in zip(doc.edgeStrips, sides) where dest.width > 0 && dest.height > 0 {
+                if let strip { ctx.draw(strip, in: dest) }
             }
             ctx.restoreGState()
         }
@@ -177,7 +215,9 @@ public enum Renderer {
         let w = m.size.width(forImageWidth: imageWidth)
         switch m.tool {
         case .text, .step: return textOrStepRect(m, imageWidth: imageWidth).insetBy(dx: -w, dy: -w)
-        case .arrow: return m.rect.insetBy(dx: -max(w * 4.5, 10), dy: -max(w * 4.5, 10))
+        case .arrow:
+            let r = m.curveBounds.insetBy(dx: -max(w * 4.5, 10), dy: -max(w * 4.5, 10))
+            return arrowLabel(of: m, imageWidth: imageWidth).map { r.union(extent(of: $0, imageWidth: imageWidth)) } ?? r
         default: return m.rect.insetBy(dx: -w, dy: -w)
         }
     }
@@ -206,7 +246,12 @@ public enum Renderer {
             ctx.addPath(CGPath(roundedRect: m.rect, cornerWidth: w, cornerHeight: w, transform: nil))
             ctx.fillPath()
         case .arrow:
-            drawArrow(from: m.start, to: m.end, color: m.color, width: w, in: ctx)
+            drawArrow(m, width: w, in: ctx)
+            if let label = arrowLabel(of: m, imageWidth: imageWidth) {
+                ctx.restoreGState()
+                ctx.saveGState()
+                draw(label, in: ctx, imageWidth: imageWidth)
+            }
         case .text:
             let r = textOrStepRect(m, imageWidth: imageWidth)
             let size = fontSize(of: m, imageWidth: imageWidth)
@@ -256,9 +301,19 @@ public enum Renderer {
         ctx.setShadow(offset: CGSize(width: 0, height: -drop * s), blur: blur * s, color: CGColor(gray: 0, alpha: 0.35))
     }
 
-    static func drawArrow(from a: CGPoint, to b: CGPoint, color: RGBA, width w: CGFloat, in ctx: CGContext) {
-        let angle = atan2(b.y - a.y, b.x - a.x)
+    static func drawArrow(_ m: Mark, width w: CGFloat, in ctx: CGContext) {
+        let a = m.start, b = m.end, color = m.color
         let head = max(w * 4.5, 10)
+        // A curve stops where the head begins: split it at the point about the head's length from the
+        // tip, and aim the head from there so line and head meet on its axis.
+        var split = (t: CGFloat(1), control: m.control)
+        if m.bend != 0 {
+            let t = m.parameter(atDistance: head * 0.85, fromEnd: true)
+            let c = m.control
+            split = (t, CGPoint(x: a.x + (c.x - a.x) * t, y: a.y + (c.y - a.y) * t))
+        }
+        let cut = m.bend != 0 ? m.point(at: split.t) : a
+        let angle = atan2(b.y - cut.y, b.x - cut.x)
         let base = CGPoint(x: b.x - cos(angle) * head * 0.85, y: b.y - sin(angle) * head * 0.85)
         let wing = head * 0.55
         let left = CGPoint(x: b.x - cos(angle) * head + cos(angle + .pi / 2) * wing,
@@ -271,7 +326,7 @@ public enum Renderer {
         ctx.setLineWidth(w)
         ctx.setLineCap(.round)
         ctx.move(to: a)
-        ctx.addLine(to: base)
+        if m.bend != 0 { ctx.addQuadCurve(to: cut, control: split.control) } else { ctx.addLine(to: base) }
         ctx.strokePath()
         ctx.move(to: b)
         ctx.addLine(to: left)
