@@ -387,7 +387,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             confirmInstall(offer)
         case let .failed(why):
             Alerts.show("Shotate couldn't update", why)
-        default:
+        case .installing:
+            Alerts.show("Shotate is updating", "The update is building and Shotate restarts by itself when it's done.")
+        case .idle, .checking:
+            break
+        case .upToDate:
             let a = NSAlert()
             a.messageText = "Shotate is up to date"
             a.informativeText = "You have Shotate \(updater.build.version) on the \(updater.channel) channel. "

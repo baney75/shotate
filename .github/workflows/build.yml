@@ -100,6 +100,14 @@ jobs:
         run: |
           shopt -s nullglob
           files=(src-tauri/target/release/bundle/{nsis/*.exe,msi/*.msi,appimage/*.AppImage,deb/*.deb,rpm/*.rpm})
+          # Nightly installers carry the plain X.Y.Z inside, so name each night's files apart: the
+          # previous nightly stays downloadable (and matches its manifest) until this one is live.
+          if [[ "$VERSION" == *+* ]]; then
+            plain=${VERSION%%+*}
+            mkdir -p upload
+            for f in "${files[@]}"; do name=$(basename "$f"); cp "$f" "upload/${name/$plain/${VERSION/+/-}}"; done
+            files=(upload/*)
+          fi
           gh release upload "$TAG" "${files[@]}" --clobber
 
   manifest:
@@ -115,5 +123,5 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           version=${VERSION:-$(cat VERSION)}
-          # Installers carry the plain X.Y.Z, so only this build's files go in the manifest.
-          .github/scripts/manifest.sh "$TAG" "$CHANNEL" "$version" "$GITHUB_SHA" "${version%%+*}"
+          # Only this build's installers go in the manifest (nightly file names carry the build stamp).
+          .github/scripts/manifest.sh "$TAG" "$CHANNEL" "$version" "$GITHUB_SHA" "${version/+/-}"

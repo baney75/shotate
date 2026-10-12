@@ -43,6 +43,7 @@ final class Updater {
     }
 
     private var waiting: [(State) -> Void] = []
+    private var inFlightManual = false
     /// The channel the last result was for, so a result from a channel no longer chosen is dropped.
     private var checkedChannel: String?
     /// Proves that shotate://update-failed came from the update this copy started.
@@ -62,6 +63,7 @@ final class Updater {
         if let completion { waiting.append(completion) }
         let channel = channel
         let previous = state
+        inFlightManual = manual
         state = .checking
         var request = URLRequest(url: UpdateManifest.url(channel: channel), timeoutInterval: 20)
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -85,7 +87,15 @@ final class Updater {
                 self.checkedChannel = channel
                 let done = self.waiting
                 self.waiting = []
-                done.forEach { $0(self.state) }
+                // Someone asked while a quiet check ran: if that check was dropped or failed, ask
+                // again for them, so they get a real answer rather than an old one.
+                let unanswered = !self.inFlightManual && !done.isEmpty
+                    && (self.state == .idle || self.state == previous && status != 200 && status != 404)
+                if unanswered {
+                    self.check(manual: true) { state in done.forEach { $0(state) } }
+                } else {
+                    done.forEach { $0(self.state) }
+                }
             }
         }.resume()
     }
