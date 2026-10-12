@@ -30,6 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if recording { self?.hotkeys.removeAll() } else { self?.applySettings(save: false) }
         }
         Settings.adoptLegacyConfig()
+        // Open at login was registered for Snapmark.app; register once more so it points at Shotate.app.
+        if !UserDefaults.standard.bool(forKey: "loginItemMovedToShotate") {
+            UserDefaults.standard.set(true, forKey: "loginItemMovedToShotate")
+            if launchAtLogin { launchAtLogin = true }
+        }
         settings = loadConfig() ?? settings
         settings.normalize()
         applySettings(save: !FileManager.default.fileExists(atPath: Settings.configURL.path))

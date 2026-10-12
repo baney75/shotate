@@ -39,7 +39,7 @@ func render(_ w: Int, _ h: Int, iconSize: CGFloat, title: CGFloat, to name: Stri
     text("Shotate", size: title, weight: .heavy, rounded: true, color: .white, at: CGPoint(x: x, y: H / 2 + title * 0.12))
     text("Point at what matters.", size: title * 0.38, weight: .semibold, color: NSColor(white: 1, alpha: 0.86),
          at: CGPoint(x: x, y: H / 2 - title * 0.42))
-    text("Free screenshot and annotation for macOS, Windows and Linux", size: title * 0.235, weight: .regular,
+    text("Free screenshot and annotation tool for macOS, Windows and Linux", size: title * 0.235, weight: .regular,
          color: NSColor(white: 1, alpha: 0.6), at: CGPoint(x: x, y: H / 2 - title * 0.82))
     text("by Donovan Baney  ·  dbaney.com", size: title * 0.235, weight: .medium,
          color: NSColor(srgbRed: 0.98, green: 0.55, blue: 0.56, alpha: 1), at: CGPoint(x: x, y: H / 2 - title * 1.14))

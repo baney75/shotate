@@ -13,7 +13,7 @@ rather than in a public issue. Expect a reply within a week.
 
 The installer creates a self-signed code-signing certificate so macOS keeps the Screen Recording
 permission across updates. It lives in its own keychain at
-`~/Library/Application Support/Shotate/Signing`, is never added to your login keychain or trust
+`~/Library/Application Support/Snapmark/Signing` (the folder keeps the app's old name), is never added to your login keychain or trust
 settings, and is used only to sign your local Shotate build. `uninstall.sh` removes it.
 
 The tradeoff: the key and its keychain password are files readable by your user account. A program

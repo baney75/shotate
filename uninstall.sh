@@ -8,9 +8,10 @@ set -euo pipefail
 uninstall_macos() {
   osascript -e 'tell application id "com.baney.snapmark" to quit' >/dev/null 2>&1 || true
   for _ in $(seq 1 25); do
-    pgrep -f "$HOME/Applications/(Shotate|Snapmark).app/Contents/MacOS/" >/dev/null || break; sleep 0.2
+    pgrep -f "/(Shotate|Snapmark).app/Contents/MacOS/" >/dev/null || break; sleep 0.2
   done
   rm -rf "$HOME/Applications/Shotate.app" "$HOME/Applications/Snapmark.app"
+  rm -rf "/Applications/Shotate.app" "/Applications/Snapmark.app" 2>/dev/null || true
   defaults delete com.baney.snapmark >/dev/null 2>&1 || true
   rm -rf "$HOME/Library/Application Support/Shotate" "$HOME/Library/Application Support/Snapmark" \
          "$HOME/.config/shotate" "$HOME/.config/snapmark"

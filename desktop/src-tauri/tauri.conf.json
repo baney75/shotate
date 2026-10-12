@@ -56,17 +56,45 @@
       "deb": {
         "depends": [
           "libayatana-appindicator3-1"
-        ]
+        ],
+        "conflicts": [
+          "snapmark"
+        ],
+        "replaces": [
+          "snapmark"
+        ],
+        "provides": [
+          "snapmark"
+        ],
+        "files": {
+          "/usr/bin/snapmark": "linux/snapmark"
+        }
       },
       "rpm": {
         "depends": [
           "libayatana-appindicator-gtk3"
-        ]
+        ],
+        "conflicts": [
+          "snapmark"
+        ],
+        "obsoletes": [
+          "snapmark"
+        ],
+        "provides": [
+          "snapmark"
+        ],
+        "files": {
+          "/usr/bin/snapmark": "linux/snapmark"
+        }
       }
     },
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/hooks.nsh"
+      },
+      "wix": {
+        "upgradeCode": "8b83c196-a6bf-5bbd-a224-7a49b88301a7"
       }
     }
   }

@@ -32,8 +32,7 @@ echo "built $APP ($VERSION, $(lipo -archs "$APP/Contents/MacOS/Shotate"))"
 if [ "${1:-}" = "--install" ]; then
   DEST="$HOME/Applications/Shotate.app"
   # Shotate was called Snapmark and keeps its bundle ID, so its permission and settings carry over.
-  LEGACY="$HOME/Applications/Snapmark.app"
-  running() { pgrep -f "$DEST/Contents/MacOS/Shotate" >/dev/null || pgrep -f "$LEGACY/Contents/MacOS/Snapmark" >/dev/null; }
+  running() { pgrep -f "$DEST/Contents/MacOS/Shotate" >/dev/null || pgrep -f "/Snapmark.app/Contents/MacOS/Snapmark" >/dev/null; }
   # Quit by bundle ID (lets open editors save) instead of killing anything with a matching name.
   osascript -e 'tell application id "com.baney.snapmark" to quit' >/dev/null 2>&1 || true
   for _ in $(seq 1 50); do running || break; sleep 0.2; done
@@ -42,11 +41,11 @@ if [ "${1:-}" = "--install" ]; then
     exit 1
   fi
   rm -rf "$DEST"
-  if [ -d "$LEGACY" ]; then
+  for LEGACY in "$HOME/Applications/Snapmark.app" "/Applications/Snapmark.app"; do
+    [ -d "$LEGACY" ] || continue
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$LEGACY" 2>/dev/null || true
-    rm -rf "$LEGACY"
-    echo "removed the old $LEGACY"
-  fi
+    if rm -rf "$LEGACY" 2>/dev/null; then echo "removed the old $LEGACY"; else echo "remove the old $LEGACY yourself (it needs an administrator)" >&2; fi
+  done
   mkdir -p "$HOME/Applications"
   cp -R "$APP" "$DEST"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"

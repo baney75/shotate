@@ -159,7 +159,10 @@ fn linux_tool_capture() -> Option<RgbaImage> {
         ("spectacle", vec!["-b", "-n", "-f", "-o", o.as_str()]),
     ];
     for (tool, args) in tools {
-        let ok = std::process::Command::new(tool).args(&args).status().is_ok_and(|s| s.success());
+        let ok = std::process::Command::new(tool)
+            .args(&args)
+            .status()
+            .is_ok_and(|s| s.success());
         if ok {
             let image = image::open(&out).ok().map(|i| i.to_rgba8());
             let _ = std::fs::remove_file(&out);
@@ -386,7 +389,13 @@ async fn save_dialog(app: AppHandle, name: String) -> Option<String> {
 #[tauri::command]
 async fn pick_folder(app: AppHandle) -> Option<String> {
     let start = app.state::<State>().config.lock().unwrap().save_dir();
-    let picked = app.dialog().file().set_directory(start).blocking_pick_folder()?.into_path().ok()?;
+    let picked = app
+        .dialog()
+        .file()
+        .set_directory(start)
+        .blocking_pick_folder()?
+        .into_path()
+        .ok()?;
     let home = dirs::home_dir().unwrap_or_default();
     Some(match picked.strip_prefix(&home) {
         Ok(rest) => format!("~/{}", rest.to_string_lossy().replace('\\', "/")),
@@ -650,7 +659,11 @@ fn encode(s: &str) -> String {
 
 fn show_view(app: &AppHandle, label: &str, title: &str, size: (f64, f64)) {
     // Windows Settings puts navigation on the left, which needs a wider window.
-    let size = if cfg!(windows) && label == "settings" { (900.0, 640.0) } else { size };
+    let size = if cfg!(windows) && label == "settings" {
+        (900.0, 640.0)
+    } else {
+        size
+    };
     if let Some(w) = app.get_webview_window(label) {
         let _ = w.show();
         let _ = w.set_focus();
@@ -704,6 +717,29 @@ fn autostart(app: AppHandle, enable: Option<bool>) -> bool {
         None => {}
     }
     manager.is_enabled().unwrap_or(false)
+}
+
+/// Shotate was called Snapmark before 0.12. On Linux its Open at login entry is a desktop file named
+/// after the app; this turns on Shotate's own and removes the old one. (On Windows the installer
+/// carries the setting over, because removing Snapmark deletes its entry.)
+fn adopt_legacy_autostart(app: &AppHandle) {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let Some(dir) = dirs::config_dir().map(|d| d.join("autostart")) else {
+        return;
+    };
+    let old: Vec<_> = ["Snapmark.desktop", "snapmark.desktop"]
+        .iter()
+        .map(|n| dir.join(n))
+        .filter(|p| p.exists())
+        .collect();
+    if old.is_empty() || app.autolaunch().enable().is_err() {
+        return;
+    }
+    for p in old {
+        let _ = std::fs::remove_file(p);
+    }
 }
 
 /// "windows", "linux-x11" or "linux-wayland", "macos" (for development builds).
@@ -866,7 +902,13 @@ pub fn run() {
         .on_window_event(|window, event| {
             // However the overlay goes away (Esc, Alt+F4, the window manager), drop its capture.
             if window.label() == "overlay" && matches!(event, tauri::WindowEvent::Destroyed) {
-                window.app_handle().state::<State>().pending.lock().unwrap().take();
+                window
+                    .app_handle()
+                    .state::<State>()
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .take();
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -894,6 +936,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             config::adopt_legacy(&config::legacy_path(), &config::path());
+            adopt_legacy_autostart(&handle);
             let first_run = !config::path().exists();
             reload(&handle, true);
             watch_config(&handle);

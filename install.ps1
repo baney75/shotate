@@ -10,12 +10,7 @@ $setup = Join-Path $env:TEMP $asset.name
 Write-Host "==> Downloading $($asset.name)"
 Invoke-WebRequest $asset.browser_download_url -OutFile $setup -UseBasicParsing
 Write-Host "==> Installing"
-# Shotate was called Snapmark; remove the old app first so only one copy runs.
-$legacy = Join-Path $env:LOCALAPPDATA "Snapmark\uninstall.exe"
-if (Test-Path $legacy) {
-  Get-Process snapmark -ErrorAction SilentlyContinue | Stop-Process -Force
-  Start-Process $legacy -ArgumentList "/S" -Wait
-}
+# The setup removes Snapmark (the old name) itself and keeps Open at login.
 Start-Process $setup -ArgumentList "/S" -Wait
 Remove-Item $setup -ErrorAction SilentlyContinue
 $exe = Join-Path $env:LOCALAPPDATA "Shotate\shotate.exe"

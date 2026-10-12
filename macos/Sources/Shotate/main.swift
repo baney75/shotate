@@ -35,6 +35,19 @@ if let i = args.firstIndex(of: "--wait-for"), i + 1 < args.count, let pid = pid_
     for _ in 0..<100 where kill(pid, 0) == 0 { usleep(100_000) }
 }
 
+// One copy at a time. Shotate keeps Snapmark's bundle ID, so an old Snapmark still running (say, a
+// copy installed somewhere else) would fight it for the shortcuts: quit that one. If another Shotate
+// is already running, hand over to it.
+for other in NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+where other.processIdentifier != getpid() {
+    if other.bundleURL?.lastPathComponent == "Snapmark.app" {
+        other.terminate()
+    } else {
+        other.activate()
+        exit(0)
+    }
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

@@ -5,7 +5,7 @@ import ShotateCore
 /// Screen Recording permission. A running app may not see a change until it relaunches.
 ///
 /// macOS stores a grant together with the code signature of the build that asked. If that signature
-/// changes (older Shotate builds were signed ad hoc, so every build had a new one), the switch in
+/// changes (older builds, as Snapmark, were signed ad hoc, so every build had a new one), the switch in
 /// System Settings can show "on" while macOS still refuses this build, and flipping it doesn't help.
 /// `request()` therefore clears Shotate's own entry before asking, so macOS records this build.
 enum ScreenRecording {

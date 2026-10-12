@@ -39,21 +39,14 @@ asset_url() {
     | grep -o '"browser_download_url": *"[^"]*"' | cut -d'"' -f4 | grep -E "$1" | head -1
 }
 
-# Shotate was called Snapmark before 0.12. Removes the old copy so only one runs; settings carry over.
+# Shotate was called Snapmark before 0.12. The .deb and .rpm replace the old package themselves and
+# keep a `snapmark` command; this handles an old AppImage. Shotate moves Open at login over when it starts.
 remove_snapmark() {
   pkill -x snapmark >/dev/null 2>&1 || true
-  local sudo=""
-  [ "$(id -u)" -eq 0 ] || sudo="sudo"
-  if command -v dpkg >/dev/null 2>&1 && dpkg -s snapmark >/dev/null 2>&1; then
-    step "Removing Snapmark, the old name"
-    $sudo apt-get remove -y snapmark >/dev/null
-  elif command -v rpm >/dev/null 2>&1 && rpm -q snapmark >/dev/null 2>&1; then
-    step "Removing Snapmark, the old name"
-    if command -v dnf >/dev/null 2>&1; then $sudo dnf remove -y snapmark >/dev/null
-    else $sudo zypper --non-interactive remove snapmark >/dev/null; fi
+  if [ -f "$HOME/.local/bin/snapmark" ] && [ ! -L "$HOME/.local/bin/snapmark" ]; then
+    rm -f "$HOME/.local/bin/snapmark" "$HOME/.local/share/applications/snapmark.desktop"
+    [ ! -x "$HOME/.local/bin/shotate" ] || ln -sf shotate "$HOME/.local/bin/snapmark"
   fi
-  rm -f "$HOME/.local/bin/snapmark" "$HOME/.local/share/applications/snapmark.desktop" \
-        "$HOME/.config/autostart/Snapmark.desktop" "$HOME/.config/autostart/snapmark.desktop"
 }
 
 install_linux() {

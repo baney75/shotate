@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.png" alt="Shotate: point at what matters. Free screenshot and annotation for macOS, Windows and Linux." width="100%">
+  <img src="docs/banner.png" alt="Shotate: point at what matters. Free screenshot and annotation tool for macOS, Windows and Linux." width="100%">
 </p>
 
 <h1 align="center">Shotate</h1>
@@ -60,8 +60,8 @@ global shortcuts to themselves: add one in your keyboard settings that runs `sho
 ## How it works
 
 1. **Press ⇧⌘S** (Ctrl+Shift+S on Windows and Linux) and drag over anything. Press Space to grab a
-   whole window instead. The screen freezes while you choose, and the editor opens the moment you
-   let go.
+   whole window instead. On macOS 14 and later the screen freezes while you choose, and the editor
+   opens the moment you let go.
 2. **Mark it up.** Arrows, boxes, highlights, text, numbered steps, crop and redaction.
 3. **Press Return.** The image is on your clipboard, ready to paste into Slack, Mail, a pull request
    or a terminal, and a copy is saved to your Pictures/Screenshots folder.
@@ -121,9 +121,8 @@ registered with `RegisterEventHotKey`, which macOS allows without extra permissi
 
 macOS ties that permission to the app's code signature. Shotate's installer creates a local signing
 certificate the first time it runs, kept in its own keychain under
-`~/Library/Application Support/Snapmark/Signing` (the folder keeps the app's old name, so updates
-keep the same certificate). The certificate stays the same across updates, so
-macOS remembers your choice. It is never added to your login keychain and is trusted for nothing else.
+`~/Library/Application Support/Snapmark/Signing` (it keeps the app's old name). The certificate
+stays the same across updates, so macOS remembers your choice. It is never added to your login keychain and is trusted for nothing else.
 
 If Screen Recording is ever off, the menu bar menu shows **Allow Screen Recording…** at the top.
 

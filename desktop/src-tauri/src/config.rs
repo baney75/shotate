@@ -301,7 +301,10 @@ mod tests {
     #[test]
     fn adopts_the_snapmark_config_once() {
         let dir = std::env::temp_dir().join(format!("shotate-adopt-{}", std::process::id()));
-        let (old, new) = (dir.join("snapmark/config.json"), dir.join("shotate/config.json"));
+        let (old, new) = (
+            dir.join("snapmark/config.json"),
+            dir.join("shotate/config.json"),
+        );
         assert!(!adopt_legacy(&old, &new), "nothing to adopt");
         std::fs::create_dir_all(old.parent().unwrap()).unwrap();
         std::fs::write(&old, r#"{"copyOnCapture": false}"#).unwrap();
