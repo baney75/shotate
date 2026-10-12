@@ -2,7 +2,7 @@
 // see is exactly what gets copied. Mirrors the macOS renderer.
 import {
   LINE_HEIGHT, PAD_X, PAD_Y, type Doc, type Mark, type RGBA, type Rect, arrowLabel, control, css, fontSize, parameterAt,
-  markFontSize, markRect, pointAt, removeThinRuns, rgba, strokeWidth, textLines, textOrStepRect,
+  markFontSize, markRect, penWidth, pointAt, removeThinRuns, rgba, strokeWidth, textLines, textOrStepRect,
 } from "./model";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -91,6 +91,7 @@ export function drawMark(ctx: Ctx, m: Mark, imageWidth: number) {
       if (label) { ctx.restore(); ctx.save(); drawMark(ctx, label, imageWidth); }
       break;
     }
+    case "pen": drawPen(ctx, m, w); break;
     case "text": {
       const size = markFontSize(m, imageWidth);
       const box = textOrStepRect(m, imageWidth, measure);
@@ -126,6 +127,35 @@ export function drawMark(ctx: Ctx, m: Mark, imageWidth: number) {
     }
   }
   ctx.restore();
+}
+
+/** A pen stroke, smoothed: a curve through the midpoints between its points, each point the control.
+ *  With pressure each piece takes the width at its point; the pieces are opaque, so overlaps don't show. */
+function drawPen(ctx: Ctx, m: Mark, w: number) {
+  const pts = m.points ?? [m.start];
+  const pressure = m.pressures?.length === pts.length ? m.pressures : null;
+  const width = (i: number) => (pressure ? penWidth(w, pressure[i]) : w);
+  ctx.strokeStyle = ctx.fillStyle = css(m.color);
+  if (pts.length === 1) {
+    ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, width(0) / 2, 0, Math.PI * 2); ctx.fill();
+    return;
+  }
+  const mid = (i: number) => ({ x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2 });
+  // Piece i runs from the midpoint before point i to the one after it, curving through point i.
+  ctx.lineWidth = width(0);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) {
+    const last = i === pts.length - 1, to = last ? pts[i] : mid(i);
+    if (last) ctx.lineTo(to.x, to.y); else ctx.quadraticCurveTo(pts[i].x, pts[i].y, to.x, to.y);
+    if (pressure) {
+      ctx.stroke();
+      ctx.lineWidth = width(Math.min(i + 1, pts.length - 1));
+      ctx.beginPath();
+      ctx.moveTo(to.x, to.y);
+    }
+  }
+  if (!pressure) ctx.stroke();
 }
 
 /** The most common color in the outermost ring of pixels; transparent edges stay transparent. */

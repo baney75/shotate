@@ -1,6 +1,6 @@
 import { Doc, Geometry, LINE_HEIGHT, PALETTE, Snap, mark, markHandles, handles, moveHandle, moveMarkHandle, duplicate, markRect, markFontSize, offset, resizeText, rewrapped, styled, textLines, textOrStepRect } from "./model";
 import { resolveToolKeys, shortcutLabel } from "./settings";
-import { TOOLS, arrowLabel, calloutAnchor, curveBounds, endNear, midpoint, parameterAt, pinned, pointAt, removeThinRuns } from "./model";
+import { TOOLS, inkShape, penWidth, stroke, arrowLabel, calloutAnchor, curveBounds, endNear, midpoint, parameterAt, pinned, pointAt, removeThinRuns } from "./model";
 import { edgeStrips } from "./render";
 
 const measure = (text: string, size: number) => text.length * size * 0.6;
@@ -309,5 +309,50 @@ describe("growing the canvas", () => {
     expect(reds(r)).toEqual([9, 21, 33, 45]);
     expect(reds(t)).toEqual([0, 3, 6, 9]);
     expect(reds(b)).toEqual([36, 39, 42, 45]);
+  });
+});
+
+describe("pen", () => {
+  it("draws strokes that hit, move and grow the canvas", () => {
+    const doc = new Doc(400, 300, measure);
+    const pts = Array.from({ length: 41 }, (_, i) => ({ x: 50 + i * 5, y: 150 + 40 * Math.sin(i / 6) }));
+    const s = doc.add(stroke(pts, red, 2));
+    expect(s.start).toEqual(pts[0]);
+    expect(s.end).toEqual(pts[40]);
+    expect(doc.hitTest(pts[20], 0)?.id).toBe(s.id);
+    expect(doc.hitTest({ x: 150, y: 40 }, 6)).toBeUndefined();
+    expect(offset(s, 10, -5).points![7]).toEqual({ x: pts[7].x + 10, y: pts[7].y - 5 });
+    expect(duplicate(s, 4).points).toHaveLength(41);
+    doc.add(stroke([{ x: 380, y: 100 }, { x: 460, y: 120 }], red, 2));
+    expect(doc.canvas.x + doc.canvas.w).toBeGreaterThan(460);
+    doc.add(stroke([{ x: 20, y: 20 }], red, 2));
+    expect(doc.hitTest({ x: 21, y: 20 }, 0)?.tool).toBe("pen");
+  });
+
+  it("draws thin when light and thick when pressed", () => {
+    expect(penWidth(10, 0.1)).toBeLessThan(5);
+    expect(penWidth(10, 0.6)).toBeCloseTo(10);
+    expect(penWidth(10, 1)).toBeGreaterThan(14);
+    expect(penWidth(10, 3)).toBe(penWidth(10, 1));
+  });
+
+  it("turns a held stroke into the shape it was meant to be", () => {
+    // A shaky line: the jitter adds a tenth to its length, but it never leaves the line.
+    const line = Array.from({ length: 31 }, (_, i) => ({ x: i * 8, y: 100 + (i % 2 ? -2 : 2) }));
+    expect(inkShape(line)).toEqual({ kind: "line", a: line[0], b: line[30] });
+    const circle = Array.from({ length: 34 }, (_, i) => {
+      const a = (i / 36) * 2 * Math.PI, r = i % 3 ? 97 : 104;
+      return { x: 200 + Math.cos(a) * r, y: 200 + Math.sin(a) * r };
+    });
+    expect(inkShape(circle)?.kind).toBe("ellipse");
+    const rect: { x: number; y: number }[] = [];
+    for (let x = 0; x <= 300; x += 10) rect.push({ x, y: 2 });
+    for (let y = 0; y <= 150; y += 10) rect.push({ x: 298, y });
+    for (let x = 300; x >= 0; x -= 10) rect.push({ x, y: 151 });
+    for (let y = 150; y >= 20; y -= 10) rect.push({ x: 1, y });
+    expect(inkShape(rect)?.kind).toBe("box");
+    const squiggle = Array.from({ length: 41 }, (_, i) => ({ x: i * 6, y: 100 + 60 * Math.sin(i / 3) }));
+    expect(inkShape(squiggle)).toBeNull();
+    expect(inkShape([{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 3, y: 3 }])).toBeNull();
   });
 });

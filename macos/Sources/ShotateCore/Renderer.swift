@@ -218,6 +218,7 @@ public enum Renderer {
         case .arrow:
             let r = m.curveBounds.insetBy(dx: -max(w * 4.5, 10), dy: -max(w * 4.5, 10))
             return arrowLabel(of: m, imageWidth: imageWidth).map { r.union(extent(of: $0, imageWidth: imageWidth)) } ?? r
+        case .pen: return m.rect.insetBy(dx: -w * 1.5, dy: -w * 1.5)
         default: return m.rect.insetBy(dx: -w, dy: -w)
         }
     }
@@ -252,6 +253,8 @@ public enum Renderer {
                 ctx.saveGState()
                 draw(label, in: ctx, imageWidth: imageWidth)
             }
+        case .pen:
+            drawPen(m, width: w, in: ctx)
         case .text:
             let r = textOrStepRect(m, imageWidth: imageWidth)
             let size = fontSize(of: m, imageWidth: imageWidth)
@@ -333,6 +336,44 @@ public enum Renderer {
         ctx.addLine(to: right)
         ctx.closePath()
         ctx.fillPath()
+    }
+
+    /// The width a pen draws at a point with tablet pressure `p` (0-1): thin when light, a little
+    /// past the stroke size when pressed hard. About the stroke size at a natural 0.6.
+    public static func penWidth(_ w: CGFloat, pressure p: CGFloat) -> CGFloat { w * (0.25 + 1.25 * min(max(p, 0), 1)) }
+
+    /// A pen stroke, smoothed: a curve through the midpoints between its points, each point the control.
+    /// With pressure each piece takes the width at its point; the pieces are opaque, so overlaps don't show.
+    static func drawPen(_ m: Mark, width w: CGFloat, in ctx: CGContext) {
+        let pts = m.points
+        guard let first = pts.first else { return }
+        ctx.setStrokeColor(m.color.cgColor)
+        ctx.setFillColor(m.color.cgColor)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        let pressure = pts.count == m.pressures.count
+        func width(_ i: Int) -> CGFloat { pressure ? penWidth(w, pressure: m.pressures[i]) : w }
+        guard pts.count > 1 else {
+            let r = width(0) / 2
+            ctx.fillEllipse(in: CGRect(x: first.x - r, y: first.y - r, width: r * 2, height: r * 2))
+            return
+        }
+        func mid(_ i: Int) -> CGPoint { CGPoint(x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2) }
+        // Piece i runs from the midpoint before point i to the one after it, curving through point i.
+        var from = first
+        ctx.setLineWidth(width(0))
+        ctx.move(to: from)
+        for i in 1..<pts.count {
+            let to = i == pts.count - 1 ? pts[i] : mid(i)
+            if i == pts.count - 1 { ctx.addLine(to: to) } else { ctx.addQuadCurve(to: to, control: pts[i]) }
+            if pressure {
+                ctx.strokePath()
+                ctx.setLineWidth(width(min(i + 1, pts.count - 1)))
+                ctx.move(to: to)
+            }
+            from = to
+        }
+        if !pressure { ctx.strokePath() }
     }
 
     /// The finished image: base then marks in the order they were added, cropped if a crop is set.
