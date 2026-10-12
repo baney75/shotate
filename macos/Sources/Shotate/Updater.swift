@@ -79,6 +79,13 @@ final class Updater {
             return
         }
         let m = offer.manifest
+        // These go into a shell script, so accept only the shapes CI writes.
+        guard m.version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.]+)?$"#, options: .regularExpression) != nil,
+              m.commit.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
+              Settings.channels.contains(m.channel) else {
+            state = .failed("The update's details look wrong, so Shotate didn't install it.")
+            return
+        }
         // A stable release is its tag; a nightly is the exact commit it was built from.
         let ref = m.channel == "stable" ? "refs/tags/v\(m.version):refs/tags/v\(m.version)" : m.commit
         let script = """
