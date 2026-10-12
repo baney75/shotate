@@ -30,7 +30,7 @@
     "copyright": "\u00a9 2026 Donovan Baney (@baney75). MIT License.",
     "category": "Utility",
     "shortDescription": "Fast, free screenshot and annotation tool",
-    "longDescription": "Shotate captures an area, a window or the whole screen, lets you mark it up with arrows, boxes, highlights, text, numbered steps and real redaction, and copies the result. No account, no network code.",
+    "longDescription": "Shotate captures an area, a window or the whole screen, lets you mark it up with arrows, boxes, highlights, text, numbered steps and real redaction, and copies the result. No account, no analytics.",
     "homepage": "https://github.com/baney75/shotate",
     "license": "MIT",
     "icon": [

@@ -1,4 +1,5 @@
 import AppKit
+import ShotateCore
 
 /// Who made Shotate and where to find them. One place, used by the About panel, Settings and Welcome.
 enum Credits {
@@ -38,7 +39,9 @@ enum Credits {
 
     static func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
+        let build = BuildInfo(bundle: .main)
         NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationVersion: "\(build.channel.capitalized) · \(build.shortCommit)",
             .credits: line(size: 11, centered: true),
             .init(rawValue: "Copyright"): "© 2026 \(author) (\(handle)). Free and open source under the MIT License.",
         ])

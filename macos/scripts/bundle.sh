@@ -18,6 +18,16 @@ swift scripts/make-icon.swift build/Shotate.iconset >/dev/null
 iconutil -c icns build/Shotate.iconset -o "$APP/Contents/Resources/Shotate.icns"
 
 sed "s/@VERSION@/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
+# What this build is, for the update check (docs/updates.md): the commit, the channel (stable when
+# built from the release tag, otherwise nightly) and when it was built.
+COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+if [ -n "${SHOTATE_CHANNEL:-}" ]; then CHANNEL=$SHOTATE_CHANNEL
+elif ! git rev-parse --git-dir >/dev/null 2>&1; then CHANNEL=stable
+elif [ "$(git describe --exact-match --tags HEAD 2>/dev/null)" = "v$VERSION" ]; then CHANNEL=stable
+else CHANNEL=nightly; fi
+for kv in "ShotateCommit:$COMMIT" "ShotateChannel:$CHANNEL" "ShotateBuildDate:$(date -u +%Y-%m-%dT%H:%M:%SZ)"; do
+  /usr/libexec/PlistBuddy -c "Add :${kv%%:*} string ${kv#*:}" "$APP/Contents/Info.plist"
+done
 # A stable local identity keeps the Screen Recording permission across rebuilds; ad-hoc is the fallback.
 if [ "${SHOTATE_ADHOC:-}" != 1 ] && IDENT=$(scripts/signing-identity.sh 2>/dev/null); then
   codesign --force --sign "${IDENT%%$'\t'*}" --keychain "${IDENT#*$'\t'}" --identifier com.baney.snapmark "$APP"

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Updates, with a Stable and a Nightly channel.** Shotate checks GitHub once a day and offers
+  **Update to Shotate x.y.z…** in its menu; one click installs it and restarts. Pick Stable (tested
+  releases) or Nightly (built every day from the newest code) in Settings › General, check now, or
+  turn checking off. The install commands take the channel too (`--nightly`). On macOS updates are
+  built on your Mac, so the Screen Recording permission stays; on Windows and Linux the installer's
+  SHA-256 is checked before it runs. The check downloads one small file and sends nothing about you.
+- **Save to Downloads or Desktop.** Settings › General › Save captures to now offers Pictures ›
+  Screenshots, Desktop, Downloads or any other folder.
+- About shows the build's channel and commit.
+
 ## 0.12.0 (2026-10-11)
 
 ### Changed

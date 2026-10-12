@@ -13,6 +13,10 @@ public struct Settings: Equatable {
     public var commandHotkeys: [String: String]
     /// Editor tool keys, by tool name ("arrow": "a"). Missing tools keep their default letter.
     public var toolKeys: [String: String]
+    /// "stable" or "nightly"; nil follows the channel this build came from (docs/updates.md).
+    public var updateChannel: String?
+    /// Look for updates on GitHub once a day. Off means Shotate makes no network request at all.
+    public var checkForUpdates = true
 
     // Always a directory URL, so it compares equal whether or not the folder exists yet.
     public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
@@ -20,6 +24,7 @@ public struct Settings: Equatable {
     public static let defaultShortcut = "cmd+shift+s"
     public static let actions = ["captureArea", "captureWindow", "captureScreen"]
     public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "", "captureScreen": ""]
+    public static let channels = ["stable", "nightly"]
     public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/shotate/config.json")
     /// Where the app kept its config when it was called Snapmark.
     public static let legacyConfigURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/snapmark/config.json")
@@ -110,6 +115,8 @@ public struct Settings: Equatable {
         }
         if let m = o["commands"] as? [String: String] { s.commandHotkeys = m.filter { Shortcut($0.key) != nil } }
         if let m = o["toolKeys"] as? [String: String] { s.toolKeys = m.mapValues { $0.lowercased() } }
+        if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
+        if let b = o["checkForUpdates"] as? Bool { s.checkForUpdates = b }
         return s
     }
 
@@ -119,7 +126,7 @@ public struct Settings: Equatable {
         let folder = saveFolder.path.hasPrefix(home + "/") ? "~" + saveFolder.path.dropFirst(home.count) : saveFolder.path
         var tools: [String: String] = [:]
         for (t, k) in resolvedToolKeys { tools[t.title.lowercased()] = k }
-        let o: [String: Any] = [
+        var o: [String: Any] = [
             "_help": "Shotate settings. Edit and save; Shotate reloads right away. "
                 + "Docs: https://github.com/baney75/shotate#configuration",
             "saveFolder": folder,
@@ -128,7 +135,9 @@ public struct Settings: Equatable {
             "shortcuts": shortcuts,
             "commands": commandHotkeys,
             "toolKeys": tools,
+            "checkForUpdates": checkForUpdates,
         ]
+        if let updateChannel { o["updateChannel"] = updateChannel }
         return (try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]))
             ?? Data()
     }

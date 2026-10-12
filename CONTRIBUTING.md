@@ -26,7 +26,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - A behavior change lands on both apps, or the PR says why it is platform-specific.
 - A bug fix comes with a test that fails without it.
 - Match the surrounding style: short functions, comments that say why, no new dependencies.
-- No network code, analytics or telemetry, ever.
+- No analytics or telemetry, ever. The only network request is the update check (docs/updates.md).
 
 ## Pull requests
 
