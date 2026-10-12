@@ -3,10 +3,10 @@
 import { api } from "./api";
 import { credits, wireLinks } from "./credits";
 import { icon } from "./icons";
-import { shortcutLabel } from "./core/settings";
+import { buildLabel, shortcutLabel } from "./core/settings";
 
 export async function startWelcome(root: HTMLElement) {
-  const [config, platform, login] = await Promise.all([api.getConfig(), api.platform(), api.autostart()]);
+  const [config, platform, login, build] = await Promise.all([api.getConfig(), api.platform(), api.autostart(), api.buildInfo()]);
   const keys = shortcutLabel(config.shortcuts.captureArea);
   const wayland = platform === "linux-wayland";
   const capture = wayland
@@ -17,6 +17,7 @@ export async function startWelcome(root: HTMLElement) {
       <img src="/icon.png" alt="">
       <h1>Welcome to Shotate</h1>
       <p>Capture, mark up, and paste in a few seconds.</p>
+      <p class="note" id="build"></p>
       <div class="card">
         <div class="row">${icon("capture")}<div class="label"><b>Capture from anywhere</b><span>${capture}</span></div></div>
         <div class="row">${icon("pen")}<div class="label"><b>Mark it up, press Enter</b><span>The image is copied and saved. Esc steps back, then copies and closes.</span></div></div>
@@ -28,7 +29,8 @@ export async function startWelcome(root: HTMLElement) {
       </div>
       ${credits()}
     </div></div>`;
-  const login$ = root.querySelector<HTMLButtonElement>("#login")!;
+  root.querySelector("#build")!.textContent = buildLabel(build);
+  const login$ =root.querySelector<HTMLButtonElement>("#login")!;
   login$.addEventListener("click", () => {
     const on = login$.getAttribute("aria-checked") !== "true";
     login$.setAttribute("aria-checked", String(on));
