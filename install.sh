@@ -3,8 +3,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash
 # macOS: builds from source and puts it in ~/Applications (no Gatekeeper warning, and macOS keeps
 #        its Screen Recording permission across updates).
-# Linux: installs the latest release: the .deb on Debian and Ubuntu, the .rpm on Fedora and
-#        openSUSE, otherwise the AppImage in ~/.local/bin. Windows uses install.ps1.
+# Linux: installs the nightly preview (stable releases are macOS only for now): the .deb on Debian
+#        and Ubuntu, the .rpm on Fedora and openSUSE, otherwise the AppImage in ~/.local/bin.
+#        Windows uses install.ps1.
 # Stable by default. For the nightly build of the newest code (docs/updates.md):
 #   curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash -s -- --nightly
 # Running it again updates in place; Shotate can also update itself from its menu.
@@ -64,6 +65,11 @@ remove_snapmark() {
 }
 
 install_linux() {
+  # Stable releases are macOS only for now; Linux gets the nightly preview.
+  if [ "$CHANNEL" = stable ]; then
+    echo "${dim}    Stable releases are macOS only for now, so this installs the Linux preview (nightly).${reset}"
+    CHANNEL=nightly
+  fi
   case "$(uname -m)" in
     # Tauri names packages amd64/arm64 for .deb, x86_64/aarch64 for .rpm, amd64/aarch64 for AppImage.
     x86_64|amd64) deb_arch=amd64; rpm_arch=x86_64; appimage_arch=amd64 ;;

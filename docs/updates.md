@@ -1,7 +1,8 @@
 # Shotate updates: stable and nightly channels
 
 ## Channels
-- **Stable**: GitHub releases tagged `vX.Y.Z` (not prerelease). Created by `.github/workflows/release.yml` on tag push.
+- **Stable**: GitHub releases tagged `vX.Y.Z` (not prerelease). Created by `.github/workflows/release.yml` on tag push. **macOS only for now**: it is the platform each release is tested on, so a stable release has the Mac zip and a manifest with no Windows or Linux installers.
+- **Windows and Linux** always follow Nightly (their app ignores `updateChannel`, and their installers install the nightly), as preview builds.
 - **Nightly**: one rolling prerelease tagged `nightly`, rebuilt by `.github/workflows/nightly.yml` from `main` only, daily (06:17 UTC) when `main` has commits newer than the current nightly, and on manual dispatch. The app's version is `X.Y.(Z+1)+nightly.YYYYMMDDHHMM` where X.Y.Z is `VERSION`; installers carry the plain `X.Y.(Z+1)` inside (npm drops build metadata), so Linux package installs use `--reinstall`/`--replacepkgs`, and their file names carry `X.Y.(Z+1)-nightly.YYYYMMDDHHMM` so each night's files are distinct. MSI is skipped for nightly. The previous nightly stays downloadable while a new one builds: installers are uploaded alongside the old ones under new names, the manifest is uploaded last, then the tag moves and leftover files are removed.
 
 ## Manifest (the only thing clients fetch to check)
@@ -60,5 +61,5 @@ On launch (after ~10 s) and every 24 h while running, if `checkForUpdates`; alwa
 
 ## Installers
 - `install.sh`: `SHOTATE_CHANNEL=nightly` (or `bash -s -- --nightly`) picks nightly. macOS stable clones the latest `v*` tag (from the `releases/latest` redirect), nightly clones `main`. Linux stable uses `releases/latest`, nightly uses `releases/tags/nightly`.
-- `install.ps1`: `$env:SHOTATE_CHANNEL = "nightly"` before running.
+- `install.ps1`: always installs the nightly preview. On Linux, `install.sh` does the same whatever channel is asked for.
 - Re-running the installer is always a valid update.

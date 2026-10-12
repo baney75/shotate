@@ -1,5 +1,6 @@
-# Builds every installer for a release (stable or nightly), uploads them, then writes the
-# manifest.json the apps read to find updates (see docs/updates.md). Called by release.yml and nightly.yml.
+# Builds a release's installers, uploads them, then writes the manifest.json the apps read to find
+# updates (see docs/updates.md). Called by release.yml and nightly.yml. Stable releases are macOS
+# only, the one platform they are tested on; Windows and Linux ship as nightly previews.
 name: Build
 on:
   workflow_call:
@@ -46,6 +47,7 @@ jobs:
           gh release upload "$TAG" "$zip" --clobber
 
   desktop:
+    if: inputs.channel == 'nightly'
     strategy:
       fail-fast: false
       matrix:
@@ -112,6 +114,8 @@ jobs:
 
   manifest:
     needs: [macos, desktop]
+    # desktop is skipped on stable; only a failure stops the manifest.
+    if: ${{ !cancelled() && needs.macos.result == 'success' && needs.desktop.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

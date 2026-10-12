@@ -796,15 +796,11 @@ struct UpdateState {
     error: Option<String>,
 }
 
-/// The channel to follow: the config's, or this build's own when the config doesn't say.
-fn update_channel(app: &AppHandle) -> String {
-    app.state::<State>()
-        .config
-        .lock()
-        .unwrap()
-        .update_channel
-        .clone()
-        .unwrap_or_else(|| updates::Build::current().channel)
+/// The channel to follow. Stable releases are macOS only for now (it's the platform the releases are
+/// tested on), so Windows and Linux always follow Nightly, whatever the config file says. Builds that
+/// shipped as stable (0.12, 0.13) move to Nightly this way.
+fn update_channel(_app: &AppHandle) -> String {
+    "nightly".into()
 }
 
 /// "Update to Shotate 0.12.1…" or "Switch to Stable 0.12.0…" for an available update.
