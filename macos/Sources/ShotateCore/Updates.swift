@@ -68,10 +68,13 @@ public enum Updates {
 
     /// Whether `remote` should be offered to a build like `local` on `channel`.
     public static func offer(local: BuildInfo, remote: UpdateManifest, channel: String) -> Offer? {
-        guard remote.channel == channel, remote.commit != local.commit else { return nil }
+        let known = !local.commit.isEmpty && local.commit != "unknown"
+        guard remote.channel == channel, !(known && remote.commit.lowercased() == local.commit.lowercased()) else {
+            return nil
+        }
         if channel == "nightly" { return remote.date > local.date ? .update(remote) : nil }
-        if compare(remote.version, local.version) == .orderedDescending { return .update(remote) }
-        return local.channel == "nightly" ? .switchToStable(remote) : nil
+        if local.channel == "nightly" { return .switchToStable(remote) }
+        return compare(remote.version, local.version) == .orderedDescending ? .update(remote) : nil
     }
 
     /// Semantic version order: X.Y.Z numerically, a prerelease below its release, build metadata ignored.

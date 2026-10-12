@@ -1,5 +1,7 @@
 # Nightly: rebuilds the rolling `nightly` prerelease from main once a day when main has changed
 # (or on demand), for people who pick the Nightly update channel. See docs/updates.md.
+# The previous nightly stays downloadable until the new one is complete: installers are replaced
+# in place, the manifest goes up last, and only then does the tag move and old files go.
 name: Nightly
 on:
   schedule:
@@ -17,6 +19,8 @@ concurrency:
 
 jobs:
   prepare:
+    # Only main is published to nightly users, whichever branch a manual run was started from.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       build: ${{ steps.plan.outputs.build }}
@@ -26,20 +30,21 @@ jobs:
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
         run: |
           built=$(curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/nightly/manifest.json" 2>/dev/null \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])' 2>/dev/null || true)
-          if [ "$built" = "$GITHUB_SHA" ] && [ "${{ inputs.force }}" != true ]; then
+          if [ "$built" = "$GITHUB_SHA" ] && [ "$FORCE" != true ]; then
             echo "main ($GITHUB_SHA) is already the nightly"; echo "build=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # The next patch version, with the build time as semver build metadata so packages sort in order.
+          # The next patch version, with the build time as semver build metadata. The app reports
+          # it in full; installers carry the plain X.Y.Z.
           IFS=. read -r major minor patch < VERSION
           version="$major.$minor.$((patch + 1))+nightly.$(date -u +%Y%m%d%H%M)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build=true" >> "$GITHUB_OUTPUT"
-          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
-          notes="Built from [\`${GITHUB_SHA:0:7}\`](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA) on $(date -u '+%Y-%m-%d %H:%M UTC'). Nightly builds have the newest changes and may have rough edges. Pick the channel in Shotate's Settings, or install with \`SHOTATE_CHANNEL=nightly\` (see the README)."
-          gh release create nightly --prerelease --target "$GITHUB_SHA" --title "Shotate Nightly $version" --notes "$notes"
+          gh release view nightly >/dev/null 2>&1 \
+            || gh release create nightly --prerelease --target "$GITHUB_SHA" --title "Shotate Nightly" --notes "Building…"
 
   build:
     needs: prepare
@@ -49,3 +54,23 @@ jobs:
       tag: nightly
       channel: nightly
       version: ${{ needs.prepare.outputs.version }}
+
+  finish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          git push --force origin "$GITHUB_SHA:refs/tags/nightly"
+          notes="Built from [\`${GITHUB_SHA:0:7}\`](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA) on $(date -u '+%Y-%m-%d %H:%M UTC'). Nightly builds have the newest changes and may have rough edges. Pick the channel in Shotate's Settings, or install with \`--nightly\` (see the README)."
+          gh release edit nightly --title "Shotate Nightly $VERSION" --notes "$notes" --prerelease
+          # Remove installers from older nightlies that this build didn't replace.
+          keep=$(curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/nightly/manifest.json" \
+            | python3 -c 'import json,sys; print("\n".join(a["name"] for a in json.load(sys.stdin)["assets"].values()))')
+          gh release view nightly --json assets -q '.assets[].name' | while read -r name; do
+            case "$name" in manifest.json|Shotate-nightly-macOS.zip) continue ;; esac
+            grep -qxF "$name" <<<"$keep" || gh release delete-asset nightly "$name" --yes
+          done

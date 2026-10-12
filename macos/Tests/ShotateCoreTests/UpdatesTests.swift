@@ -43,6 +43,19 @@ final class UpdatesTests: XCTestCase {
         XCTAssertEqual(Updates.offer(local: local, remote: remote, channel: "stable"), .switchToStable(remote))
     }
 
+    func testNightlyBuildIsOfferedANewerStableAsASwitch() {
+        let now = Date()
+        let remote = manifest("stable", "0.13.0", commit: "b", date: now)
+        XCTAssertEqual(Updates.offer(local: build("nightly", "0.12.1", date: now), remote: remote, channel: "stable"),
+                       .switchToStable(remote), "same answer as the Windows and Linux app")
+        XCTAssertNil(Updates.offer(local: build("stable", "0.13.0", commit: "ABC", date: now),
+                                   remote: manifest("stable", "0.13.0", commit: "abc", date: now), channel: "stable"),
+                     "commits compare without case")
+        XCTAssertNotNil(Updates.offer(local: build("stable", "0.12.0", commit: "unknown", date: now),
+                                      remote: manifest("stable", "0.13.0", commit: "unknown", date: now), channel: "stable"),
+                        "an unknown commit never matches")
+    }
+
     func testSemverOrder() {
         XCTAssertEqual(Updates.compare("0.12.10", "0.12.9"), .orderedDescending)
         XCTAssertEqual(Updates.compare("1.0.0-beta.2", "1.0.0"), .orderedAscending)

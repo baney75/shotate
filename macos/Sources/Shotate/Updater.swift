@@ -42,9 +42,24 @@ final class Updater {
         }
     }
 
+    private var waiting: [(State) -> Void] = []
+    /// The channel the last result was for, so a result from a channel no longer chosen is dropped.
+    private var checkedChannel: String?
+    /// Proves that shotate://update-failed came from the update this copy started.
+    private var installToken: String?
+
     /// Looks for an update. Automatic checks stay quiet on failure and do nothing when turned off.
+    /// A check asked for while one is running gets that one's result.
     func check(manual: Bool, completion: ((State) -> Void)? = nil) {
-        guard manual || settings().checkForUpdates, state != .checking, state != .installing else { return }
+        if state == .checking {
+            if let completion { waiting.append(completion) }
+            return
+        }
+        guard manual || settings().checkForUpdates, state != .installing else {
+            completion?(state)
+            return
+        }
+        if let completion { waiting.append(completion) }
         let channel = channel
         let previous = state
         state = .checking
@@ -54,7 +69,10 @@ final class Updater {
             DispatchQueue.main.async {
                 guard let self else { return }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if status == 404 {
+                if channel != self.channel {
+                    // The channel changed while this was in flight; its answer no longer applies.
+                    self.state = .idle
+                } else if status == 404 {
                     // No build on this channel yet: nothing to offer.
                     self.state = .upToDate(Date())
                 } else if let data, status == 200, let m = try? UpdateManifest.decode(data) {
@@ -64,14 +82,27 @@ final class Updater {
                     let why = error?.localizedDescription ?? "GitHub answered \(status)."
                     self.state = manual ? .failed("Couldn't check for updates. \(why)") : previous
                 }
-                completion?(self.state)
+                self.checkedChannel = channel
+                let done = self.waiting
+                self.waiting = []
+                done.forEach { $0(self.state) }
             }
         }.resume()
+    }
+
+    /// Settings changed. An update found for another channel is forgotten, and the new channel is
+    /// checked when automatic checks are on.
+    func settingsChanged() {
+        guard state != .installing, state != .checking, let checked = checkedChannel, checked != channel else { return }
+        state = .idle
+        checkedChannel = nil
+        check(manual: false)
     }
 
     /// Builds and installs the offered release. Needs Apple's command line tools, which the
     /// installer already put in place.
     func install(_ offer: Updates.Offer) {
+        guard state != .installing else { return }
         guard FileManager.default.fileExists(atPath: "/Library/Developer/CommandLineTools/usr/bin/git")
             || Self.run("/usr/bin/xcode-select", ["-p"]) else {
             state = .failed("Updating needs Apple's command line tools. Run the install command from "
@@ -79,7 +110,7 @@ final class Updater {
             return
         }
         let m = offer.manifest
-        // These go into a shell script, so accept only the shapes CI writes.
+        // Only the shapes CI writes get through, and they reach the script as arguments, never as code.
         guard m.version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.]+)?$"#, options: .regularExpression) != nil,
               m.commit.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
               Settings.channels.contains(m.channel) else {
@@ -88,36 +119,46 @@ final class Updater {
         }
         // A stable release is its tag; a nightly is the exact commit it was built from.
         let ref = m.channel == "stable" ? "refs/tags/v\(m.version):refs/tags/v\(m.version)" : m.commit
-        let script = """
+        let token = UUID().uuidString
+        installToken = token
+        // $1 version, $2 channel, $3 ref, $4 token. Any failure reports back so the app can say so.
+        let script = #"""
         set -euo pipefail
-        echo "== $(date) updating to Shotate \(m.version) (\(m.channel))"
+        trap 'open "shotate://update-failed?token=$4"' ERR
+        echo "== $(date) updating to Shotate $1 ($2)"
         dir=$(mktemp -d)
         trap 'rm -rf "$dir"' EXIT
         cd "$dir"
         git init -q
-        git fetch -q --depth 1 https://github.com/baney75/shotate.git '\(ref)'
+        git fetch -q --depth 1 https://github.com/baney75/shotate.git "$3"
         git checkout -q FETCH_HEAD
-        SHOTATE_CHANNEL=\(m.channel) macos/scripts/bundle.sh --install || {
-          open 'shotate://update-failed'
-          exit 1
-        }
-        """
+        SHOTATE_CHANNEL="$2" macos/scripts/bundle.sh --install
+        """#
         try? FileManager.default.createDirectory(at: Self.log.deletingLastPathComponent(), withIntermediateDirectories: true)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         // Detached, so it outlives this copy when bundle.sh quits it.
-        p.arguments = ["-c", "nohup /bin/bash -c \"$0\" >> \"$1\" 2>&1 &", script, Self.log.path]
+        p.arguments = ["-c", #"nohup /bin/bash -c "$0" shotate-update "$@" >> "$LOG" 2>&1 &"#, script, m.version, m.channel, ref, token]
+        p.environment = ProcessInfo.processInfo.environment.merging(["LOG": Self.log.path]) { $1 }
         do {
             try p.run()
             state = .installing
+            // A build that never finishes or reports back shouldn't lock the updater.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20 * 60) { [weak self] in
+                guard let self, self.state == .installing, self.installToken == token else { return }
+                self.installFailed(token: token)
+            }
         } catch {
             state = .failed("Couldn't start the update: \(error.localizedDescription)")
         }
     }
 
-    /// Called when the background build failed (it opens shotate://update-failed).
-    func installFailed() {
-        state = .failed("The update didn't build. Details are in ~/Library/Logs/Shotate/update.log.")
+    /// The background update reported a failure. Only the update this copy started counts, so a web
+    /// page opening shotate://update-failed can't fake one.
+    func installFailed(token: String?) {
+        guard state == .installing, let token, token == installToken else { return }
+        installToken = nil
+        state = .failed("The update didn't finish. Details are in ~/Library/Logs/Shotate/update.log.")
     }
 
     private static func run(_ path: String, _ args: [String]) -> Bool {

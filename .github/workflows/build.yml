@@ -35,14 +35,15 @@ jobs:
         env:
           SHOTATE_ADHOC: 1
           SHOTATE_CHANNEL: ${{ inputs.channel }}
+      # Inputs reach scripts through the environment, never spliced into the script text.
       - name: Upload
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
         run: |
-          tag="${{ inputs.tag }}"
-          zip="Shotate-${tag#v}-macOS.zip"
+          zip="Shotate-${TAG#v}-macOS.zip"
           ditto -c -k --keepParent build/Shotate.app "$zip"
-          gh release upload "${{ inputs.tag }}" "$zip" --clobber
+          gh release upload "$TAG" "$zip" --clobber
 
   desktop:
     strategy:
@@ -56,6 +57,8 @@ jobs:
     env:
       SHOTATE_COMMIT: ${{ github.sha }}
       SHOTATE_CHANNEL: ${{ inputs.channel }}
+      TAG: ${{ inputs.tag }}
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Linux build dependencies
@@ -70,12 +73,13 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+      # The app reports the full version (Cargo); installers get the plain X.Y.Z that npm keeps.
       - name: Stamp the version
         if: inputs.version != ''
         shell: bash
         run: |
-          npm version --no-git-tag-version --allow-same-version "${{ inputs.version }}"
-          sed -i.bak '0,/^version = ".*"/s//version = "${{ inputs.version }}"/' src-tauri/Cargo.toml && rm src-tauri/Cargo.toml.bak
+          npm version --no-git-tag-version --allow-same-version "$VERSION"
+          sed -i.bak "0,/^version = \".*\"/s//version = \"$VERSION\"/" src-tauri/Cargo.toml && rm src-tauri/Cargo.toml.bak
       - run: npm ci
       - run: npm test
       - run: cargo test --manifest-path src-tauri/Cargo.toml
@@ -84,7 +88,7 @@ jobs:
         run: |
           export SHOTATE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           # MSI needs a plain numeric version, so nightly builds skip it.
-          if [ "${{ inputs.channel }}" = nightly ]; then
+          if [ "$SHOTATE_CHANNEL" = nightly ]; then
             if [ "$RUNNER_OS" = Windows ]; then npx tauri build --bundles nsis; else npx tauri build --bundles deb,rpm,appimage; fi
           else
             npx tauri build
@@ -96,7 +100,7 @@ jobs:
         run: |
           shopt -s nullglob
           files=(src-tauri/target/release/bundle/{nsis/*.exe,msi/*.msi,appimage/*.AppImage,deb/*.deb,rpm/*.rpm})
-          gh release upload "${{ inputs.tag }}" "${files[@]}" --clobber
+          gh release upload "$TAG" "${files[@]}" --clobber
 
   manifest:
     needs: [macos, desktop]
@@ -106,7 +110,10 @@ jobs:
       - name: Write and upload manifest.json
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
         run: |
-          version="${{ inputs.version }}"
-          [ -n "$version" ] || version=$(cat VERSION)
-          .github/scripts/manifest.sh "${{ inputs.tag }}" "${{ inputs.channel }}" "$version" "${{ github.sha }}"
+          version=${VERSION:-$(cat VERSION)}
+          # Installers carry the plain X.Y.Z, so only this build's files go in the manifest.
+          .github/scripts/manifest.sh "$TAG" "$CHANNEL" "$version" "$GITHUB_SHA" "${version%%+*}"

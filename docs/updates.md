@@ -2,7 +2,7 @@
 
 ## Channels
 - **Stable**: GitHub releases tagged `vX.Y.Z` (not prerelease). Created by `.github/workflows/release.yml` on tag push.
-- **Nightly**: one rolling prerelease tagged `nightly`, rebuilt by `.github/workflows/nightly.yml` daily (06:17 UTC) when `main` has commits newer than the current nightly, and on manual dispatch. Version: `X.Y.(Z+1)+nightly.YYYYMMDDHHMM` where X.Y.Z is `VERSION` (semver build metadata, accepted by Cargo, Tauri, deb and rpm; successive nightlies sort higher). MSI is skipped for nightly.
+- **Nightly**: one rolling prerelease tagged `nightly`, rebuilt by `.github/workflows/nightly.yml` from `main` only, daily (06:17 UTC) when `main` has commits newer than the current nightly, and on manual dispatch. The app's version is `X.Y.(Z+1)+nightly.YYYYMMDDHHMM` where X.Y.Z is `VERSION`; installers carry the plain `X.Y.(Z+1)` (npm drops build metadata), so Linux package installs use `--reinstall`/`--replacepkgs`. MSI is skipped for nightly. The previous nightly stays downloadable while a new one builds: installers are replaced in place, the manifest is uploaded last, then the tag moves and leftover files are removed.
 
 ## Manifest (the only thing clients fetch to check)
 Every release (stable and nightly) has an asset `manifest.json`, written by the last CI job after all installers are uploaded:
@@ -47,10 +47,10 @@ Fetch URLs (no GitHub API, so no rate limit):
 On launch (after ~10 s) and every 24 h while running, if `checkForUpdates`; always on "Check Now". One HTTPS GET to github.com, no identifiers, no cookies. Failures are silent for automatic checks and shown for manual ones.
 
 ## How an update installs (same route the app was installed by)
-- **macOS** (built from source so Screen Recording stays granted): needs the command line tools (`xcode-select -p`). Clone the release's commit (stable: tag `vX.Y.Z`; nightly: the manifest's commit) into a temp dir, then run `macos/scripts/bundle.sh --install` detached (`nohup`, own session), logging to `~/Library/Logs/Shotate/update.log`. `bundle.sh --install` quits the running app by bundle ID, installs and relaunches. If the tools are missing, show the one-line install command instead.
-- **Windows**: download the setup .exe to temp, verify sha256, then run detached `powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -Wait '<setup>' '/S'; Start-Process '<install dir>\shotate.exe'"` and quit.
+- **macOS** (built from source so Screen Recording stays granted): needs the command line tools (`xcode-select -p`). Validate the manifest's version, commit and channel, fetch the release's commit (stable: tag `vX.Y.Z`; nightly: the manifest's commit) into a temp dir, then run `macos/scripts/bundle.sh --install` detached; the values reach the script as arguments, and any failure opens `shotate://update-failed?token=…` with a per-install token (`nohup`, own session), logging to `~/Library/Logs/Shotate/update.log`. `bundle.sh --install` quits the running app by bundle ID, installs and relaunches. If the tools are missing, show the one-line install command instead.
+- **Windows**: download the setup .exe to temp, verify sha256, then run a fixed PowerShell script (by absolute path) that reads the setup and app paths from environment variables, waits for the silent install, relaunches Shotate and deletes the download.
 - **Linux AppImage** (`$APPIMAGE` set): download next to it, verify sha256, chmod +x, atomically rename over `$APPIMAGE`, relaunch, quit.
-- **Linux .deb/.rpm** (exe under /usr): download, verify, run `pkexec apt-get install -y --allow-downgrades <file.deb>` or `pkexec rpm -U --oldpackage --replacepkgs <file.rpm>` (switching to Stable can be a downgrade), then relaunch and quit. Without pkexec, open the release page.
+- **Linux .deb/.rpm** (exe under /usr): download, verify, run `/usr/bin/pkexec /usr/bin/apt-get install -y --reinstall --allow-downgrades <file.deb>` or `/usr/bin/pkexec /usr/bin/rpm -U --oldpackage --replacepkgs <file.rpm>` (switching to Stable can be a downgrade), then relaunch and quit. Without pkexec, open the release page.
 
 ## UI (both apps)
 - Settings › General › **Updates**: channel picker (Stable, recommended / Nightly, built every day from the newest code, may have rough edges), "Check for updates automatically" checkbox, **Check Now** button, a status line ("Shotate 0.12.0 is up to date. Checked 3 minutes ago." / "Shotate 0.12.1 is available." + **Install Update** + "What's new" link).

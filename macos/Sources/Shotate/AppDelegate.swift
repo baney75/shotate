@@ -82,8 +82,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "config": openConfig()
         case "reload": reloadConfig()
         case "relaunch": ScreenRecording.relaunch()
-        case "update", "check-for-updates": checkForUpdates()
-        case "update-failed": updater.installFailed(); showUpdateResult()
+        case "update", "check-for-updates":
+            // Any web page can open these links, so they never install anything, and with update
+            // checks off they only open Settings.
+            settings.checkForUpdates ? checkForUpdates() : showSettings()
+        case "update-failed":
+            let token = url.queryItems?.first { $0.name == "token" }?.value
+            guard updater.state == .installing else { break }
+            updater.installFailed(token: token)
+            if case .failed = updater.state { showUpdateResult() }
         default: break
         }
     }
@@ -168,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Applies settings to the running app; with `save`, also writes the config file.
     func applySettings(save: Bool = true) {
+        defer { updater.settingsChanged() }
         if save, configBroken {
             Alerts.show("Fix the config file first",
                         "\((Settings.configURL.path as NSString).abbreviatingWithTildeInPath) has an error, so Shotate "

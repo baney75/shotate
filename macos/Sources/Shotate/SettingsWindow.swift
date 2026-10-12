@@ -284,7 +284,6 @@ final class GeneralPane: SettingsPane {
     @objc private func channelChosen() {
         let channel = channelMenu.indexOfSelectedItem == 1 ? "nightly" : "stable"
         apply { $0.updateChannel = channel }
-        app?.checkForUpdates()
     }
 
     @objc private func checkNow() { app?.checkForUpdates() }
