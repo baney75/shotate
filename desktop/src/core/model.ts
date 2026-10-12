@@ -2,11 +2,12 @@
 // app's ShotateCore (Swift) so both behave the same. Coordinates are image pixels with the origin
 // at the top left (y grows downward), as the web canvas uses.
 
-export type Tool = "select" | "arrow" | "box" | "ellipse" | "highlight" | "text" | "redact" | "step" | "crop";
+export type Tool = "select" | "arrow" | "pen" | "box" | "ellipse" | "highlight" | "text" | "redact" | "step" | "crop";
 
 export const TOOLS: { tool: Tool; title: string; key: string }[] = [
   { tool: "select", title: "Select", key: "v" },
   { tool: "arrow", title: "Arrow", key: "a" },
+  { tool: "pen", title: "Pen", key: "p" },
   { tool: "box", title: "Box", key: "r" },
   { tool: "ellipse", title: "Ellipse", key: "o" },
   { tool: "highlight", title: "Highlight", key: "h" },
@@ -89,6 +90,10 @@ export interface Mark {
    *  left of the direction it points. Unset is straight. Kept relative so a curve keeps its shape
    *  when an attached end moves. */
   bend?: number;
+  /** A pen stroke's points, in the order drawn. `start` and `end` are its first and last. */
+  points?: Point[];
+  /** A pen's pressure at each point (0-1) when drawn with a tablet; unset draws an even line. */
+  pressures?: number[];
 }
 
 /** An arrow end attached to another mark: it follows that mark, at the same spot in its box. */
@@ -122,12 +127,32 @@ export function rewrapped(next: Mark, old: Mark, imageWidth: number): Mark {
   return { ...next, textWidth: next.textWidth * markFontSize(next, imageWidth) / markFontSize(old, imageWidth) };
 }
 
-export const markRect = (m: Mark) => rectFrom(m.start, m.end);
+/** The box a mark covers; a pen stroke's is the box around its points. */
+export function markRect(m: Mark): Rect {
+  if (m.tool !== "pen" || !m.points?.length) return rectFrom(m.start, m.end);
+  const xs = m.points.map((p) => p.x), ys = m.points.map((p) => p.y);
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+/** A pen stroke through `points`. */
+export function stroke(points: Point[], color: RGBA, size: StrokeSize, pressures?: number[]): Mark {
+  const m = mark("pen", color, points[0], points[points.length - 1], { size });
+  m.points = points;
+  if (pressures?.length) m.pressures = pressures;
+  return m;
+}
+
+/** The width a pen draws at a point with tablet pressure `p` (0-1): thin when light, a little past
+ *  the stroke size when pressed hard. About the stroke size at a natural 0.6. */
+export const penWidth = (w: number, p: number) => w * (0.25 + 1.25 * Math.min(Math.max(p, 0), 1));
 
 /** The mark moved. A moved arrow lets go of what it was attached to. */
 export function offset(m: Mark, dx: number, dy: number): Mark {
   const { startBinding: _s, endBinding: _e, ...rest } = m;
-  return { ...rest, start: { x: m.start.x + dx, y: m.start.y + dy }, end: { x: m.end.x + dx, y: m.end.y + dy } };
+  const out: Mark = { ...rest, start: { x: m.start.x + dx, y: m.start.y + dy }, end: { x: m.end.x + dx, y: m.end.y + dy } };
+  if (m.points) out.points = m.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  return out;
 }
 
 // Arrow geometry: an arrow is a quadratic curve from `start` to `end` whose middle sits `bend`
@@ -385,7 +410,7 @@ export function extent(m: Mark, imageWidth: number, measure: Measure): Rect {
     const label = arrowLabel(m, imageWidth, measure);
     return label ? union(r, extent(label, imageWidth, measure)) : r;
   }
-  return inset(markRect(m), -w);
+  return inset(markRect(m), -(m.tool === "pen" ? w * 1.5 : w));
 }
 
 export function distance(p: Point, m: Mark, imageWidth: number, measure: Measure): number {
@@ -398,6 +423,12 @@ export function distance(p: Point, m: Mark, imageWidth: number, measure: Measure
       return Math.min(...pts.slice(1).map((q, i) => Geometry.segmentDistance(p, pts[i], q)));
     }
     case "highlight": case "redact": return contains(r, p) ? 0 : Geometry.rectDistance(p, r);
+    case "pen": {
+      const pts = m.points ?? [m.start];
+      const d = pts.length === 1 ? Math.hypot(p.x - pts[0].x, p.y - pts[0].y)
+        : Math.min(...pts.slice(1).map((q, i) => Geometry.segmentDistance(p, pts[i], q)));
+      return Math.max(0, d - strokeWidth(m.size, imageWidth) / 2);
+    }
     case "ellipse": {
       const a = Math.max(r.w / 2, 1), b = Math.max(r.h / 2, 1);
       const x = p.x - (r.x + r.w / 2), y = p.y - (r.y + r.h / 2);
@@ -666,4 +697,36 @@ export function removeThinRuns(px: Uint8ClampedArray) {
     const fill = before ? before[1] - 1 : after ? after[0] : -1;
     if (fill >= 0) for (let i = a; i < b; i++) copy(fill, i);
   }
+}
+
+/** What a held pen stroke becomes (see `inkShape`). */
+export type InkShape = { kind: "line"; a: Point; b: Point } | { kind: "box" | "ellipse"; rect: Rect };
+
+/** Turns a hand-drawn stroke into the clean shape it was meant to be, as when a pen pauses at the end
+ *  of a stroke: a nearly straight stroke becomes a line, a closed one a box or an ellipse, whichever
+ *  it lies closer to. Anything else stays as drawn (null). */
+export function inkShape(pts: Point[]): InkShape | null {
+  if (pts.length < 3) return null;
+  const first = pts[0], last = pts[pts.length - 1];
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const rect = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+  const diag = Math.hypot(rect.w, rect.h);
+  if (diag < 8) return null;
+  let length = 0;
+  for (let i = 1; i < pts.length; i++) length += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  const chord = Math.hypot(last.x - first.x, last.y - first.y);
+  // Straight: it never strays far from the line between its ends. Measured by distance, not by length,
+  // because a shaky hand adds length without leaving the line.
+  const stray = Math.max(...pts.map((p) => Geometry.segmentDistance(p, first, last)));
+  if (chord > diag * 0.9 && stray < chord * 0.06) return { kind: "line", a: first, b: last };
+  // Closed: it ends near where it began and went most of the way around its box.
+  if (chord >= diag * 0.3 || length <= diag * 1.8 || rect.w <= 4 || rect.h <= 4) return null;
+  const a = rect.w / 2, b = rect.h / 2, cx = rect.x + a, cy = rect.y + b;
+  let ellipse = 0, box = 0;
+  for (const p of pts) {
+    const x = (p.x - cx) / a, y = (p.y - cy) / b;
+    ellipse += Math.abs(Math.hypot(x, y) - 1);
+    box += 1 - Math.max(Math.abs(x), Math.abs(y));
+  }
+  return { kind: box < ellipse ? "box" : "ellipse", rect };
 }

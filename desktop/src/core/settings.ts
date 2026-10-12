@@ -85,11 +85,16 @@ export function updateStatusLine(u: UpdateStatus, now: number): string {
 
 const isToolKey = (k: string) => /^[a-z]$/.test(k);
 
+/** Tools added after people already had config files. A file that doesn't mention one predates it,
+ *  so a key the person chose wins over its default, and the new tool takes a free letter. */
+const LATE_TOOLS: Tool[] = ["pen"];
+
 /**
  * Every tool's key, guaranteed unique so every tool stays reachable. A custom key is dropped (the
  * tool keeps its default) when it isn't a letter, when an earlier tool already claimed it, or when
- * it is the default of a tool without a custom key. Dropping one can expose another clash, so this
- * repeats until nothing changes. Same rules as the macOS app.
+ * it is the default of a tool without a custom key (unless that tool is newer than the file, see
+ * `LATE_TOOLS`). Dropping one can expose another clash, so this repeats until nothing changes. Same
+ * rules as the macOS app.
  */
 export function resolveToolKeys(toolKeys: Record<string, string>): Record<Tool, string> {
   const custom = new Map<Tool, string>();
@@ -97,6 +102,7 @@ export function resolveToolKeys(toolKeys: Record<string, string>): Record<Tool, 
     const k = toolKeys[t.title.toLowerCase()]?.toLowerCase();
     if (k && isToolKey(k) && k !== t.key) custom.set(t.tool, k);
   }
+  const yields = new Set(TOOLS.filter((t) => LATE_TOOLS.includes(t.tool) && toolKeys[t.title.toLowerCase()] === undefined).map((t) => t.tool));
   let changed = true;
   while (changed) {
     changed = false;
@@ -104,11 +110,17 @@ export function resolveToolKeys(toolKeys: Record<string, string>): Record<Tool, 
     for (const t of TOOLS) {
       const k = custom.get(t.tool);
       if (!k) continue;
-      const stealsDefault = TOOLS.some((o) => o.tool !== t.tool && !custom.has(o.tool) && o.key === k);
+      const stealsDefault = TOOLS.some((o) => o.tool !== t.tool && !custom.has(o.tool) && !yields.has(o.tool) && o.key === k);
       if (claimed.has(k) || stealsDefault) { custom.delete(t.tool); changed = true; } else claimed.add(k);
     }
   }
-  return Object.fromEntries(TOOLS.map((t) => [t.tool, custom.get(t.tool) ?? t.key])) as Record<Tool, string>;
+  const keys = Object.fromEntries(TOOLS.map((t) => [t.tool, custom.get(t.tool) ?? t.key])) as Record<Tool, string>;
+  for (const t of TOOLS) {
+    if (!yields.has(t.tool) || custom.has(t.tool) || ![...custom.values()].includes(t.key)) continue;
+    const used = new Set(Object.values(keys));
+    keys[t.tool] = [..."abcdefghijklmnopqrstuvwxyz"].find((l) => !used.has(l))!;
+  }
+  return keys;
 }
 
 /** "ctrl+shift+s" as people on this platform write it: "Ctrl+Shift+S". */

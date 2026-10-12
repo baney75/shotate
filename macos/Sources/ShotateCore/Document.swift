@@ -5,6 +5,7 @@ import Foundation
 public enum Tool: String, CaseIterable, Sendable {
     case select = "v"
     case arrow = "a"
+    case pen = "p"
     case box = "r"
     case ellipse = "o"
     case highlight = "h"
@@ -17,6 +18,7 @@ public enum Tool: String, CaseIterable, Sendable {
         switch self {
         case .select: "Select"
         case .arrow: "Arrow"
+        case .pen: "Pen"
         case .box: "Box"
         case .ellipse: "Ellipse"
         case .highlight: "Highlight"
@@ -31,6 +33,7 @@ public enum Tool: String, CaseIterable, Sendable {
         switch self {
         case .select: "cursorarrow"
         case .arrow: "arrow.up.right"
+        case .pen: "scribble.variable"
         case .box: "rectangle"
         case .ellipse: "circle"
         case .highlight: "highlighter"
@@ -105,13 +108,25 @@ public struct Mark: Identifiable, Equatable, Sendable {
     /// left of the direction it points. 0 is straight. Kept relative so a curve keeps its shape when
     /// an attached end moves.
     public var bend: CGFloat
+    /// A pen stroke's points, in the order drawn. `start` and `end` are its first and last.
+    public var points: [CGPoint]
+    /// A pen's pressure at each point (0-1) when drawn with a tablet; empty draws an even line.
+    public var pressures: [CGFloat]
 
     public init(tool: Tool, color: RGBA, size: StrokeSize = .medium, start: CGPoint, end: CGPoint,
                 text: String = "", number: Int = 0, fontSize: CGFloat? = nil, textWidth: CGFloat? = nil,
-                startBinding: Binding? = nil, endBinding: Binding? = nil, bend: CGFloat = 0, id: UUID = UUID()) {
+                startBinding: Binding? = nil, endBinding: Binding? = nil, bend: CGFloat = 0,
+                points: [CGPoint] = [], pressures: [CGFloat] = [], id: UUID = UUID()) {
         self.id = id; self.tool = tool; self.color = color; self.size = size
         self.start = start; self.end = end; self.text = text; self.number = number; self.fontSize = fontSize
         self.textWidth = textWidth; self.startBinding = startBinding; self.endBinding = endBinding; self.bend = bend
+        self.points = points; self.pressures = pressures
+    }
+
+    /// A pen stroke through `points`.
+    public static func stroke(_ points: [CGPoint], pressures: [CGFloat] = [], color: RGBA, size: StrokeSize) -> Mark {
+        Mark(tool: .pen, color: color, size: size, start: points.first ?? .zero, end: points.last ?? .zero,
+             points: points, pressures: pressures)
     }
 
     /// The same mark with another's color and size, and a label takes a label's text size. Use
@@ -125,7 +140,10 @@ public struct Mark: Identifiable, Equatable, Sendable {
     }
 
     public var rect: CGRect {
-        CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+        if tool == .pen, let first = points.first {
+            return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { $0.union(CGRect(origin: $1, size: .zero)) }
+        }
+        return CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                width: abs(end.x - start.x), height: abs(end.y - start.y))
     }
 
@@ -163,7 +181,7 @@ public struct Mark: Identifiable, Equatable, Sendable {
     public func duplicate(offset d: CGFloat) -> Mark {
         var m = offset(by: CGVector(dx: d, dy: -d))
         m = Mark(tool: m.tool, color: m.color, size: m.size, start: m.start, end: m.end, text: m.text, number: m.number,
-                 fontSize: m.fontSize, textWidth: m.textWidth, bend: m.bend)
+                 fontSize: m.fontSize, textWidth: m.textWidth, bend: m.bend, points: m.points, pressures: m.pressures)
         return m
     }
 
@@ -174,6 +192,7 @@ public struct Mark: Identifiable, Equatable, Sendable {
         m.endBinding = nil
         m.start = CGPoint(x: start.x + d.dx, y: start.y + d.dy)
         m.end = CGPoint(x: end.x + d.dx, y: end.y + d.dy)
+        m.points = points.map { CGPoint(x: $0.x + d.dx, y: $0.y + d.dy) }
         return m
     }
 }
@@ -467,7 +486,7 @@ public final class Document {
         switch m.tool {
         case .box, .ellipse, .highlight, .redact: m.rect
         case .text, .step: Renderer.textOrStepRect(m, imageWidth: image.width)
-        case .arrow, .crop, .select: nil
+        case .arrow, .pen, .crop, .select: nil
         }
     }
 
@@ -557,6 +576,13 @@ public enum Geometry {
                Renderer.textOrStepRect(label, imageWidth: imageWidth).contains(p) { return 0 }
             let pts = m.curvePoints
             return zip(pts, pts.dropFirst()).map { segmentDistance(p, $0, $1) }.min() ?? .infinity
+        case .pen:
+            let pts = m.points
+            let half = m.size.width(forImageWidth: imageWidth) / 2
+            guard let first = pts.first else { return .infinity }
+            let d = pts.count == 1 ? hypot(p.x - first.x, p.y - first.y)
+                : zip(pts, pts.dropFirst()).map { segmentDistance(p, $0, $1) }.min()!
+            return max(0, d - half)
         case .highlight, .redact:
             return m.rect.contains(p) ? 0 : rectDistance(p, m.rect)
         case .ellipse:
@@ -664,5 +690,39 @@ public enum Snap {
         let dy = best([p.y], targets, vertical: false, threshold: threshold) ?? 0
         let q = CGPoint(x: p.x + dx, y: p.y + dy)
         return (q, guides(for: CGRect(origin: q, size: .zero), targets))
+    }
+}
+
+/// Turns a hand-drawn stroke into the clean shape it was meant to be, as when a pen pauses at the
+/// end of a stroke: a nearly straight stroke becomes a line, a closed one a box or an ellipse,
+/// whichever it lies closer to. Anything else stays as drawn.
+public enum Ink {
+    public enum Shape: Equatable {
+        case line(CGPoint, CGPoint)
+        case box(CGRect)
+        case ellipse(CGRect)
+    }
+
+    public static func shape(of pts: [CGPoint]) -> Shape? {
+        guard pts.count >= 3, let first = pts.first, let last = pts.last else { return nil }
+        let bounds = pts.dropFirst().reduce(CGRect(origin: first, size: .zero)) { $0.union(CGRect(origin: $1, size: .zero)) }
+        let diag = hypot(bounds.width, bounds.height)
+        guard diag >= 8 else { return nil }
+        let length = zip(pts, pts.dropFirst()).reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+        let chord = hypot(last.x - first.x, last.y - first.y)
+        // Straight: it never strays far from the line between its ends. Measured by distance, not by
+        // length, because a shaky hand adds length without leaving the line.
+        let stray = pts.map { Geometry.segmentDistance($0, first, last) }.max() ?? 0
+        if chord > diag * 0.9, stray < chord * 0.06 { return .line(first, last) }
+        // Closed: it ends near where it began and went most of the way around its box.
+        guard chord < diag * 0.3, length > diag * 1.8, bounds.width > 4, bounds.height > 4 else { return nil }
+        let a = bounds.width / 2, b = bounds.height / 2
+        var ellipse: CGFloat = 0, box: CGFloat = 0
+        for p in pts {
+            let x = (p.x - bounds.midX) / a, y = (p.y - bounds.midY) / b
+            ellipse += abs(hypot(x, y) - 1)
+            box += 1 - max(abs(x), abs(y))
+        }
+        return box < ellipse ? .box(bounds) : .ellipse(bounds)
     }
 }

@@ -11,11 +11,14 @@ import ShotateCore
 /// the Text or Select tool, scaled from its corner handle and rewrapped from its side handle.
 /// Dragged marks snap to the image and to each other (hold ⌘ to place freely), and an arrow end
 /// dropped on a mark stays attached to it. An arrow's middle handle bends it; double-clicking an
-/// arrow's end adds a label it points at, and double-clicking along it labels its middle.
+/// arrow's end adds a label it points at, and double-clicking along it labels its middle. The pen
+/// draws freehand (with a tablet's pressure); holding still at the end of a stroke turns it into the
+/// line, box or ellipse it was meant to be.
 final class CanvasView: NSView, NSTextViewDelegate {
     let doc: Document
     var tool: Tool = .arrow {
-        didSet { commitText(); resetTextPress(); selectedID = nil; window?.invalidateCursorRects(for: self) }
+        // A mark mid-drag belongs to the tool that started it; switching drops it.
+        didSet { commitText(); resetTextPress(); endPenHold(); draft = nil; selectedID = nil; window?.invalidateCursorRects(for: self) }
     }
     var color: RGBA = RGBA.palette[0]
     var size: StrokeSize = .medium
@@ -47,6 +50,13 @@ final class CanvasView: NSView, NSTextViewDelegate {
     /// The mark an arrow end being dragged would attach to, outlined as a drop target.
     private var bindTarget: UUID? { didSet { if oldValue != bindTarget { needsDisplay = true } } }
     private var tracking: NSTrackingArea?
+    /// Fires when the pen holds still mid-stroke, to turn the stroke into a shape.
+    private var penHold: Timer?
+    /// Where the pen last moved enough to restart the hold.
+    private var penHoldAnchor = CGPoint.zero
+    /// What a held stroke became: a line whose end still follows the pen, or a shape that stays put.
+    private enum PenSnap { case none, line, shape }
+    private var penSnap = PenSnap.none
     private let markLayer = MarkLayer()
 
     init(document: Document) {
@@ -276,7 +286,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
                                        dy: -0.5 * CGFloat(max(doc.image.width, doc.image.height)))
         let p = imagePoint(e)
         let tolerance = 8 * pixelsPerPoint
-        if e.clickCount == 2, tool != .step, tool != .crop, labelArrow(at: p) { return }
+        if e.clickCount == 2, tool != .step, tool != .crop, tool != .pen, labelArrow(at: p) { return }
         // A selected mark's handles win over every tool, so a fresh arrow can be adjusted right away.
         if let i = handleIndex(at: p), let m = selectedMark {
             dragHandle = i
@@ -311,6 +321,11 @@ final class CanvasView: NSView, NSTextViewDelegate {
             selectedID = nil
             dragOrigin = p
             cropDraft = CGRect(origin: p, size: .zero)
+        case .pen:
+            selectedID = nil
+            draft = Mark.stroke([p], pressures: e.subtype == .tabletPoint ? [CGFloat(e.pressure)] : [], color: color, size: size)
+            penSnap = .none
+            restartPenHold(at: p)
         default:
             selectedID = nil
             var d = Mark(tool: tool, color: color, size: size, start: p, end: p)
@@ -380,6 +395,10 @@ final class CanvasView: NSView, NSTextViewDelegate {
             return
         }
         guard var d = draft else { return }
+        if tool == .pen {
+            drawPen(to: p, e)
+            return
+        }
         if d.tool == .arrow {
             d.endBinding = e.modifierFlags.contains(.shift) ? nil : bind(p, arrow: d.id)
             if d.endBinding == nil { bindTarget = nil }
@@ -458,11 +477,64 @@ final class CanvasView: NSView, NSTextViewDelegate {
         }
         guard let d = draft else { return }
         draft = nil
-        if hypot(d.end.x - d.start.x, d.end.y - d.start.y) > 3 * pixelsPerPoint {
+        if tool == .pen {
+            // A stroke stays unselected, so writing doesn't flash an outline after every line.
+            endPenHold()
+            doc.add(d)
+            changed()
+        } else if hypot(d.end.x - d.start.x, d.end.y - d.start.y) > 3 * pixelsPerPoint {
             doc.add(d)
             selectedID = d.id
             changed()
         }
+    }
+
+    // MARK: Pen
+
+    /// Adds `p` to the stroke being drawn, or moves the end of a stroke that became a line.
+    private func drawPen(to p: CGPoint, _ e: NSEvent) {
+        guard var d = draft else { return }
+        switch penSnap {
+        case .shape: return
+        case .line:
+            d.points = [d.points[0], p]
+            d.end = p
+        case .none:
+            guard let last = d.points.last, hypot(p.x - last.x, p.y - last.y) >= pixelsPerPoint else { return }
+            d.points.append(p)
+            d.end = p
+            if d.pressures.count == d.points.count - 1 { d.pressures.append(CGFloat(e.pressure)) }
+            // Small shakes don't count as moving, so a hand holding still on a tablet still holds.
+            if hypot(p.x - penHoldAnchor.x, p.y - penHoldAnchor.y) > 3 * pixelsPerPoint { restartPenHold(at: p) }
+        }
+        draft = d
+    }
+
+    private func restartPenHold(at p: CGPoint) {
+        penHoldAnchor = p
+        penHold?.invalidate()
+        penHold = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in self?.penHeld() }
+    }
+
+    private func endPenHold() {
+        penHold?.invalidate()
+        penHold = nil
+        penSnap = .none
+    }
+
+    /// The pen held still: the stroke becomes the shape it looks like, if any.
+    private func penHeld() {
+        guard let d = draft, d.tool == .pen, penSnap == .none, let shape = Ink.shape(of: d.points) else { return }
+        switch shape {
+        case let .line(a, b):
+            draft = Mark.stroke([a, b], color: d.color, size: d.size)
+            penSnap = .line
+        case let .box(r), let .ellipse(r):
+            let kind: Tool = if case .box = shape { .box } else { .ellipse }
+            draft = Mark(tool: kind, color: d.color, size: d.size, start: r.origin, end: CGPoint(x: r.maxX, y: r.maxY))
+            penSnap = .shape
+        }
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
     }
 
     // MARK: Context menu

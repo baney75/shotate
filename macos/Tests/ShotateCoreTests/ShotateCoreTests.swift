@@ -219,6 +219,22 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(Set(Tool.allCases.map(s.key(for:))).count, Tool.allCases.count)
     }
 
+    /// A file written before the pen existed keeps its own keys; the pen moves to a free letter.
+    func testNewToolsDontTakeKeysPeopleChose() {
+        var s = Settings()
+        s.toolKeys = ["select": "v", "arrow": "a", "box": "p", "ellipse": "o", "highlight": "h", "text": "t",
+                      "redact": "b", "step": "n", "crop": "c"]
+        XCTAssertEqual(s.key(for: .box), "p")
+        XCTAssertNotEqual(s.key(for: .pen), "p")
+        XCTAssertEqual(s.tool(forKey: s.key(for: .pen)), .pen)
+        s.normalize()
+        XCTAssertEqual(s.key(for: .box), "p", "and it stays that way once written back")
+        // Once the file names the pen, its default counts like any other.
+        s.toolKeys = ["box": "p", "pen": "p"]
+        XCTAssertEqual(s.key(for: .pen), "p")
+        XCTAssertEqual(s.key(for: .box), "r")
+    }
+
     /// Whatever the file says, every tool must keep a key of its own.
     func testEveryToolStaysReachableUnderAnyRemap() {
         let letters = ["a", "b", "c", "v", "r", "x", "1", "", "bb"]
@@ -615,5 +631,65 @@ final class ShotateCoreTests: XCTestCase {
         for i in 0..<200 { px += i % 8 < 5 ? [240, 240, 240, 255] : [20, 20, 20, 255] }
         Document.removeThinRuns(&px)
         XCTAssertTrue(stride(from: 0, to: px.count, by: 4).allSatisfy { px[$0] == 240 })
+    }
+
+    func testPenStrokesDrawHitMoveAndGrowTheCanvas() throws {
+        let doc = Document(image: solidImage(400, 300, gray: 0.8))
+        let pts = (0...40).map { CGPoint(x: 50 + CGFloat($0) * 5, y: 150 + 40 * sin(CGFloat($0) / 6)) }
+        let stroke = Mark.stroke(pts, color: RGBA.palette[2], size: .medium)
+        doc.add(stroke)
+        XCTAssertEqual(stroke.start, pts.first)
+        XCTAssertEqual(stroke.end, pts.last)
+        XCTAssertEqual(doc.hitTest(pts[20], tolerance: 0)?.id, stroke.id, "the line itself is hit")
+        XCTAssertNil(doc.hitTest(CGPoint(x: 150, y: 260), tolerance: 6))
+        let moved = stroke.offset(by: CGVector(dx: 10, dy: -5))
+        XCTAssertEqual(moved.points[7], CGPoint(x: pts[7].x + 10, y: pts[7].y - 5), "moving moves every point")
+        XCTAssertEqual(stroke.duplicate(offset: 4).points.count, pts.count)
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        let on = pixel(flat, Int(pts[20].x), Int(pts[20].y))
+        XCTAssertGreaterThan(Int(on.2), Int(on.0) + 60, "drawn in the pen's blue")
+        // A stroke past the edge grows the canvas like any mark.
+        doc.add(Mark.stroke([CGPoint(x: 380, y: 100), CGPoint(x: 460, y: 120)], color: RGBA.palette[0], size: .medium))
+        XCTAssertGreaterThan(doc.canvas.maxX, 460)
+        // A tap is a dot.
+        XCTAssertEqual(doc.hitTest(CGPoint(x: 20, y: 20), tolerance: 0)?.id, nil)
+        doc.add(Mark.stroke([CGPoint(x: 20, y: 20)], color: RGBA.palette[0], size: .medium))
+        XCTAssertEqual(doc.hitTest(CGPoint(x: 21, y: 20), tolerance: 0)?.tool, .pen)
+    }
+
+    func testPenPressureSetsTheWidth() {
+        let w: CGFloat = 10
+        XCTAssertLessThan(Renderer.penWidth(w, pressure: 0.1), w * 0.5, "a light touch draws thin")
+        XCTAssertEqual(Renderer.penWidth(w, pressure: 0.6), w, accuracy: 0.01)
+        XCTAssertGreaterThan(Renderer.penWidth(w, pressure: 1), w * 1.4)
+        XCTAssertEqual(Renderer.penWidth(w, pressure: 3), Renderer.penWidth(w, pressure: 1), "clamped")
+    }
+
+    /// Holding the pen still turns a rough stroke into the shape it was meant to be.
+    func testHeldStrokesBecomeShapes() {
+        // A wobbly line.
+        // A shaky line: the jitter adds a tenth to its length, but it never leaves the line.
+        let line = (0...30).map { CGPoint(x: CGFloat($0) * 8, y: 100 + ($0 % 2 == 0 ? 2 : -2)) }
+        XCTAssertEqual(Ink.shape(of: line), .line(line.first!, line.last!))
+        // A rough circle that doesn't quite close.
+        let circle = (0..<34).map { i -> CGPoint in
+            let a: CGFloat = CGFloat(i) / 36 * 2 * .pi
+            let r: CGFloat = i % 3 == 0 ? 104 : 97
+            return CGPoint(x: 200 + cos(a) * r, y: 200 + sin(a) * r)
+        }
+        guard case .ellipse(let r)? = Ink.shape(of: circle) else { return XCTFail("a circle is an ellipse") }
+        XCTAssertEqual(r.midX, 200, accuracy: 8)
+        XCTAssertEqual(r.width, 205, accuracy: 15)
+        // A rough rectangle, corner to corner and back.
+        var rect: [CGPoint] = []
+        for x in stride(from: 0, through: 300, by: 10) { rect.append(CGPoint(x: CGFloat(x), y: 2)) }
+        for y in stride(from: 0, through: 150, by: 10) { rect.append(CGPoint(x: 298, y: CGFloat(y))) }
+        for x in stride(from: 300, through: 0, by: -10) { rect.append(CGPoint(x: CGFloat(x), y: 151)) }
+        for y in stride(from: 150, through: 20, by: -10) { rect.append(CGPoint(x: 1, y: CGFloat(y))) }
+        guard case .box? = Ink.shape(of: rect) else { return XCTFail("a rectangle is a box") }
+        // A scribble or an open curve stays as drawn.
+        let squiggle = (0...40).map { CGPoint(x: CGFloat($0) * 6, y: 100 + 60 * sin(CGFloat($0) / 3)) }
+        XCTAssertNil(Ink.shape(of: squiggle))
+        XCTAssertNil(Ink.shape(of: [CGPoint(x: 0, y: 0), CGPoint(x: 2, y: 1), CGPoint(x: 3, y: 3)]), "too small to guess")
     }
 }

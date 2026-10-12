@@ -31,6 +31,9 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
     // A curved arrow between the steps, labeled in its middle.
     doc.add(Mark(tool: .arrow, color: RGBA.palette[3], size: .thin, start: p(0.88, 0.41), end: p(0.88, 0.25), text: "then",
                  bend: w * 0.05))
+    // A pen underline drawn with a tablet under the callout: light at the ends, pressed in the middle.
+    let ink = (0...60).map { p(0.80 + CGFloat($0) * 0.003, 0.6 - 0.008 * sin(CGFloat($0) / 9)) }
+    doc.add(Mark.stroke(ink, pressures: (0...60).map { sin(CGFloat($0) / 60 * .pi) }, color: RGBA.palette[0], size: .medium))
     // A callout past the right edge shows the canvas growing in the screenshot's border color.
     doc.add(Mark(tool: .text, color: RGBA.palette[4], start: p(0.93, 0.68), end: .zero, text: "Room to explain"))
     guard let out = Renderer.flatten(doc), let data = Renderer.pngData(out) else { exit(3) }

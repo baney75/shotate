@@ -2,13 +2,14 @@
 // selected as soon as it is drawn, selected shapes show resize handles, Esc steps back one level
 // (tool → Select → no selection → copy and close), and marks past the edge grow the canvas. An
 // arrow's middle handle bends it; double-clicking an arrow's end adds a label it points at, and
-// double-clicking along it labels its middle.
+// double-clicking along it labels its middle. The pen draws freehand (with a tablet's pressure);
+// holding still at the end of a stroke turns it into the line, box or ellipse it was meant to be.
 import { api } from "./api";
 import { icon } from "./icons";
 import {
   Doc, Geometry, LINE_HEIGHT, PAD_X, PAD_Y, PALETTE, Snap, TOOLS, calloutAnchor, css, curveBounds, duplicate, endNear, inset, mark,
   markFontSize, markHandles, midpoint, moveMarkHandle, pinned, rewrapped, styled, type Binding, type Guide, type RGBA, union,
-  intersection,
+  intersection, inkShape, markRect, stroke,
   moveHandle, offset, strokeWidth, textOrStepRect, type Mark, type Point, type Rect, type StrokeSize, type Tool,
 } from "./core/model";
 import { FONT, drawBackground, drawMark, edges, flatten, ink, type Edges } from "./core/render";
@@ -226,7 +227,7 @@ class Editor {
 
     const outline = (m: Mark) => {
       const r = m.tool === "text" || m.tool === "step" ? textOrStepRect(m, this.doc.width, this.doc.measure)
-        : m.tool === "arrow" ? curveBounds(m) : rectOf(m);
+        : m.tool === "arrow" ? curveBounds(m) : markRect(m);
       return inset(r, -(4 * this.ppp + strokeWidth(m.size, this.doc.width) / 2));
     };
     ctx.lineWidth = 1.5 * this.ppp;
@@ -269,7 +270,7 @@ class Editor {
   }
 
   /** The box a mark lines up by when snapping. */
-  snapRect(m: Mark): Rect { return this.doc.bindableRect(m) ?? rectOf(m); }
+  snapRect(m: Mark): Rect { return this.doc.bindableRect(m) ?? markRect(m); }
 
   /** `p` lined up with the image and the other marks, unless Ctrl is held. Updates the guides. */
   snapped(p: Point, e: PointerEvent, excluding: string[]): Point {
@@ -308,7 +309,7 @@ class Editor {
       const p = this.toImage(e);
       const tol = 8 * this.ppp;
       const clicks = this.countClick(p);
-      if (clicks === 2 && this.tool !== "step" && this.tool !== "crop" && this.labelArrow(p)) { this.draw(); return; }
+      if (clicks === 2 && this.tool !== "step" && this.tool !== "crop" && this.tool !== "pen" && this.labelArrow(p)) { this.draw(); return; }
       const h = this.handleAt(p);
       if (h !== null && this.selected) { this.dragHandle = h; this.live = this.selected; return; }
       switch (this.tool) {
@@ -338,6 +339,12 @@ class Editor {
           this.select(null);
           this.dragOrigin = p;
           this.cropDraft = { x: p.x, y: p.y, w: 0, h: 0 };
+          break;
+        case "pen":
+          this.select(null);
+          this.draft = stroke([p], this.color, this.size, e.pointerType === "pen" ? [e.pressure] : undefined);
+          this.penSnap = "none";
+          this.restartPenHold(p);
           break;
         default: {
           this.select(null);
@@ -413,6 +420,10 @@ class Editor {
       } else if (this.tool === "crop" && this.dragOrigin) {
         const o = this.dragOrigin;
         this.cropDraft = { x: Math.min(o.x, p.x), y: Math.min(o.y, p.y), w: Math.abs(p.x - o.x), h: Math.abs(p.y - o.y) };
+      } else if (this.draft && this.tool === "pen") {
+        // Tablets report more points than events; take them all for a smooth line.
+        const events = e.getCoalescedEvents?.() ?? [];
+        for (const ev of events.length ? events : [e]) this.drawPen(this.toImage(ev), ev);
       } else if (this.draft) {
         const d: Mark = { ...this.draft };
         if (d.tool === "arrow") {
@@ -427,7 +438,9 @@ class Editor {
       this.draw();
     });
 
-    c.addEventListener("pointerup", () => {
+    // A cancelled pointer (the system took over a pen or touch) ends the drag like a release, so a
+    // stroke is kept rather than left hanging.
+    const release = () => {
       const pressed = this.pressedLabel, box = this.textBox;
       this.pressedLabel = null;
       this.textBox = null;
@@ -451,6 +464,12 @@ class Editor {
         if (d.w >= 4 * this.ppp && d.h >= 4 * this.ppp) this.doc.setCrop(d);
         this.cropDraft = null;
         this.changed();
+      } else if (this.draft && this.tool === "pen") {
+        // A stroke stays unselected, so writing doesn't flash an outline after every line.
+        this.endPenHold();
+        this.doc.add(this.draft);
+        this.draft = null;
+        this.changed();
       } else if (this.draft) {
         const d = this.draft;
         this.draft = null;
@@ -464,7 +483,9 @@ class Editor {
       this.dragHandle = null;
       this.frozen = null;
       this.draw();
-    });
+    };
+    c.addEventListener("pointerup", release);
+    c.addEventListener("pointercancel", release);
 
     c.addEventListener("pointerleave", () => { if (this.hoverId) { this.hoverId = null; this.draw(); } });
     c.addEventListener("contextmenu", (e) => this.contextMenu(e));
@@ -511,6 +532,58 @@ class Editor {
     const c = this.doc.canvasIncluding(this.doc.resolveBindings(marks)), f = this.frozen;
     if (c.x >= f.x && c.y >= f.y && c.x + c.w <= f.x + f.w && c.y + c.h <= f.y + f.h) return;
     this.frozen = intersection(union(f, inset(c, -0.07 * Math.max(this.doc.width, this.doc.height))), this.dragLimit) ?? f;
+  }
+
+  // MARK: Pen
+
+  /** Fires when the pen holds still mid-stroke, to turn the stroke into a shape. */
+  penHold: number | null = null;
+  /** Where the pen last moved enough to restart the hold. */
+  penHoldAnchor: Point = { x: 0, y: 0 };
+  /** What a held stroke became: a line whose end still follows the pen, or a shape that stays put. */
+  penSnap: "none" | "line" | "shape" = "none";
+
+  /** Adds `p` to the stroke being drawn, or moves the end of a stroke that became a line. */
+  drawPen(p: Point, e: PointerEvent) {
+    const d = this.draft;
+    if (!d || this.penSnap === "shape") return;
+    if (this.penSnap === "line") { this.draft = { ...d, points: [d.points![0], p], end: p }; return; }
+    const pts = d.points!, last = pts[pts.length - 1];
+    if (Math.hypot(p.x - last.x, p.y - last.y) < this.ppp) return;
+    const next: Mark = { ...d, points: [...pts, p], end: p };
+    if (d.pressures) next.pressures = [...d.pressures, e.pressure];
+    this.draft = next;
+    // Small shakes don't count as moving, so a hand holding still on a tablet still holds.
+    if (Math.hypot(p.x - this.penHoldAnchor.x, p.y - this.penHoldAnchor.y) > 3 * this.ppp) this.restartPenHold(p);
+  }
+
+  restartPenHold(p: Point) {
+    this.penHoldAnchor = p;
+    if (this.penHold !== null) clearTimeout(this.penHold);
+    this.penHold = window.setTimeout(() => this.penHeld(), 500);
+  }
+
+  endPenHold() {
+    if (this.penHold !== null) clearTimeout(this.penHold);
+    this.penHold = null;
+    this.penSnap = "none";
+  }
+
+  /** The pen held still: the stroke becomes the shape it looks like, if any. */
+  penHeld() {
+    const d = this.draft;
+    if (!d || d.tool !== "pen" || this.penSnap !== "none") return;
+    const shape = inkShape(d.points ?? []);
+    if (!shape) return;
+    if (shape.kind === "line") {
+      this.draft = stroke([shape.a, shape.b], d.color, d.size);
+      this.penSnap = "line";
+    } else {
+      const r = shape.rect;
+      this.draft = mark(shape.kind, d.color, { x: r.x, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { size: d.size });
+      this.penSnap = "shape";
+    }
+    this.draw();
   }
 
   // MARK: Context menu
@@ -668,6 +741,9 @@ class Editor {
   setTool(t: Tool) {
     this.commitText();
     this.resetTextPress();
+    // A mark mid-drag belongs to the tool that started it; switching drops it.
+    this.endPenHold();
+    this.draft = null;
     this.tool = t;
     this.select(null);
     this.draw();
@@ -919,10 +995,5 @@ class Editor {
       : this.doc.revision !== this.savedRevision ? `Unsaved edits · ${where}` : `Saved to ${where}`;
   }
 }
-
-const rectOf = (m: Mark): Rect => ({
-  x: Math.min(m.start.x, m.end.x), y: Math.min(m.start.y, m.end.y),
-  w: Math.abs(m.end.x - m.start.x), h: Math.abs(m.end.y - m.start.y),
-});
 
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);

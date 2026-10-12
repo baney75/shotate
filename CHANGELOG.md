@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **Pen.** Press P and draw freehand. With a drawing tablet the line is thin where you press lightly
+  and full where you press hard. Hold still at the end of a stroke and it becomes the line, box or
+  ellipse you meant; a line's end keeps following the pen until you lift it.
 - **Curved arrows.** A selected arrow has a third handle in its middle: drag it to bend the arrow,
   or drag it back to the line to straighten it. The curve keeps its shape when an attached end moves.
 - **Arrow labels.** Double-click an arrow's end to type a label there; the arrow points at it and
