@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 (2026-10-11)
 
 ### Added
 - **Updates, with a Stable and a Nightly channel.** Shotate checks GitHub once a day and offers
