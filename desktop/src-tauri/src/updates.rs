@@ -81,6 +81,10 @@ pub enum Offer {
     SwitchToStable,
 }
 
+/// The channel Windows and Linux follow. Stable releases are macOS only for now (the platform each
+/// release is tested on), so these builds are nightly previews whatever the config file says.
+pub const CHANNEL: &str = "nightly";
+
 pub fn manifest_url(channel: &str) -> &'static str {
     if channel == "nightly" {
         NIGHTLY_MANIFEST
@@ -687,6 +691,13 @@ mod tests {
             offer(&local, &manifest("x", "bbb", "nightly", D2), "nightly"),
             None
         );
+    }
+
+    #[test]
+    fn windows_and_linux_follow_nightly() {
+        // Stable releases are macOS only; these builds must never check the stable manifest.
+        assert_eq!(CHANNEL, "nightly");
+        assert!(manifest_url(CHANNEL).ends_with("/releases/download/nightly/manifest.json"));
     }
 
     #[test]

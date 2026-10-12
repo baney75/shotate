@@ -431,18 +431,7 @@ fn set_config(app: AppHandle, config: Config) -> Result<(), String> {
 
 /// Applies settings to the running app: shortcuts and the tray icon.
 fn apply(app: &AppHandle, c: Config) {
-    let channel_before = update_channel(app);
     *app.state::<State>().config.lock().unwrap() = c;
-    if update_channel(app) != channel_before {
-        // An update found on the other channel no longer applies; the next check decides afresh.
-        let state = app.state::<State>();
-        let mut u = state.updates.lock().unwrap();
-        u.available = None;
-        u.checked_at = None;
-        u.error = None;
-        drop(u);
-        update_changed(app);
-    }
     register_shortcuts(app);
     let show = app
         .state::<State>()
@@ -796,17 +785,6 @@ struct UpdateState {
     error: Option<String>,
 }
 
-/// The channel to follow: the config's, or this build's own when the config doesn't say.
-fn update_channel(app: &AppHandle) -> String {
-    app.state::<State>()
-        .config
-        .lock()
-        .unwrap()
-        .update_channel
-        .clone()
-        .unwrap_or_else(|| updates::Build::current().channel)
-}
-
 /// "Update to Shotate 0.12.1…" or "Switch to Stable 0.12.0…" for an available update.
 fn update_label(m: &updates::Manifest, offer: updates::Offer) -> String {
     match offer {
@@ -820,7 +798,7 @@ fn update_status(app: &AppHandle) -> serde_json::Value {
     let u = u.updates.lock().unwrap();
     serde_json::json!({
         "current": updates::Build::current(),
-        "channel": update_channel(app),
+        "channel": updates::CHANNEL,
         "checking": u.checking,
         "installing": u.installing,
         "checkedAt": u.checked_at,
@@ -861,30 +839,24 @@ fn run_check(app: &AppHandle, manual: bool) -> Result<(), String> {
         }
     }
     update_changed(app);
-    let outcome = loop {
-        let channel = update_channel(app);
-        let result = updates::fetch_manifest(&channel);
-        if update_channel(app) != channel {
-            if manual {
-                continue;
-            }
-            break Ok(());
-        }
+    let outcome = {
+        let channel = updates::CHANNEL;
+        let result = updates::fetch_manifest(channel);
         let mut u = state.updates.lock().unwrap();
         match result {
             Ok(m) => {
                 u.checked_at = Some(chrono::Utc::now().timestamp_millis());
                 u.error = None;
                 u.available =
-                    updates::offer(&updates::Build::current(), &m, &channel).map(|o| (m, o));
-                break Ok(());
+                    updates::offer(&updates::Build::current(), &m, channel).map(|o| (m, o));
+                Ok(())
             }
             Err(e) => {
                 eprintln!("Shotate: update check failed: {e}");
                 if manual {
                     u.error = Some(e.clone());
                 }
-                break Err(e);
+                Err(e)
             }
         }
     };
@@ -1007,7 +979,7 @@ fn check_from_tray(app: &AppHandle) {
                 .message(format!(
                     "Shotate {} is the newest version on the {} channel.",
                     b.version,
-                    update_channel(&app)
+                    updates::CHANNEL
                 ))
                 .title("Shotate is up to date")
                 .blocking_show();

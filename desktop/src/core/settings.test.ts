@@ -40,7 +40,7 @@ const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
 describe("updates", () => {
   it("labels the build with version, channel and short commit", () => {
     expect(buildLabel(build)).toBe("Shotate 0.12.0 · Stable · a3cab60");
-    expect(buildLabel({ ...build, channel: "nightly", commit: "unknown" })).toBe("Shotate 0.12.0 · Nightly");
+    expect(buildLabel({ ...build, channel: "nightly", commit: "unknown" })).toBe("Shotate 0.12.0 · Nightly preview");
   });
 
   it("says how long ago", () => {

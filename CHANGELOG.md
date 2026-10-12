@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- **Stable releases are macOS only for now**, because the Mac app is the one each release is tested
+  on. Windows and Linux get preview builds from the nightly channel: their installers install it,
+  and their app follows it. The 0.12.0 and 0.13.0 releases no longer list Windows or Linux
+  installers. A Windows or Linux copy of 0.13.0 opens the release page when the next release comes
+  out; run the install command once to move it to the preview.
+
 ## 0.13.0 (2026-10-11)
 
 ### Added

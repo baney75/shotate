@@ -53,7 +53,8 @@ export function folderChoice(saveFolder: string, presets: FolderPreset[]): Folde
 
 /** "Shotate 0.12.0 · Stable · a3cab60" for About and Settings. */
 export function buildLabel(b: BuildInfo): string {
-  const channel = b.channel === "nightly" ? "Nightly" : "Stable";
+  // Windows and Linux builds are previews: stable releases are macOS only for now.
+  const channel = b.channel === "nightly" ? "Nightly preview" : "Stable";
   const commit = /^[0-9a-f]{7,}$/i.test(b.commit) ? ` · ${b.commit.slice(0, 7)}` : "";
   return `Shotate ${b.version} · ${channel}${commit}`;
 }

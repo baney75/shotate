@@ -1,5 +1,5 @@
 # Nightly: rebuilds the rolling `nightly` prerelease from main once a day when main has changed
-# (or on demand), for people who pick the Nightly update channel. See docs/updates.md.
+# (or on demand): the Windows and Linux previews, and the Mac's Nightly channel. See docs/updates.md.
 # The previous nightly stays downloadable until the new one is complete: installers are replaced
 # in place, the manifest goes up last, and only then does the tag move and old files go.
 name: Nightly
@@ -65,7 +65,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           git push --force origin "$GITHUB_SHA:refs/tags/nightly"
-          notes="Built from [\`${GITHUB_SHA:0:7}\`](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA) on $(date -u '+%Y-%m-%d %H:%M UTC'). Nightly builds have the newest changes and may have rough edges. Pick the channel in Shotate's Settings, or install with \`--nightly\` (see the README)."
+          notes="Built from [\`${GITHUB_SHA:0:7}\`](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA) on $(date -u '+%Y-%m-%d %H:%M UTC'). Nightly builds have the newest changes and may have rough edges. They are the Windows and Linux previews (stable releases are macOS only for now), which update themselves. On a Mac, pick the channel in Shotate's Settings or install with \`--nightly\` (see the README)."
           gh release edit nightly --title "Shotate Nightly $VERSION" --notes "$notes" --prerelease
           # Remove installers from older nightlies that this build didn't replace.
           keep=$(curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/nightly/manifest.json" \

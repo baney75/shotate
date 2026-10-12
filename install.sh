@@ -3,9 +3,10 @@
 #   curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash
 # macOS: builds from source and puts it in ~/Applications (no Gatekeeper warning, and macOS keeps
 #        its Screen Recording permission across updates).
-# Linux: installs the latest release: the .deb on Debian and Ubuntu, the .rpm on Fedora and
-#        openSUSE, otherwise the AppImage in ~/.local/bin. Windows uses install.ps1.
-# Stable by default. For the nightly build of the newest code (docs/updates.md):
+# Linux: installs the nightly preview (stable releases are macOS only for now): the .deb on Debian
+#        and Ubuntu, the .rpm on Fedora and openSUSE, otherwise the AppImage in ~/.local/bin.
+#        Windows uses install.ps1.
+# macOS: Stable by default. For the nightly build of the newest code (docs/updates.md):
 #   curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash -s -- --nightly
 # Running it again updates in place; Shotate can also update itself from its menu.
 set -euo pipefail
@@ -64,6 +65,11 @@ remove_snapmark() {
 }
 
 install_linux() {
+  # Stable releases are macOS only for now; Linux gets the nightly preview.
+  if [ "$CHANNEL" = stable ]; then
+    echo "${dim}    Stable releases are macOS only for now, so this installs the Linux preview (nightly).${reset}"
+    CHANNEL=nightly
+  fi
   case "$(uname -m)" in
     # Tauri names packages amd64/arm64 for .deb, x86_64/aarch64 for .rpm, amd64/aarch64 for AppImage.
     x86_64|amd64) deb_arch=amd64; rpm_arch=x86_64; appimage_arch=amd64 ;;
@@ -76,22 +82,26 @@ install_linux() {
   [ "$(id -u)" -eq 0 ] || sudo="sudo"
   if command -v apt-get >/dev/null 2>&1; then
     url=$(asset_url "_${deb_arch}\.deb$") || true
-    [ -n "${url:-}" ] || fail "no .deb for $deb_arch in the latest release."
+    [ -n "${url:-}" ] || fail "no .deb for $deb_arch in the nightly release."
     step "Downloading $(basename "$url")"
     curl -fsSL -o "$WORK/shotate.deb" "$url"
     step "Installing with apt (asks for your password)"
-    $sudo apt-get install -y "$WORK/shotate.deb"
+    # Every nightly package carries the same version, so reinstall rather than skip it.
+    $sudo apt-get install -y --reinstall --allow-downgrades "$WORK/shotate.deb"
   elif command -v dnf >/dev/null 2>&1 || command -v zypper >/dev/null 2>&1; then
     url=$(asset_url "\.${rpm_arch}\.rpm$") || true
-    [ -n "${url:-}" ] || fail "no .rpm for $rpm_arch in the latest release."
+    [ -n "${url:-}" ] || fail "no .rpm for $rpm_arch in the nightly release."
     step "Downloading $(basename "$url")"
     curl -fsSL -o "$WORK/shotate.rpm" "$url"
     step "Installing (asks for your password)"
-    if command -v dnf >/dev/null 2>&1; then $sudo dnf install -y "$WORK/shotate.rpm"
+    # Every nightly package carries the same version: an installed copy is replaced in place
+    # (its dependencies are already there); a first install lets dnf or zypper pull them in.
+    if rpm -q shotate >/dev/null 2>&1; then $sudo rpm -U --oldpackage --replacepkgs "$WORK/shotate.rpm"
+    elif command -v dnf >/dev/null 2>&1; then $sudo dnf install -y "$WORK/shotate.rpm"
     else $sudo zypper --non-interactive install --allow-unsigned-rpm "$WORK/shotate.rpm"; fi
   else
     url=$(asset_url "_${appimage_arch}\.AppImage$") || true
-    [ -n "${url:-}" ] || fail "no AppImage for $appimage_arch in the latest release."
+    [ -n "${url:-}" ] || fail "no AppImage for $appimage_arch in the nightly release."
     step "Downloading $(basename "$url")"
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
     curl -fsSL -o "$HOME/.local/bin/shotate" "$url"

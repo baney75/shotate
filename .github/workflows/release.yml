@@ -17,7 +17,7 @@ jobs:
         run: |
           v="${GITHUB_REF_NAME#v}"
           notes=$(awk -v v="## $v" '$0 ~ "^"v {on=1; next} /^## / && on {exit} on' CHANGELOG.md)
-          notes="$notes"$'\n\n'"## Install"$'\n\n'"- **macOS:** \`curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash\` (builds on your Mac so it is trusted and keeps its permission). The zip below is ad-hoc signed; right-click › Open on first launch."$'\n'"- **Windows:** \`irm https://raw.githubusercontent.com/baney75/shotate/main/install.ps1 | iex\`, or run the Setup .exe below."$'\n'"- **Linux:** \`curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash\`, or pick the .deb, .rpm or .AppImage below."
+          notes="$notes"$'\n\n'"## Install"$'\n\n'"- **macOS:** \`curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash\` (builds on your Mac so it is trusted and keeps its permission). The zip below is ad-hoc signed; right-click › Open on first launch."$'\n'"- **Windows and Linux:** preview builds are on the [nightly release](https://github.com/baney75/shotate/releases/tag/nightly). Stable releases are macOS only for now."
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --draft --title "Shotate $v" --notes "$notes"
 

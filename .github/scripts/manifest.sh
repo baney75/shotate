@@ -6,7 +6,7 @@ tag=$1 channel=$2 version=$3 commit=$4 filever=${5:-$3}
 repo=${GITHUB_REPOSITORY:-baney75/shotate}
 dir=$(mktemp -d)
 gh release download "$tag" --repo "$repo" --dir "$dir" \
-  --pattern '*-setup.exe' --pattern '*.deb' --pattern '*.rpm' --pattern '*.AppImage'
+  --pattern '*-setup.exe' --pattern '*.deb' --pattern '*.rpm' --pattern '*.AppImage' || true
 python3 - "$dir" "$repo" "$tag" "$channel" "$version" "$commit" "$filever" > "$dir/manifest.json" <<'PY'
 import hashlib, json, os, re, sys, urllib.parse
 from datetime import datetime, timezone
@@ -25,7 +25,9 @@ for name in sorted(os.listdir(d)):
     if key in assets:
         sys.exit(f'two installers for {key}: {assets[key]["name"]} and {name}')
     assets[key] = {'name': name, 'url': url, 'sha256': sha}
-missing = {k for _, k in kinds} - assets.keys()
+# Stable is macOS only (its app builds from source, so it needs no installers here); nightly
+# must have every Windows and Linux installer.
+missing = {k for _, k in kinds} - assets.keys() if channel == 'nightly' else set()
 if missing:
     sys.exit(f'missing installers: {sorted(missing)}')
 print(json.dumps({

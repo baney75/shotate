@@ -36,17 +36,17 @@ The installer builds Shotate from source with Apple's free command line tools, p
 `~/Applications`, and opens a short welcome window that walks you through the one permission it
 needs. Because it's built on your Mac, there is no "unidentified developer" warning.
 
-**Windows** (10 or 11, x64), in PowerShell:
+**Windows** (10 or 11, x64), preview, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/baney75/shotate/main/install.ps1 | iex
 ```
 
 It installs for your account only, with no administrator prompt. You can also run the
-`Shotate_…_x64-setup.exe` from the [latest release](https://github.com/baney75/shotate/releases/latest).
+`Shotate_…_x64-setup.exe` from the [nightly release](https://github.com/baney75/shotate/releases/tag/nightly).
 Shotate isn't code-signed on Windows yet, so SmartScreen may ask you to confirm the first time.
 
-**Linux** (x64 or arm64; X11 or Wayland)
+**Linux** (x64 or arm64; X11 or Wayland), preview
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash
@@ -54,8 +54,12 @@ curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | b
 
 The same command installs the `.deb` on Debian and Ubuntu, the `.rpm` on Fedora and openSUSE, and
 the AppImage anywhere else. Packages are also on the
-[latest release](https://github.com/baney75/shotate/releases/latest). On Wayland, desktops keep
+[nightly release](https://github.com/baney75/shotate/releases/tag/nightly). On Wayland, desktops keep
 global shortcuts to themselves: add one in your keyboard settings that runs `shotate --capture`.
+
+Stable releases are macOS only for now, because the Mac app is the one each release is tested on.
+Windows and Linux get **preview builds**: the nightly, made every day from the newest code. They
+have the same tools and update themselves the same way, but may have rough edges.
 
 ## How it works
 
@@ -86,7 +90,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | **Out of the way** | A menu bar or tray icon, no Dock or taskbar clutter, no windows until you need one |
 | **Same everywhere** | One config file format, the same tools and keys on macOS, Windows and Linux |
 | **Private** | No analytics, no account. Your screenshots never leave your computer. The only network request is a daily update check, which you can turn off |
-| **Easy updates** | Pick Stable or Nightly in Settings. Shotate checks once a day and updates itself with one click from its menu |
+| **Easy updates** | Shotate checks once a day and updates itself with one click from its menu. On a Mac, pick Stable or Nightly in Settings |
 
 ## Keyboard
 
@@ -115,17 +119,19 @@ Shotate checks GitHub once a day and shows **Update to Shotate x.y.z…** at the
 when there is one. Click it, or **Check for Updates…**, and it installs itself and restarts. Your
 settings, shortcuts and permission stay as they are.
 
-Pick a channel in **Settings › General › Updates**:
+On a Mac, pick a channel in **Settings › General › Updates**:
 
 - **Stable** (the default) gets tested releases.
 - **Nightly** is built every day from the newest code. It gets fixes first and may have rough
   edges. Switch back to Stable any time.
 
+Windows and Linux follow Nightly, since stable releases are macOS only for now.
+
 On macOS an update is built from source on your Mac, like the install command, so macOS keeps the
 Screen Recording permission. On Windows and Linux the installer is checked against its SHA-256
 before it runs. To install a channel directly, or to update from a terminal, run the install
-command again (add `-s -- --nightly` after `bash` for nightly, or set
-`$env:SHOTATE_CHANNEL = "nightly"` in PowerShell first). How it works: [docs/updates.md](docs/updates.md).
+command again (on a Mac, add `-s -- --nightly` after `bash` for nightly). How it works:
+[docs/updates.md](docs/updates.md).
 
 ## Permissions
 
@@ -182,7 +188,7 @@ carry over the first time Shotate starts.
 | `showMenuBarIcon` | Show the menu bar icon. URLs and shortcuts work either way. |
 | `shortcuts` | Global shortcuts for `captureArea`, `captureWindow` and `captureScreen`. An empty string turns one off. |
 | `commands` | Extra global shortcuts that run a shell command in your login shell. |
-| `updateChannel` | `stable` or `nightly`. Leave it out to follow the build you installed. |
+| `updateChannel` | macOS: `stable` or `nightly`. Leave it out to follow the build you installed. Windows and Linux always follow `nightly`. |
 | `checkForUpdates` | Check GitHub for updates once a day. `false` means Shotate makes no network request at all. |
 | `toolKeys` | The single letter that picks each editor tool. A letter already used by another tool is ignored, so every tool stays reachable. |
 

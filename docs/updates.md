@@ -1,7 +1,8 @@
 # Shotate updates: stable and nightly channels
 
 ## Channels
-- **Stable**: GitHub releases tagged `vX.Y.Z` (not prerelease). Created by `.github/workflows/release.yml` on tag push.
+- **Stable**: GitHub releases tagged `vX.Y.Z` (not prerelease). Created by `.github/workflows/release.yml` on tag push. **macOS only for now**: it is the platform each release is tested on, so a stable release has the Mac zip and a manifest with no Windows or Linux installers.
+- **Windows and Linux** always follow Nightly (their app ignores `updateChannel`, and their installers install the nightly), as preview builds.
 - **Nightly**: one rolling prerelease tagged `nightly`, rebuilt by `.github/workflows/nightly.yml` from `main` only, daily (06:17 UTC) when `main` has commits newer than the current nightly, and on manual dispatch. The app's version is `X.Y.(Z+1)+nightly.YYYYMMDDHHMM` where X.Y.Z is `VERSION`; installers carry the plain `X.Y.(Z+1)` inside (npm drops build metadata), so Linux package installs use `--reinstall`/`--replacepkgs`, and their file names carry `X.Y.(Z+1)-nightly.YYYYMMDDHHMM` so each night's files are distinct. MSI is skipped for nightly. The previous nightly stays downloadable while a new one builds: installers are uploaded alongside the old ones under new names, the manifest is uploaded last, then the tag moves and leftover files are removed.
 
 ## Manifest (the only thing clients fetch to check)
@@ -32,14 +33,14 @@ Fetch URLs (no GitHub API, so no rate limit):
 - macOS: `bundle.sh` writes `ShotateCommit`, `ShotateChannel`, `ShotateBuildDate` into Info.plist. Desktop: compile-time env (`SHOTATE_COMMIT`, `SHOTATE_CHANNEL`, `SHOTATE_BUILD_DATE`) set by build.rs from git / CI.
 
 ## Config (shared format, both apps)
-- `"updateChannel": "stable" | "nightly"`. When the key is absent, default to the build's own channel.
+- `"updateChannel": "stable" | "nightly"` (macOS). When the key is absent, default to the build's own channel. Windows and Linux ignore it and always follow `nightly`.
 - `"checkForUpdates": true` (default true). False means no network request at all.
 
 ## Decision rule (identical in both apps, unit-tested)
 `offer(local, remote, channel)`:
 - Ignore a manifest whose `channel` differs from the selected channel.
 - If `remote.commit == local.commit`: no update.
-- Stable selected: offer if `semver(remote.version) > semver(local.version)`, or if local.channel is "nightly" (label it "Switch to Stable X.Y.Z").
+- Stable selected (macOS only): offer if `semver(remote.version) > semver(local.version)`, or if local.channel is "nightly" (label it "Switch to Stable X.Y.Z").
 - Nightly selected: offer if `remote.date > local.date` (a newer stable you installed after the last nightly is not downgraded).
 - Semver: compare numeric X.Y.Z and prerelease per semver; build metadata (`+nightly…`) is ignored, since nightlies compare by date.
 
@@ -53,12 +54,12 @@ On launch (after ~10 s) and every 24 h while running, if `checkForUpdates`; alwa
 - **Linux .deb/.rpm** (exe under /usr): download, verify, run `/usr/bin/pkexec /usr/bin/apt-get install -y --reinstall --allow-downgrades <file.deb>` or `/usr/bin/pkexec /usr/bin/rpm -U --oldpackage --replacepkgs <file.rpm>` (switching to Stable can be a downgrade), then relaunch and quit. Without pkexec, open the release page.
 
 ## UI (both apps)
-- Settings › General › **Updates**: channel picker (Stable, recommended / Nightly, built every day from the newest code, may have rough edges), "Check for updates automatically" checkbox, **Check Now** button, a status line ("Shotate 0.12.0 is up to date. Checked 3 minutes ago." / "Shotate 0.12.1 is available." + **Install Update** + "What's new" link).
+- Settings › General › **Updates**: on macOS a channel picker (Stable, recommended / Nightly, built every day from the newest code, may have rough edges); on Windows and Linux the words "Nightly preview" instead; "Check for updates automatically" checkbox, **Check Now** button, a status line ("Shotate 0.12.0 is up to date. Checked 3 minutes ago." / "Shotate 0.12.1 is available." + **Install Update** + "What's new" link).
 - Menu bar / tray menu: **Check for Updates…** always; when an update is known, **Update to Shotate 0.12.1…** near the top.
 - Manual check result or menu click: a dialog with version, "What's new" link, **Install Update** / **Later**.
 - About shows version, channel and short commit.
 
 ## Installers
-- `install.sh`: `SHOTATE_CHANNEL=nightly` (or `bash -s -- --nightly`) picks nightly. macOS stable clones the latest `v*` tag (from the `releases/latest` redirect), nightly clones `main`. Linux stable uses `releases/latest`, nightly uses `releases/tags/nightly`.
-- `install.ps1`: `$env:SHOTATE_CHANNEL = "nightly"` before running.
+- `install.sh`: `SHOTATE_CHANNEL=nightly` (or `bash -s -- --nightly`) picks nightly. macOS stable clones the latest `v*` tag (from the `releases/latest` redirect), nightly clones `main`. Linux always installs from `releases/tags/nightly` (re-installing the same package version in place), whatever channel is asked for.
+- `install.ps1`: always installs the nightly preview. On Linux, `install.sh` does the same whatever channel is asked for.
 - Re-running the installer is always a valid update.

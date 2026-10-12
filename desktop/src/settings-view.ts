@@ -24,8 +24,6 @@ const row = (ic: string, title: string, detail: string, controls: string) => `
 
 const FOLDER_NAMES: Record<FolderPreset["id"], string> = { pictures: "Pictures › Screenshots", desktop: "Desktop", downloads: "Downloads" };
 
-const CHANNELS = [["stable", "Stable — recommended"],
-                  ["nightly", "Nightly — built daily from the newest code, may have rough edges"]] as const;
 
 const toggle = (id: string, on: boolean, label: string) =>
   `<button class="switch" role="switch" id="${id}" aria-checked="${on}" aria-label="${label}"></button>`;
@@ -95,9 +93,8 @@ export async function startSettings(root: HTMLElement) {
           <p class="note">Captures are saved and copied the moment you take them. Opened images are never overwritten; edits go to a copy beside them.</p>
           <div class="section">Updates</div>
           <div class="card">
-            ${row("check", "Update channel", "Stable gets tested releases. Nightly gets the newest code every day.",
-                  `<select id="channel" aria-label="Update channel">${CHANNELS.map(([id, label]) =>
-                    `<option value="${id}"${updates.channel === id ? " selected" : ""}>${label}</option>`).join("")}</select>`)}
+            ${row("check", "Update channel", "Windows and Linux get Nightly preview builds, made every day from the newest code. Stable releases are macOS only for now.",
+                  `<span class="value">Nightly preview</span>`)}
             ${row("path", "Check for updates automatically", "Once a day, one request to GitHub. Nothing about you is sent.",
                   toggle("auto-update", config.checkForUpdates, "Check for updates automatically"))}
             <div id="update-row">${updateRow()}</div>
@@ -212,12 +209,6 @@ export async function startSettings(root: HTMLElement) {
       const folder = preset ? preset.path : await api.pickFolder();
       if (folder) await save((c) => { c.saveFolder = folder; });
       await render();  // a cancelled picker puts the select back on the folder in use
-    });
-    $<HTMLSelectElement>("#channel")?.addEventListener("change", async (e) => {
-      const channel = (e.target as HTMLSelectElement).value as Config["updateChannel"];
-      await save((c) => { c.updateChannel = channel; });
-      // Automatic checks off means no request unless asked: the user can press Check Now.
-      refreshUpdates(config.checkForUpdates ? await api.checkUpdates() : await api.updateStatus());
     });
     flip("auto-update", (on) => save((c) => { c.checkForUpdates = on; }));
     wireUpdates();
