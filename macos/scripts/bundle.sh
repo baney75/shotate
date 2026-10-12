@@ -23,7 +23,8 @@ sed "s/@VERSION@/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
 if [ -n "${SHOTATE_CHANNEL:-}" ]; then CHANNEL=$SHOTATE_CHANNEL
 elif ! git rev-parse --git-dir >/dev/null 2>&1; then CHANNEL=stable
-elif [ "$(git describe --exact-match --tags HEAD 2>/dev/null)" = "v$VERSION" ]; then CHANNEL=stable
+# (Not `git describe`: the rolling `nightly` tag can sit on the same commit as a release.)
+elif git tag --points-at HEAD 2>/dev/null | grep -qx "v$VERSION"; then CHANNEL=stable
 else CHANNEL=nightly; fi
 for kv in "ShotateCommit:$COMMIT" "ShotateChannel:$CHANNEL" "ShotateBuildDate:$(date -u +%Y-%m-%dT%H:%M:%SZ)"; do
   /usr/libexec/PlistBuddy -c "Add :${kv%%:*} string ${kv#*:}" "$APP/Contents/Info.plist"

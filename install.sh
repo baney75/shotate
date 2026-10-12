@@ -39,7 +39,7 @@ install_macos() {
   step "Downloading Shotate ($CHANNEL, $REF)"
   git clone --quiet --depth 1 --branch "$REF" "$REPO_URL" "$WORK/shotate"
   step "Building (about a minute the first time)"
-  "$WORK/shotate/macos/scripts/bundle.sh" --install 2>&1 | sed "s/^/${dim}    /;s/\$/${reset}/" | tail -4
+  SHOTATE_CHANNEL="$CHANNEL" "$WORK/shotate/macos/scripts/bundle.sh" --install 2>&1 | sed "s/^/${dim}    /;s/\$/${reset}/" | tail -4
   echo
   printf '%sShotate is installed.%s It is in your menu bar now.\n' "$bold" "$reset"
   echo "A welcome window will ask for Screen Recording permission. After that, press ⇧⌘S to capture."
