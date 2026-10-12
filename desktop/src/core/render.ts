@@ -142,7 +142,7 @@ function drawPen(ctx: Ctx, m: Mark, w: number) {
   }
   const mid = (i: number) => ({ x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2 });
   // Piece i runs from the midpoint before point i to the one after it, curving through point i.
-  ctx.lineWidth = width(0);
+  ctx.lineWidth = width(1);
   ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) {

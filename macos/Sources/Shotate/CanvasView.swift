@@ -17,7 +17,8 @@ import ShotateCore
 final class CanvasView: NSView, NSTextViewDelegate {
     let doc: Document
     var tool: Tool = .arrow {
-        didSet { commitText(); resetTextPress(); endPenHold(); selectedID = nil; window?.invalidateCursorRects(for: self) }
+        // A mark mid-drag belongs to the tool that started it; switching drops it.
+        didSet { commitText(); resetTextPress(); endPenHold(); draft = nil; selectedID = nil; window?.invalidateCursorRects(for: self) }
     }
     var color: RGBA = RGBA.palette[0]
     var size: StrokeSize = .medium

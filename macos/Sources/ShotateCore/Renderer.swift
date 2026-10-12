@@ -361,7 +361,7 @@ public enum Renderer {
         func mid(_ i: Int) -> CGPoint { CGPoint(x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2) }
         // Piece i runs from the midpoint before point i to the one after it, curving through point i.
         var from = first
-        ctx.setLineWidth(width(0))
+        ctx.setLineWidth(width(1))
         ctx.move(to: from)
         for i in 1..<pts.count {
             let to = i == pts.count - 1 ? pts[i] : mid(i)

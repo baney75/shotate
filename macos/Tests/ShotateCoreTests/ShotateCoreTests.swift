@@ -219,6 +219,22 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(Set(Tool.allCases.map(s.key(for:))).count, Tool.allCases.count)
     }
 
+    /// A file written before the pen existed keeps its own keys; the pen moves to a free letter.
+    func testNewToolsDontTakeKeysPeopleChose() {
+        var s = Settings()
+        s.toolKeys = ["select": "v", "arrow": "a", "box": "p", "ellipse": "o", "highlight": "h", "text": "t",
+                      "redact": "b", "step": "n", "crop": "c"]
+        XCTAssertEqual(s.key(for: .box), "p")
+        XCTAssertNotEqual(s.key(for: .pen), "p")
+        XCTAssertEqual(s.tool(forKey: s.key(for: .pen)), .pen)
+        s.normalize()
+        XCTAssertEqual(s.key(for: .box), "p", "and it stays that way once written back")
+        // Once the file names the pen, its default counts like any other.
+        s.toolKeys = ["box": "p", "pen": "p"]
+        XCTAssertEqual(s.key(for: .pen), "p")
+        XCTAssertEqual(s.key(for: .box), "r")
+    }
+
     /// Whatever the file says, every tool must keep a key of its own.
     func testEveryToolStaysReachableUnderAnyRemap() {
         let letters = ["a", "b", "c", "v", "r", "x", "1", "", "bb"]

@@ -67,26 +67,37 @@ public struct Settings: Equatable {
 
     static func isToolKey(_ k: String) -> Bool { k.count == 1 && k.first!.isLetter && k.first!.isASCII }
 
+    /// Tools added after people already had config files. A file that doesn't mention one predates
+    /// it, so a key the person chose wins over its default, and the new tool takes a free letter.
+    static let lateTools: Set<Tool> = [.pen]
+
     /// Every tool's key, guaranteed unique so every tool stays reachable. A custom key is dropped
     /// (the tool keeps its default) when it isn't a letter, when an earlier tool already claimed it,
-    /// or when it is the default of a tool that has no custom key. Dropping one custom key can
-    /// expose another clash, so this repeats until nothing changes.
+    /// or when it is the default of a tool that has no custom key (unless that tool is newer than the
+    /// file, see `lateTools`). Dropping one custom key can expose another clash, so this repeats until
+    /// nothing changes.
     public var resolvedToolKeys: [Tool: String] {
         var custom: [Tool: String] = [:]
         for t in Tool.allCases {
             if let k = toolKeys[t.title.lowercased()]?.lowercased(), Settings.isToolKey(k), k != t.rawValue { custom[t] = k }
         }
+        let yields = Set(Settings.lateTools.filter { toolKeys[$0.title.lowercased()] == nil })
         var changed = true
         while changed {
             changed = false
             var claimed: Set<String> = []
             for t in Tool.allCases {
                 guard let k = custom[t] else { continue }
-                let stealsDefault = Tool.allCases.contains { $0 != t && custom[$0] == nil && $0.rawValue == k }
+                let stealsDefault = Tool.allCases.contains { $0 != t && custom[$0] == nil && !yields.contains($0) && $0.rawValue == k }
                 if claimed.contains(k) || stealsDefault { custom[t] = nil; changed = true } else { claimed.insert(k) }
             }
         }
-        return Dictionary(uniqueKeysWithValues: Tool.allCases.map { ($0, custom[$0] ?? $0.rawValue) })
+        var keys = Dictionary(uniqueKeysWithValues: Tool.allCases.map { ($0, custom[$0] ?? $0.rawValue) })
+        for t in Tool.allCases where yields.contains(t) && custom[t] == nil && custom.values.contains(t.rawValue) {
+            let used = Set(keys.values)
+            keys[t] = "abcdefghijklmnopqrstuvwxyz".map(String.init).first { !used.contains($0) }
+        }
+        return keys
     }
 
     /// Spells out every tool key, the way the file stores them, so memory and disk compare equal.

@@ -438,7 +438,9 @@ class Editor {
       this.draw();
     });
 
-    c.addEventListener("pointerup", () => {
+    // A cancelled pointer (the system took over a pen or touch) ends the drag like a release, so a
+    // stroke is kept rather than left hanging.
+    const release = () => {
       const pressed = this.pressedLabel, box = this.textBox;
       this.pressedLabel = null;
       this.textBox = null;
@@ -481,7 +483,9 @@ class Editor {
       this.dragHandle = null;
       this.frozen = null;
       this.draw();
-    });
+    };
+    c.addEventListener("pointerup", release);
+    c.addEventListener("pointercancel", release);
 
     c.addEventListener("pointerleave", () => { if (this.hoverId) { this.hoverId = null; this.draw(); } });
     c.addEventListener("contextmenu", (e) => this.contextMenu(e));
@@ -737,7 +741,9 @@ class Editor {
   setTool(t: Tool) {
     this.commitText();
     this.resetTextPress();
+    // A mark mid-drag belongs to the tool that started it; switching drops it.
     this.endPenHold();
+    this.draft = null;
     this.tool = t;
     this.select(null);
     this.draw();

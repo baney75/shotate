@@ -356,3 +356,16 @@ describe("pen", () => {
     expect(inkShape([{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 3, y: 3 }])).toBeNull();
   });
 });
+
+describe("tool keys", () => {
+  it("keep a key people chose when a newer tool's default wants it", () => {
+    const old = { select: "v", arrow: "a", box: "p", ellipse: "o", highlight: "h", text: "t", redact: "b", step: "n", crop: "c" };
+    const keys = resolveToolKeys(old);
+    expect(keys.box).toBe("p");
+    expect(keys.pen).not.toBe("p");
+    expect(new Set(Object.values(keys)).size).toBe(Object.keys(keys).length);
+    expect(resolveToolKeys({ ...keys }).box).toBe("p");
+    const named = resolveToolKeys({ box: "p", pen: "p" });
+    expect([named.pen, named.box]).toEqual(["p", "r"]);
+  });
+});
