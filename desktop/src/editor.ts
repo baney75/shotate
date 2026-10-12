@@ -6,8 +6,9 @@
 import { api } from "./api";
 import { icon } from "./icons";
 import {
-  Doc, Geometry, LINE_HEIGHT, PAD_X, PAD_Y, PALETTE, Snap, TOOLS, calloutAnchor, css, curveBounds, duplicate, inset, mark,
+  Doc, Geometry, LINE_HEIGHT, PAD_X, PAD_Y, PALETTE, Snap, TOOLS, calloutAnchor, css, curveBounds, duplicate, endNear, inset, mark,
   markFontSize, markHandles, midpoint, moveMarkHandle, pinned, rewrapped, styled, type Binding, type Guide, type RGBA, union,
+  intersection,
   moveHandle, offset, strokeWidth, textOrStepRect, type Mark, type Point, type Rect, type StrokeSize, type Tool,
 } from "./core/model";
 import { FONT, drawBackground, drawMark, edges, flatten, ink, type Edges } from "./core/render";
@@ -38,6 +39,8 @@ class Editor {
   dragHandle: number | null = null;
   cropDraft: Rect | null = null;
   frozen: Rect | null = null;
+  /** How far a drag may widen the frozen view. */
+  dragLimit: Rect | null = null;
   input: HTMLTextAreaElement | null = null;
   editingId: string | null = null;
   textAt: Point = { x: 0, y: 0 };
@@ -301,6 +304,7 @@ class Editor {
       // Commit a label first: it may grow the canvas, and the layout must settle before mapping this click.
       if (this.input) this.commitText();
       this.frozen = this.layout;
+      this.dragLimit = inset(this.frozen, -0.5 * Math.max(this.doc.width, this.doc.height));
       const p = this.toImage(e);
       const tol = 8 * this.ppp;
       const clicks = this.countClick(p);
@@ -419,7 +423,7 @@ class Editor {
         else if (!d.endBinding) p = this.snapped(p, e, []);
         this.draft = { ...d, end: p };
       }
-      this.followDrag();
+      this.followDrag(e);
       this.draw();
     });
 
@@ -495,15 +499,18 @@ class Editor {
     return count;
   }
 
-  /** Widens the frozen view when a drag reaches past it, so a mark drawn off the edge stays in sight. */
-  followDrag() {
-    if (!this.frozen) return;
+  /** Widens the frozen view when a drag reaches past it, so a mark drawn off the edge stays in sight.
+   *  Only while the pointer is inside the view: outside, every widening would map it further out and
+   *  widen again. It also stops at half the image's size past where the drag began. */
+  followDrag(e: PointerEvent) {
+    const v = this.canvas.getBoundingClientRect();
+    if (!this.frozen || !this.dragLimit || e.clientX < v.left || e.clientX > v.right || e.clientY < v.top || e.clientY > v.bottom) return;
     let marks = this.doc.marks;
     if (this.live) marks = marks.map((m) => (m.id === this.live!.id ? this.live! : m));
     if (this.draft) marks = [...marks, this.draft];
     const c = this.doc.canvasIncluding(this.doc.resolveBindings(marks)), f = this.frozen;
     if (c.x >= f.x && c.y >= f.y && c.x + c.w <= f.x + f.w && c.y + c.h <= f.y + f.h) return;
-    this.frozen = union(f, inset(c, -0.07 * Math.max(this.doc.width, this.doc.height)));
+    this.frozen = intersection(union(f, inset(c, -0.07 * Math.max(this.doc.width, this.doc.height))), this.dragLimit) ?? f;
   }
 
   // MARK: Context menu
@@ -535,27 +542,29 @@ class Editor {
 
   // MARK: Text
 
-  /** Double-clicking an arrow labels it. Near an end it opens a new label for that end, which the
-   *  arrow then points at (or the label it already points at); anywhere else along it, the label in
-   *  its middle. Returns false when there is no arrow under `p`. */
+  /** Double-clicking an arrow labels it. Near a free end it opens a new label for that end, which the
+   *  arrow then points at; near an end that already points at a label, that label. Anywhere else
+   *  along it (or near an end attached to a shape), the label in its middle. Returns false when the
+   *  topmost mark under `p` is not an arrow, so a label or shape there keeps its own double-click. */
   labelArrow(p: Point): boolean {
-    const end = this.doc.arrowEnd(p, 10 * this.ppp);
-    if (end) {
-      const { arrow } = end;
-      const bound = (end.end === 0 ? arrow.startBinding : arrow.endBinding)?.id;
-      const label = this.doc.marks.find((m) => m.id === bound);
-      if (label?.tool === "text") { this.select(label.id); this.beginText(label.start, label); return true; }
-      this.select(null);
-      this.callout = { arrow: arrow.id, end: end.end };
-      this.textPin = { at: end.end === 0 ? arrow.start : arrow.end, anchor: calloutAnchor(arrow, end.end) };
-      this.textColor = arrow.color;
-      this.beginText({ x: 0, y: 0 }, null);
-      return true;
+    const arrow = this.doc.hitTest(p, 8 * this.ppp);
+    if (arrow?.tool !== "arrow") return false;
+    const end = endNear(arrow, p, 10 * this.ppp);
+    if (end !== null) {
+      const id = (end === 0 ? arrow.startBinding : arrow.endBinding)?.id;
+      const bound = this.doc.marks.find((m) => m.id === id);
+      if (bound?.tool === "text") { this.select(bound.id); this.beginText(bound.start, bound); return true; }
+      if (!bound) {
+        this.select(null);
+        this.callout = { arrow: arrow.id, end };
+        this.textPin = { at: end === 0 ? arrow.start : arrow.end, anchor: calloutAnchor(arrow, end) };
+        this.textColor = arrow.color;
+        this.beginText({ x: 0, y: 0 }, null);
+        return true;
+      }
     }
-    const hit = this.doc.hitTest(p, 8 * this.ppp);
-    if (hit?.tool !== "arrow") return false;
-    this.select(hit.id);
-    this.beginText({ x: 0, y: 0 }, hit);
+    this.select(arrow.id);
+    this.beginText({ x: 0, y: 0 }, arrow);
     return true;
   }
 

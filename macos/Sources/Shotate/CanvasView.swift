@@ -80,6 +80,8 @@ final class CanvasView: NSView, NSTextViewDelegate {
     /// plus a margin to draw into. It holds still during a drag so the view doesn't zoom under the
     /// pointer, and catches up when the drag ends.
     private var frozenLayout: CGRect?
+    /// How far a drag may widen the frozen view.
+    private var dragLimit: CGRect?
     private var layoutRect: CGRect {
         if let frozenLayout { return frozenLayout }
         let c = doc.canvas
@@ -270,6 +272,8 @@ final class CanvasView: NSView, NSTextViewDelegate {
         // this click is mapped to the image or a new text field is positioned.
         if textField != nil { commitText() }
         frozenLayout = layoutRect
+        dragLimit = layoutRect.insetBy(dx: -0.5 * CGFloat(max(doc.image.width, doc.image.height)),
+                                       dy: -0.5 * CGFloat(max(doc.image.width, doc.image.height)))
         let p = imagePoint(e)
         let tolerance = 8 * pixelsPerPoint
         if e.clickCount == 2, tool != .step, tool != .crop, labelArrow(at: p) { return }
@@ -317,7 +321,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
     }
 
     override func mouseDragged(with e: NSEvent) {
-        defer { followDrag() }
+        defer { followDrag(e) }
         var p = imagePoint(e)
         if let i = dragHandle, let m = live {
             let base = selectedMark ?? m
@@ -392,15 +396,17 @@ final class CanvasView: NSView, NSTextViewDelegate {
     }
 
     /// Widens the frozen view when a drag reaches past it, so a mark drawn off the edge stays in sight.
-    private func followDrag() {
-        guard let f = frozenLayout else { return }
+    /// Only while the pointer is inside the view: outside, every widening would map it further out and
+    /// widen again. It also stops at half the image's size past where the drag began.
+    private func followDrag(_ e: NSEvent) {
+        guard let f = frozenLayout, let limit = dragLimit, bounds.contains(convert(e.locationInWindow, from: nil)) else { return }
         var marks = doc.marks
         if let l = live, let i = marks.firstIndex(where: { $0.id == l.id }) { marks[i] = l }
         if let d = draft { marks.append(d) }
         let c = doc.canvas(including: doc.resolvingBindings(marks))
         guard !f.contains(c) else { return }
         let margin = 0.07 * CGFloat(max(doc.image.width, doc.image.height))
-        frozenLayout = f.union(c.insetBy(dx: -margin, dy: -margin))
+        frozenLayout = f.union(c.insetBy(dx: -margin, dy: -margin)).intersection(limit)
         needsDisplay = true
     }
 
@@ -486,26 +492,29 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     // MARK: Text
 
-    /// Double-clicking an arrow labels it. Near an end it opens a new label for that end, which the
-    /// arrow then points at (or the label it already points at); anywhere else along it, the label in
-    /// its middle. Returns false when there is no arrow under `p`.
+    /// Double-clicking an arrow labels it. Near a free end it opens a new label for that end, which the
+    /// arrow then points at; near an end that already points at a label, that label. Anywhere else
+    /// along it (or near an end attached to a shape), the label in its middle. Returns false when the
+    /// topmost mark under `p` is not an arrow, so a label or shape there keeps its own double-click.
     private func labelArrow(at p: CGPoint) -> Bool {
-        if let (arrow, end) = doc.arrowEnd(at: p, tolerance: 10 * pixelsPerPoint) {
-            let bound = (end == 0 ? arrow.startBinding : arrow.endBinding)?.id
-            if let label = doc.marks.first(where: { $0.id == bound }), label.tool == .text {
+        guard let arrow = doc.hitTest(p, tolerance: 8 * pixelsPerPoint), arrow.tool == .arrow else { return false }
+        if let end = arrow.end(near: p, tolerance: 10 * pixelsPerPoint) {
+            let bound = (end == 0 ? arrow.startBinding : arrow.endBinding).flatMap { b in doc.marks.first { $0.id == b.id } }
+            if let label = bound, label.tool == .text {
                 selectedID = label.id
                 beginText(at: label.start, editing: label)
                 return true
             }
-            selectedID = nil
-            callout = (arrow.id, end)
-            textPin = (end == 0 ? arrow.start : arrow.end, arrow.calloutAnchor(end: end))
-            beginText(at: .zero, editing: nil, color: arrow.color)
-            return true
+            if bound == nil {
+                selectedID = nil
+                callout = (arrow.id, end)
+                textPin = (end == 0 ? arrow.start : arrow.end, arrow.calloutAnchor(end: end))
+                beginText(at: .zero, editing: nil, color: arrow.color)
+                return true
+            }
         }
-        guard let hit = doc.hitTest(p, tolerance: 8 * pixelsPerPoint), hit.tool == .arrow else { return false }
-        selectedID = hit.id
-        beginText(at: .zero, editing: hit)
+        selectedID = arrow.id
+        beginText(at: .zero, editing: arrow)
         return true
     }
 

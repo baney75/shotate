@@ -115,6 +115,12 @@ public enum Renderer {
         return side * (abs(n.x) * r.width / 2 + abs(n.y) * r.height / 2 + fontSize(of: label, imageWidth: imageWidth) * 0.3)
     }
 
+    /// The bend that puts a labeled arrow's middle handle (which sits `k` past the middle, on the side
+    /// the arrow bends to) under a pointer `proj` off the chord. Inside the label's reach it is straight.
+    static func bend(forHandleAt proj: CGFloat, clearance k: CGFloat) -> CGFloat {
+        proj >= k ? proj - k : proj <= -k ? proj + k : 0
+    }
+
     /// A mark's grab points. A label has two: its bottom-right corner scales it, its right edge sets
     /// where it wraps. An arrow's middle handle clears its label. Shapes use `Mark.handles`.
     public static func handles(of m: Mark, imageWidth: Int) -> [CGPoint] {
@@ -131,7 +137,7 @@ public enum Renderer {
     public static func moving(_ m: Mark, handle i: Int, to p: CGPoint, imageWidth: Int) -> Mark {
         if m.tool == .arrow, i == 2 {
             var out = m
-            out.bend = m.bend(through: p) - labelClearance(of: m, imageWidth: imageWidth)
+            out.bend = bend(forHandleAt: m.bend(through: p), clearance: abs(labelClearance(of: m, imageWidth: imageWidth)))
             return out
         }
         guard m.tool == .text else { return m.moving(handle: i, to: p) }
@@ -302,10 +308,7 @@ public enum Renderer {
         // tip, and aim the head from there so line and head meet on its axis.
         var split = (t: CGFloat(1), control: m.control)
         if m.bend != 0 {
-            let pts = m.curvePoints
-            var left = head * 0.85, i = pts.count - 1
-            while i > 0, left > 0 { left -= hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); i -= 1 }
-            let t = max(0, CGFloat(i) / CGFloat(pts.count - 1))
+            let t = m.parameter(atDistance: head * 0.85, fromEnd: true)
             let c = m.control
             split = (t, CGPoint(x: a.x + (c.x - a.x) * t, y: a.y + (c.y - a.y) * t))
         }

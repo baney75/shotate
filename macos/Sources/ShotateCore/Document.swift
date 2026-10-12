@@ -226,6 +226,28 @@ extension Mark {
         return (p.x - c.x) * n.x + (p.y - c.y) * n.y
     }
 
+    /// The `t` at which the curve is `distance` from its start (or, with `fromEnd`, from its tip), in a
+    /// straight line. Halving the interval is exact enough at any length; 0 when the arrow is shorter.
+    public func parameter(atDistance distance: CGFloat, fromEnd: Bool) -> CGFloat {
+        let anchor = fromEnd ? end : start
+        func gap(_ t: CGFloat) -> CGFloat { let q = point(at: t); return hypot(q.x - anchor.x, q.y - anchor.y) }
+        // `near` is the end at the anchor, `far` the other; the gap shrinks toward `near`.
+        var near: CGFloat = fromEnd ? 1 : 0, far: CGFloat = fromEnd ? 0 : 1
+        guard gap(far) > distance else { return far }
+        for _ in 0..<30 {
+            let t = (near + far) / 2
+            if gap(t) < distance { near = t } else { far = t }
+        }
+        return (near + far) / 2
+    }
+
+    /// Which end (0 start, 1 end) is within `tolerance` of `p`, the nearer if both, or nil.
+    public func end(near p: CGPoint, tolerance: CGFloat) -> Int? {
+        let ds = hypot(p.x - start.x, p.y - start.y), de = hypot(p.x - end.x, p.y - end.y)
+        guard min(ds, de) <= tolerance else { return nil }
+        return de < ds ? 1 : 0
+    }
+
     /// Where a label for end `i` (0 start, 1 end) attaches, as a fraction of its box: the side that
     /// faces back along the arrow, so the label sits beyond the end and the arrow meets its edge.
     public func calloutAnchor(end i: Int) -> CGPoint {
@@ -305,7 +327,8 @@ public final class Document {
 
     /// Splits a strip into runs of similar neighboring pixels and paints over the short ones with the
     /// pixel beside them, so only wide bands and gradients are left to stretch. A run is short when it
-    /// covers less than 2% of the strip (at least 6 pixels).
+    /// covers less than 2% of the strip (at least 6 pixels). A strip with no wide band at all becomes
+    /// its most common color.
     static func removeThinRuns(_ px: inout [UInt8]) {
         let n = px.count / 4
         guard n > 1 else { return }
@@ -316,9 +339,19 @@ public final class Document {
             runs.append(from..<i)
             from = i
         }
-        let minRun = max(6, n / 50)
+        let minRun = min(n, max(6, n / 50))
         let long = runs.filter { $0.count >= minRun }
-        guard !long.isEmpty, long.count < runs.count else { return }
+        guard long.count < runs.count else { return }
+        guard !long.isEmpty else {
+            // All detail, like an edge through a column of text: one plain color, the most common.
+            var counts: [UInt32: Int] = [:]
+            for i in 0..<n { counts[UInt32(px[i * 4] >> 3) << 15 | UInt32(px[i * 4 + 1] >> 3) << 10 | UInt32(px[i * 4 + 2] >> 3) << 5 | UInt32(px[i * 4 + 3] >> 3), default: 0] += 1 }
+            let top = counts.max { $0.value < $1.value }!.key
+            let at = (0..<n).first { UInt32(px[$0 * 4] >> 3) << 15 | UInt32(px[$0 * 4 + 1] >> 3) << 10 | UInt32(px[$0 * 4 + 2] >> 3) << 5 | UInt32(px[$0 * 4 + 3] >> 3) == top }!
+            let fill = Array(px[at * 4..<at * 4 + 4])
+            for i in 0..<n { for c in 0..<4 { px[i * 4 + c] = fill[c] } }
+            return
+        }
         let src = px
         func copy(_ from: Int, to i: Int) { for c in 0..<4 { px[i * 4 + c] = src[from * 4 + c] } }
         for r in runs where r.count < minRun {
@@ -425,15 +458,6 @@ public final class Document {
         let b = Binding(id: label.id, anchor: anchor)
         if i == 0 { marks[a].startBinding = b } else { marks[a].endBinding = b }
         marks = resolvingBindings(marks)
-    }
-
-    /// The topmost arrow with an end within `tolerance` of `p`, and which end (0 start, 1 end).
-    public func arrowEnd(at p: CGPoint, tolerance: CGFloat) -> (arrow: Mark, end: Int)? {
-        for m in marks.reversed() where m.tool == .arrow {
-            let ds = hypot(p.x - m.start.x, p.y - m.start.y), de = hypot(p.x - m.end.x, p.y - m.end.y)
-            if min(ds, de) <= tolerance { return (m, de < ds ? 1 : 0) }
-        }
-        return nil
     }
 
     // MARK: Arrow bindings

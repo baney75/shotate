@@ -177,6 +177,27 @@ export function bendThrough(m: Mark, p: Point): number {
   return (p.x - c.x) * n.x + (p.y - c.y) * n.y;
 }
 
+/** The `t` at which the curve is `distance` from its start (or, with `fromEnd`, from its tip), in a
+ *  straight line. Halving the interval is exact enough at any length; the far end when shorter. */
+export function parameterAt(m: Mark, distance: number, fromEnd: boolean): number {
+  const anchor = fromEnd ? m.end : m.start;
+  const gap = (t: number) => { const q = pointAt(m, t); return Math.hypot(q.x - anchor.x, q.y - anchor.y); };
+  // `near` is the end at the anchor, `far` the other; the gap shrinks toward `near`.
+  let near = fromEnd ? 1 : 0, far = fromEnd ? 0 : 1;
+  if (gap(far) <= distance) return far;
+  for (let i = 0; i < 30; i++) {
+    const t = (near + far) / 2;
+    if (gap(t) < distance) near = t; else far = t;
+  }
+  return (near + far) / 2;
+}
+
+/** Which end (0 start, 1 end) is within `tolerance` of `p`, the nearer if both, or null. */
+export function endNear(m: Mark, p: Point, tolerance: number): number | null {
+  const ds = Math.hypot(p.x - m.start.x, p.y - m.start.y), de = Math.hypot(p.x - m.end.x, p.y - m.end.y);
+  return Math.min(ds, de) <= tolerance ? (de < ds ? 1 : 0) : null;
+}
+
 /** Where a label for end `i` (0 start, 1 end) attaches, as a fraction of its box: the side that faces
  *  back along the arrow, so the label sits beyond the end and the arrow meets its edge. */
 export function calloutAnchor(m: Mark, i: number): Point {
@@ -328,6 +349,10 @@ function labelClearance(m: Mark, imageWidth: number, measure: Measure): number {
   return side * (Math.abs(n.x) * r.w / 2 + Math.abs(n.y) * r.h / 2 + markFontSize(label, imageWidth) * 0.3);
 }
 
+/** The bend that puts a labeled arrow's middle handle (which sits `k` past the middle, on the side the
+ *  arrow bends to) under a pointer `proj` off the chord. Inside the label's reach it is straight. */
+export const bendForHandle = (proj: number, k: number) => (proj >= k ? proj - k : proj <= -k ? proj + k : 0);
+
 /** A mark's grab points. A label has two: its bottom-right corner scales it, its right edge sets
  *  where it wraps. An arrow's middle handle clears its label. Shapes use `handles`. */
 export function markHandles(m: Mark, imageWidth: number, measure: Measure): Point[] {
@@ -344,7 +369,7 @@ export function markHandles(m: Mark, imageWidth: number, measure: Measure): Poin
 export function moveMarkHandle(m: Mark, i: number, p: Point, imageWidth: number, measure: Measure): Mark {
   if (m.tool === "arrow" && i === 2) {
     const { bend: _b, ...rest } = m;
-    const bend = bendThrough(m, p) - labelClearance(m, imageWidth, measure);
+    const bend = bendForHandle(bendThrough(m, p), Math.abs(labelClearance(m, imageWidth, measure)));
     return bend ? { ...rest, bend } : rest;
   }
   if (m.tool !== "text") return moveHandle(m, i, p);
@@ -452,16 +477,6 @@ export class Doc {
     const marks = this.marks.map((m) => (m.id !== arrow ? m : i === 0 ? { ...m, startBinding: b } : { ...m, endBinding: b }));
     this.marks = this.resolveBindings([...marks, label]);
     return this.marks[this.marks.length - 1];
-  }
-
-  /** The topmost arrow with an end within `tolerance` of `p`, and which end (0 start, 1 end). */
-  arrowEnd(p: Point, tolerance: number): { arrow: Mark; end: number } | null {
-    for (const m of [...this.marks].reverse()) {
-      if (m.tool !== "arrow") continue;
-      const ds = Math.hypot(p.x - m.start.x, p.y - m.start.y), de = Math.hypot(p.x - m.end.x, p.y - m.end.y);
-      if (Math.min(ds, de) <= tolerance) return { arrow: m, end: de < ds ? 1 : 0 };
-    }
-    return null;
   }
 
   // Arrow bindings
@@ -618,7 +633,8 @@ export const Snap = {
 /** Paints over the short runs of similar neighboring pixels in a one-pixel strip of RGBA bytes, with
  *  the pixel beside them, so only wide bands and gradients are left. The canvas grows by stretching
  *  each edge's strip: this keeps a title bar or page background carrying on while a line, text or an
- *  icon touching the edge doesn't streak. A run is short below 2% of the strip (at least 6 pixels). */
+ *  icon touching the edge doesn't streak. A run is short below 2% of the strip (at least 6 pixels).
+ *  A strip with no wide band at all becomes its most common color. */
 export function removeThinRuns(px: Uint8ClampedArray) {
   const n = px.length / 4;
   if (n < 2) return;
@@ -626,9 +642,21 @@ export function removeThinRuns(px: Uint8ClampedArray) {
   const runs: [number, number][] = [];
   let from = 0;
   for (let i = 1; i <= n; i++) if (i === n || !similar(i - 1, i)) { runs.push([from, i]); from = i; }
-  const minRun = Math.max(6, Math.floor(n / 50));
+  const minRun = Math.min(n, Math.max(6, Math.floor(n / 50)));
   const long = runs.filter(([a, b]) => b - a >= minRun);
-  if (!long.length || long.length === runs.length) return;
+  if (long.length === runs.length) return;
+  if (!long.length) {
+    // All detail, like an edge through a column of text: one plain color, the most common.
+    const key = (i: number) => [0, 1, 2, 3].map((c) => px[i * 4 + c] >> 3).join();
+    const counts = new Map<string, number>();
+    for (let i = 0; i < n; i++) counts.set(key(i), (counts.get(key(i)) ?? 0) + 1);
+    const top = [...counts].reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+    let at = 0;
+    while (key(at) !== top) at++;
+    const fill = px.slice(at * 4, at * 4 + 4);
+    for (let i = 0; i < n; i++) px.set(fill, i * 4);
+    return;
+  }
   const src = px.slice();
   const copy = (from: number, to: number) => { for (let c = 0; c < 4; c++) px[to * 4 + c] = src[from * 4 + c]; };
   for (const [a, b] of runs) {

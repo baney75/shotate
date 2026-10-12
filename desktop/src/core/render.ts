@@ -1,7 +1,7 @@
 // Draws marks with the 2D canvas. Used both for the live editor and the exported PNG, so what you
 // see is exactly what gets copied. Mirrors the macOS renderer.
 import {
-  LINE_HEIGHT, PAD_X, PAD_Y, type Doc, type Mark, type RGBA, type Rect, arrowLabel, control, css, curvePoints, fontSize,
+  LINE_HEIGHT, PAD_X, PAD_Y, type Doc, type Mark, type RGBA, type Rect, arrowLabel, control, css, fontSize, parameterAt,
   markFontSize, markRect, pointAt, removeThinRuns, rgba, strokeWidth, textLines, textOrStepRect,
 } from "./model";
 
@@ -63,10 +63,7 @@ export function drawMark(ctx: Ctx, m: Mark, imageWidth: number) {
       // tip, and aim the head from there so line and head meet on its axis.
       let t = 1;
       if (m.bend) {
-        const pts = curvePoints(m);
-        let left = head * 0.85, i = pts.length - 1;
-        while (i > 0 && left > 0) { left -= Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); i--; }
-        t = Math.max(0, i / (pts.length - 1));
+        t = parameterAt(m, head * 0.85, true);
       }
       const cut = m.bend ? pointAt(m, t) : a;
       const angle = Math.atan2(b.y - cut.y, b.x - cut.x);

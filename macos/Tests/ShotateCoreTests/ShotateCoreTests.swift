@@ -514,11 +514,9 @@ final class ShotateCoreTests: XCTestCase {
         let doc = Document(image: solidImage(1000, 600))
         let arrow = Mark(tool: .arrow, color: RGBA.palette[0], start: CGPoint(x: 100, y: 300), end: CGPoint(x: 400, y: 300))
         doc.add(arrow)
-        let hit = doc.arrowEnd(at: CGPoint(x: 405, y: 302), tolerance: 10)
-        XCTAssertEqual(hit?.arrow.id, arrow.id)
-        XCTAssertEqual(hit?.end, 1)
-        XCTAssertEqual(doc.arrowEnd(at: CGPoint(x: 98, y: 300), tolerance: 10)?.end, 0)
-        XCTAssertNil(doc.arrowEnd(at: CGPoint(x: 250, y: 300), tolerance: 10), "the middle is not an end")
+        XCTAssertEqual(arrow.end(near: CGPoint(x: 405, y: 302), tolerance: 10), 1)
+        XCTAssertEqual(arrow.end(near: CGPoint(x: 98, y: 300), tolerance: 10), 0)
+        XCTAssertNil(arrow.end(near: CGPoint(x: 250, y: 300), tolerance: 10), "the middle is not an end")
         // Pointing right, the label goes right of the tip with its left edge on it.
         let anchor = arrow.calloutAnchor(end: 1)
         XCTAssertEqual(anchor, CGPoint(x: 0, y: 0.5))
@@ -563,6 +561,11 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertLessThan(h.y, r.minY)
         let dragged = Renderer.moving(arrow, handle: 2, to: CGPoint(x: h.x, y: h.y - 30), imageWidth: 1000)
         XCTAssertEqual(dragged.bend, arrow.bend - 30, accuracy: 0.001)
+        // Dragged across to the other side, the handle stays under the pointer there.
+        let other = CGPoint(x: 400, y: 600)
+        let flipped = Renderer.moving(arrow, handle: 2, to: other, imageWidth: 1000)
+        XCTAssertGreaterThan(flipped.bend, 0)
+        XCTAssertEqual(Renderer.handles(of: flipped, imageWidth: 1000)[2].y, other.y, accuracy: 0.5)
         let flat = try XCTUnwrap(Renderer.flatten(doc))
         let fill = pixel(flat, Int(r.minX + 4), Int(r.midY))
         XCTAssertGreaterThan(Int(fill.2), Int(fill.0) + 60, "the label is a pill in the arrow's color")
@@ -595,5 +598,22 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(Int(pixel(flat, x, 10).1), Int(pixel(flat, edgeX, 10).1), accuracy: 2)
         XCTAssertNotEqual(Int(pixel(flat, x, 10).1), Int(pixel(flat, x, 60).1), "still a gradient, not one color")
         XCTAssertEqual(Int(pixel(flat, x, 90).0), 230, accuracy: 2, "the wide band carries on too")
+    }
+
+    /// The line must reach the arrowhead's notch on any length of curve, not stop a sample short.
+    func testLongCurvesMeetTheirHead() {
+        let arrow = Mark(tool: .arrow, color: RGBA.palette[0], start: CGPoint(x: 0, y: 0), end: CGPoint(x: 2000, y: 0), bend: 200)
+        let t = arrow.parameter(atDistance: 49.7, fromEnd: true)
+        let q = arrow.point(at: t)
+        XCTAssertEqual(hypot(q.x - 2000, q.y), 49.7, accuracy: 0.01)
+        XCTAssertEqual(arrow.parameter(atDistance: 5000, fromEnd: true), 0, "shorter than the head")
+    }
+
+    /// An edge with no wide band (say, through a column of text) becomes one plain color.
+    func testAllDetailEdgesBecomeOneColor() {
+        var px: [UInt8] = []
+        for i in 0..<200 { px += i % 8 < 5 ? [240, 240, 240, 255] : [20, 20, 20, 255] }
+        Document.removeThinRuns(&px)
+        XCTAssertTrue(stride(from: 0, to: px.count, by: 4).allSatisfy { px[$0] == 240 })
     }
 }
