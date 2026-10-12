@@ -8,8 +8,7 @@
   thing that matters, and a new home at github.com/baney75/shotate (old links redirect).
   Updating keeps everything: the macOS Screen Recording permission, Open at login, your settings
   (copied from `~/.config/snapmark` to `~/.config/shotate`), your shortcuts and your screenshots.
-  Every installer, including the Windows setup and the Linux packages on their own, replaces the
-  old Snapmark app so only one copy runs. `snapmark://` links still work on macOS, and on Linux a
+  Installing Shotate, by any method, replaces the old Snapmark app so only one copy runs. `snapmark://` links still work on macOS, and on Linux a
   shortcut bound to `snapmark --capture` keeps working (the command is now `shotate --capture`).
 
 ### Added
