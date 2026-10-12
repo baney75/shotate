@@ -94,19 +94,20 @@ pub fn offer(local: &Build, remote: &Manifest, channel: &str) -> Option<Offer> {
     if remote.channel != channel {
         return None;
     }
-    if !remote.commit.is_empty() && remote.commit.eq_ignore_ascii_case(&local.commit) {
+    // An empty or "unknown" local commit (a build without git) never matches.
+    let known = !local.commit.is_empty() && !local.commit.eq_ignore_ascii_case("unknown");
+    if known && remote.commit.eq_ignore_ascii_case(&local.commit) {
         return None;
     }
     match channel {
+        // By date, so a stable installed after the last nightly is never "downgraded".
+        "nightly" => match (parse_date(&remote.date), parse_date(&local.date)) {
+            (Some(r), Some(l)) if r > l => Some(Offer::Update),
+            _ => None,
+        },
         "stable" if local.channel == "nightly" => Some(Offer::SwitchToStable),
         "stable" => (compare_versions(&remote.version, &local.version) == Some(Ordering::Greater))
             .then_some(Offer::Update),
-        // By date, so a stable installed after the last nightly is never "downgraded".
-        "nightly" => match (parse_date(&remote.date), parse_date(&local.date)) {
-            (Some(r), Some(l)) => (r > l).then_some(Offer::Update),
-            (Some(_), None) => Some(Offer::Update),
-            _ => None,
-        },
         _ => None,
     }
 }
@@ -319,9 +320,9 @@ pub fn detect_route() -> Route {
             .status()
             .is_ok_and(|s| s.success())
     };
-    if owns("dpkg-query", &["-S"]) {
+    if owns(DPKG_QUERY, &["-S"]) {
         Route::Deb
-    } else if owns("rpm", &["-qf"]) {
+    } else if owns(RPM, &["-qf"]) {
         Route::Rpm
     } else {
         Route::ReleasePage
@@ -353,10 +354,20 @@ pub fn install(manifest: &Manifest, route: &Route) -> Result<Installed, String> 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     match route {
         Route::WindowsSetup => {
+            let Some(powershell) = windows_powershell().filter(|p| p.is_file()) else {
+                return Ok(page);
+            };
             let dir = private_dir()?;
-            let setup = dir.join(&name);
-            download(&asset, &setup)?;
-            spawn_windows_setup(&setup, &exe)?;
+            // A fixed name: nothing from the manifest reaches the command line.
+            let setup = dir.join(WINDOWS_SETUP_NAME);
+            if let Err(e) = download(&asset, &setup) {
+                let _ = std::fs::remove_dir_all(&dir);
+                return Err(e);
+            }
+            if let Err(e) = spawn_windows_setup(&powershell, &dir, &setup, &exe) {
+                let _ = std::fs::remove_dir_all(&dir);
+                return Err(e);
+            }
             Ok(Installed::Quit)
         }
         Route::AppImage(target) => {
@@ -376,13 +387,17 @@ pub fn install(manifest: &Manifest, route: &Route) -> Result<Installed, String> 
             Ok(Installed::Quit)
         }
         Route::Deb | Route::Rpm => {
-            if !has_pkexec() {
+            let tool = if *route == Route::Rpm { RPM } else { APT_GET };
+            if !Path::new(PKEXEC).is_file() || !Path::new(tool).is_file() {
                 return Ok(page);
             }
             let dir = private_dir()?;
             let file = dir.join(&name);
-            download(&asset, &file)?;
-            let status = Command::new("pkexec")
+            if let Err(e) = download(&asset, &file) {
+                let _ = std::fs::remove_dir_all(&dir);
+                return Err(e);
+            }
+            let status = Command::new(PKEXEC)
                 .args(package_command(route, &file))
                 .status()
                 .map_err(|e| format!("Couldn't run pkexec: {e}"));
@@ -404,40 +419,40 @@ pub fn install(manifest: &Manifest, route: &Route) -> Result<Installed, String> 
     }
 }
 
-/// The pkexec arguments for a package. Downgrades are allowed: moving from nightly to stable can be
-/// one. rpm directly works on both dnf and zypper systems.
+/// System tools run by absolute path, so nothing on PATH can stand in for them.
+const PKEXEC: &str = "/usr/bin/pkexec";
+const APT_GET: &str = "/usr/bin/apt-get";
+const RPM: &str = "/usr/bin/rpm";
+const DPKG_QUERY: &str = "/usr/bin/dpkg-query";
+
+/// The pkexec arguments for a package. Nightly packages carry plain X.Y.Z versions, so the same
+/// version may need installing again (`--reinstall`, `--replacepkgs`), and moving from nightly to
+/// stable can be a downgrade. rpm directly works on both dnf and zypper systems.
 pub fn package_command(route: &Route, file: &Path) -> Vec<String> {
-    let f = file.to_string_lossy().into_owned();
-    match route {
-        Route::Rpm => ["rpm", "-U", "--oldpackage", "--replacepkgs"]
-            .iter()
-            .map(|s| s.to_string())
-            .chain([f])
-            .collect(),
-        _ => ["apt-get", "install", "-y", "--allow-downgrades"]
-            .iter()
-            .map(|s| s.to_string())
-            .chain([f])
-            .collect(),
-    }
+    let args: &[&str] = match route {
+        Route::Rpm => &[RPM, "-U", "--oldpackage", "--replacepkgs"],
+        _ => &[
+            APT_GET,
+            "install",
+            "-y",
+            "--reinstall",
+            "--allow-downgrades",
+        ],
+    };
+    args.iter()
+        .map(|s| s.to_string())
+        .chain([file.to_string_lossy().into_owned()])
+        .collect()
 }
 
-/// A folder only this user can read (0700 on Linux), kept after Shotate quits.
+/// A folder only this user can read (0700 on Linux). Not deleted on drop: the caller removes it
+/// (on Windows the installer script does, after the setup has run).
 fn private_dir() -> Result<PathBuf, String> {
     tempfile::Builder::new()
         .prefix("shotate-update-")
         .tempdir()
         .map(|d| d.keep())
         .map_err(|e| e.to_string())
-}
-
-fn has_pkexec() -> bool {
-    Command::new("pkexec")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
 }
 
 #[cfg(unix)]
@@ -491,25 +506,50 @@ fn relaunch_after_exit(exe: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// The PowerShell that runs the setup silently, then starts the new Shotate.
+/// The name the Windows setup is saved under, whatever the manifest calls it.
+const WINDOWS_SETUP_NAME: &str = "Shotate-setup.exe";
+
+/// The PowerShell that runs the setup silently, deletes its folder, then starts the new Shotate.
+/// It is constant: paths reach it only through environment variables, never as script text.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn windows_script(setup: &Path, exe: &Path) -> String {
-    let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "''"));
-    format!(
-        "Start-Process -Wait {} '/S'; Start-Process {}",
-        quote(setup),
-        quote(exe)
+const WINDOWS_SCRIPT: &str = "try { Start-Process -Wait -FilePath $env:SHOTATE_SETUP -ArgumentList '/S' } \
+     finally { Remove-Item -LiteralPath $env:SHOTATE_UPDATE_DIR -Recurse -Force -ErrorAction SilentlyContinue }; \
+     Start-Process -FilePath $env:SHOTATE_EXE";
+
+/// %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe
+fn windows_powershell() -> Option<PathBuf> {
+    let root = std::env::var_os("SystemRoot").filter(|r| !r.is_empty())?;
+    Some(
+        PathBuf::from(root)
+            .join("System32")
+            .join("WindowsPowerShell")
+            .join("v1.0")
+            .join("powershell.exe"),
     )
 }
 
 #[cfg(windows)]
-fn spawn_windows_setup(setup: &Path, exe: &Path) -> Result<(), String> {
+fn spawn_windows_setup(
+    powershell: &Path,
+    dir: &Path,
+    setup: &Path,
+    exe: &Path,
+) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    Command::new("powershell")
-        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command"])
-        .arg(windows_script(setup, exe))
+    Command::new(powershell)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            WINDOWS_SCRIPT,
+        ])
+        .env("SHOTATE_SETUP", setup)
+        .env("SHOTATE_UPDATE_DIR", dir)
+        .env("SHOTATE_EXE", exe)
         .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
         .spawn()
         .map(|_| ())
@@ -517,7 +557,7 @@ fn spawn_windows_setup(setup: &Path, exe: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn spawn_windows_setup(_: &Path, _: &Path) -> Result<(), String> {
+fn spawn_windows_setup(_: &Path, _: &Path, _: &Path, _: &Path) -> Result<(), String> {
     Err("the Windows installer only runs on Windows".into())
 }
 
@@ -621,6 +661,32 @@ mod tests {
         // Already on that exact commit: nothing to switch to.
         let same = manifest("0.12.0", "aaa", "stable", D1);
         assert_eq!(offer(&local, &same, "stable"), None);
+        // A nightly build when stable 0.13.0 is published.
+        let local = build("0.12.1+nightly.202610110617", "abc", "nightly", D2);
+        let published = manifest("0.13.0", "def", "stable", D2);
+        assert_eq!(
+            offer(&local, &published, "stable"),
+            Some(Offer::SwitchToStable)
+        );
+    }
+
+    #[test]
+    fn an_unknown_local_commit_never_matches() {
+        let local = build("0.12.0", "unknown", "stable", D1);
+        let remote = manifest("0.12.1", "unknown", "stable", D2);
+        assert_eq!(offer(&local, &remote, "stable"), Some(Offer::Update));
+        let local = build("0.12.0", "", "stable", D1);
+        let remote = manifest("0.12.1", "", "stable", D2);
+        assert_eq!(offer(&local, &remote, "stable"), Some(Offer::Update));
+    }
+
+    #[test]
+    fn nightly_without_a_local_date_never_offers() {
+        let local = build("0.12.1", "aaa", "nightly", "");
+        assert_eq!(
+            offer(&local, &manifest("x", "bbb", "nightly", D2), "nightly"),
+            None
+        );
     }
 
     #[test]
@@ -731,14 +797,15 @@ mod tests {
     }
 
     #[test]
-    fn package_commands_allow_downgrades() {
+    fn package_commands_reinstall_and_allow_downgrades() {
         let f = Path::new("/tmp/shotate-update-x/Shotate_0.12.0_amd64.deb");
         assert_eq!(
             package_command(&Route::Deb, f),
             [
-                "apt-get",
+                "/usr/bin/apt-get",
                 "install",
                 "-y",
+                "--reinstall",
                 "--allow-downgrades",
                 "/tmp/shotate-update-x/Shotate_0.12.0_amd64.deb"
             ]
@@ -747,7 +814,7 @@ mod tests {
         assert_eq!(
             package_command(&Route::Rpm, r),
             [
-                "rpm",
+                "/usr/bin/rpm",
                 "-U",
                 "--oldpackage",
                 "--replacepkgs",
@@ -757,15 +824,18 @@ mod tests {
     }
 
     #[test]
-    fn windows_script_quotes_paths() {
-        let s = windows_script(
-            Path::new(r"C:\Users\O'Neil\AppData\Local\Temp\setup.exe"),
-            Path::new(r"C:\Users\O'Neil\AppData\Local\Shotate\shotate.exe"),
-        );
-        assert_eq!(
-            s,
-            r"Start-Process -Wait 'C:\Users\O''Neil\AppData\Local\Temp\setup.exe' '/S'; Start-Process 'C:\Users\O''Neil\AppData\Local\Shotate\shotate.exe'"
-        );
+    fn the_windows_script_is_constant() {
+        // Paths travel in environment variables; the script text never contains one.
+        assert!(!WINDOWS_SCRIPT.contains(":\\"));
+        for var in [
+            "$env:SHOTATE_SETUP",
+            "$env:SHOTATE_UPDATE_DIR",
+            "$env:SHOTATE_EXE",
+        ] {
+            assert!(WINDOWS_SCRIPT.contains(var), "{var}");
+        }
+        assert!(WINDOWS_SCRIPT.contains("Remove-Item -LiteralPath $env:SHOTATE_UPDATE_DIR"));
+        assert_eq!(WINDOWS_SETUP_NAME, "Shotate-setup.exe");
     }
 
     #[test]

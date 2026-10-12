@@ -81,7 +81,8 @@ export async function startSettings(root: HTMLElement) {
           <div class="card">
             ${row("save", "Save screenshots to", esc(config.saveFolder),
                   `<select id="folder" aria-label="Save screenshots to">${folders}
-                     <option value="other"${choice === "other" ? " selected" : ""}>Other folder…</option></select>`)}
+                     ${choice === "other" ? `<option value="current" selected>${esc(config.saveFolder)}</option>` : ""}
+                     <option value="other">Other folder…</option></select>`)}
             ${row("path", "Copy every capture to the clipboard", "Paste it anywhere the moment you take it.",
                   toggle("copy", config.copyOnCapture, "Copy every capture to the clipboard"))}
           </div>
@@ -203,11 +204,14 @@ export async function startSettings(root: HTMLElement) {
   const wire = () => {
     const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel);
     $<HTMLSelectElement>("#folder")?.addEventListener("change", async (e) => {
+      // "current" is the custom folder already in use; "other" always opens the picker, even when a
+      // custom folder is set, because it is a separate option from that folder.
       const id = (e.target as HTMLSelectElement).value;
+      if (id === "current") return;
       const preset = presets.find((f) => f.id === id);
       const folder = preset ? preset.path : await api.pickFolder();
       if (folder) await save((c) => { c.saveFolder = folder; });
-      await render();  // a cancelled picker puts the select back
+      await render();  // a cancelled picker puts the select back on the folder in use
     });
     $<HTMLSelectElement>("#channel")?.addEventListener("change", async (e) => {
       const channel = (e.target as HTMLSelectElement).value as Config["updateChannel"];

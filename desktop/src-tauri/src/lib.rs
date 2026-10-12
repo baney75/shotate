@@ -41,6 +41,8 @@ struct State {
     bindings: Mutex<Vec<(Shortcut, String)>>,
     tray: Mutex<Option<TrayIcon>>,
     updates: Mutex<UpdateState>,
+    /// Held for the length of one update check, so checks never overlap.
+    check_turn: Mutex<()>,
     _watcher: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
@@ -837,42 +839,62 @@ fn update_changed(app: &AppHandle) {
     let _ = app.emit("update-status", ());
 }
 
-/// One check of the selected channel. Manual checks record their errors; automatic ones don't.
-fn run_check(app: &AppHandle, manual: bool) {
-    {
-        let state = app.state::<State>();
-        let mut u = state.updates.lock().unwrap();
-        if u.checking {
-            return;
+/// One check of the selected channel. Checks run one at a time: an automatic check skips when one
+/// is in flight; a manual one waits its turn, then fetches afresh, so it always reports a real
+/// result. A result for a channel the user has since left is thrown away (a manual check then
+/// fetches the new channel). Returns the manual check's outcome; automatic failures stay silent.
+fn run_check(app: &AppHandle, manual: bool) -> Result<(), String> {
+    let state = app.state::<State>();
+    let _turn = if manual {
+        state.check_turn.lock().unwrap()
+    } else {
+        match state.check_turn.try_lock() {
+            Ok(turn) => turn,
+            Err(_) => return Ok(()),
         }
+    };
+    {
+        let mut u = state.updates.lock().unwrap();
         u.checking = true;
         if manual {
             u.error = None;
         }
     }
     update_changed(app);
-    let channel = update_channel(app);
-    let result = updates::fetch_manifest(&channel);
-    {
-        let state = app.state::<State>();
+    let outcome = loop {
+        let channel = update_channel(app);
+        let result = updates::fetch_manifest(&channel);
+        if update_channel(app) != channel {
+            if manual {
+                continue;
+            }
+            break Ok(());
+        }
         let mut u = state.updates.lock().unwrap();
-        u.checking = false;
         match result {
             Ok(m) => {
                 u.checked_at = Some(chrono::Utc::now().timestamp_millis());
                 u.error = None;
                 u.available =
                     updates::offer(&updates::Build::current(), &m, &channel).map(|o| (m, o));
+                break Ok(());
             }
             Err(e) => {
                 eprintln!("Shotate: update check failed: {e}");
                 if manual {
-                    u.error = Some(e);
+                    u.error = Some(e.clone());
                 }
+                break Err(e);
             }
         }
-    }
+    };
+    state.updates.lock().unwrap().checking = false;
     update_changed(app);
+    if manual {
+        outcome
+    } else {
+        Ok(())
+    }
 }
 
 /// Checks on launch (after a short wait) and every 24 hours, only while checkForUpdates is on.
@@ -891,7 +913,7 @@ fn schedule_checks(app: &AppHandle) {
             let last = app.state::<State>().updates.lock().unwrap().checked_at;
             let due = last.is_none_or(|t| chrono::Utc::now().timestamp_millis() - t >= DAY_MS);
             if enabled && due {
-                run_check(&app, false);
+                let _ = run_check(&app, false);
             }
             std::thread::sleep(std::time::Duration::from_secs(60 * 60));
         }
@@ -965,15 +987,19 @@ fn prompt_update(app: &AppHandle) {
 fn check_from_tray(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
-        run_check(&app, true);
-        let (found, err) = {
-            let state = app.state::<State>();
-            let u = state.updates.lock().unwrap();
-            (u.available.is_some(), u.error.clone())
-        };
-        if let Some(e) = err {
+        // Waits for any check already in flight, then reports this check's own result.
+        if let Err(e) = run_check(&app, true) {
             error(&app, "Shotate couldn't check for updates", &e);
-        } else if found {
+            return;
+        }
+        let found = app
+            .state::<State>()
+            .updates
+            .lock()
+            .unwrap()
+            .available
+            .is_some();
+        if found {
             prompt_update(&app);
         } else {
             let b = updates::Build::current();
