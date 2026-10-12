@@ -1,7 +1,7 @@
 import AppKit
-import SnapmarkCore
+import ShotateCore
 
-// `Snapmark --selftest in.png out.png` draws one of every mark and writes the result (used by CI).
+// `Shotate --selftest in.png out.png` draws one of every mark and writes the result (used by CI).
 let args = CommandLine.arguments
 if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
     guard let image = Renderer.loadImage(at: URL(fileURLWithPath: args[i + 1])) else { exit(2) }

@@ -1,5 +1,5 @@
-//! The config file, shared in format with the macOS app. Linux: ~/.config/snapmark/config.json.
-//! Windows: %APPDATA%\snapmark\config.json. People and agents edit it directly; Snapmark reloads
+//! The config file, shared in format with the macOS app. Linux: ~/.config/shotate/config.json.
+//! Windows: %APPDATA%\shotate\config.json. People and agents edit it directly; Shotate reloads
 //! it when it changes. Missing keys keep their defaults, unknown keys are ignored, and a file with
 //! a JSON error is reported and never overwritten.
 
@@ -64,10 +64,25 @@ pub fn expand(path: &str) -> PathBuf {
 }
 
 pub fn path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
-        .join("snapmark")
-        .join("config.json")
+    config_root().join("shotate").join("config.json")
+}
+
+/// Where the app kept its config when it was called Snapmark.
+pub fn legacy_path() -> PathBuf {
+    config_root().join("snapmark").join("config.json")
+}
+
+fn config_root() -> PathBuf {
+    dirs::config_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
+}
+
+/// Copies the Snapmark-era config into place the first time Shotate runs, so shortcuts and folders
+/// carry over. The old file is left where it was. Returns true when it copied.
+pub fn adopt_legacy(old: &Path, new: &Path) -> bool {
+    if new.exists() || !old.exists() {
+        return false;
+    }
+    new.parent().map_or(Ok(()), std::fs::create_dir_all).is_ok() && std::fs::copy(old, new).is_ok()
 }
 
 /// Reads the file. `Ok(None)` when there is no file yet; `Err` when its JSON is broken.
@@ -106,8 +121,8 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
 
 pub fn save(path: &Path, c: &Config) -> Result<(), String> {
     let mut value = serde_json::to_value(c).map_err(|e| e.to_string())?;
-    value["_help"] = "Snapmark settings. Edit and save; Snapmark reloads right away. \
-                      Docs: https://github.com/baney75/snapmark#configuration"
+    value["_help"] = "Shotate settings. Edit and save; Shotate reloads right away. \
+                      Docs: https://github.com/baney75/shotate#configuration"
         .into();
     let text = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
     if let Some(dir) = path.parent() {
@@ -148,10 +163,10 @@ impl Config {
         expand(&self.save_folder)
     }
 
-    /// "Snapmark 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
+    /// "Shotate 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
     pub fn new_capture_path(&self) -> PathBuf {
         let base = format!(
-            "Snapmark {}",
+            "Shotate {}",
             chrono::Local::now().format("%Y-%m-%d at %H.%M.%S")
         );
         unique(&self.save_dir(), &base)
@@ -263,7 +278,7 @@ mod tests {
 
     #[test]
     fn partial_files_keep_defaults_and_round_trip() {
-        let dir = std::env::temp_dir().join(format!("snapmark-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("shotate-test-{}", std::process::id()));
         let file = dir.join("config.json");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(&file, r#"{"shortcuts": {"captureScreen": "CTRL+SHIFT+9", "captureWindow": "nonsense"}, "extra": 1}"#).unwrap();
@@ -284,8 +299,23 @@ mod tests {
     }
 
     #[test]
+    fn adopts_the_snapmark_config_once() {
+        let dir = std::env::temp_dir().join(format!("shotate-adopt-{}", std::process::id()));
+        let (old, new) = (dir.join("snapmark/config.json"), dir.join("shotate/config.json"));
+        assert!(!adopt_legacy(&old, &new), "nothing to adopt");
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, r#"{"copyOnCapture": false}"#).unwrap();
+        assert!(adopt_legacy(&old, &new));
+        assert!(!load(&new).unwrap().unwrap().copy_on_capture);
+        std::fs::write(&new, "{}").unwrap();
+        assert!(!adopt_legacy(&old, &new), "an existing Shotate config wins");
+        assert!(old.exists(), "the old file stays");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn opened_images_are_never_overwritten() {
-        let dir = std::env::temp_dir().join(format!("snapmark-out-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("shotate-out-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let shot = dir.join("shot.png");
         assert_eq!(output_path(&shot, true), shot);

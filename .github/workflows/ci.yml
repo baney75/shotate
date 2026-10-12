@@ -17,10 +17,10 @@ jobs:
       - name: Build the app (universal)
         run: scripts/bundle.sh
         env:
-          SNAPMARK_ADHOC: 1
+          SHOTATE_ADHOC: 1
       - name: Render self-test
         run: |
-          build/Snapmark.app/Contents/MacOS/Snapmark --selftest Tests/Fixtures/sample.png build/selftest.png
+          build/Shotate.app/Contents/MacOS/Shotate --selftest Tests/Fixtures/sample.png build/selftest.png
           test -s build/selftest.png
       - name: Check shell scripts
         run: bash -n ../install.sh ../uninstall.sh scripts/bundle.sh scripts/signing-identity.sh
@@ -61,7 +61,7 @@ jobs:
         run: npx tauri build
       - uses: actions/upload-artifact@v4
         with:
-          name: snapmark-${{ runner.os }}-${{ runner.arch }}
+          name: shotate-${{ runner.os }}-${{ runner.arch }}
           path: |
             desktop/src-tauri/target/release/bundle/nsis/*.exe
             desktop/src-tauri/target/release/bundle/msi/*.msi

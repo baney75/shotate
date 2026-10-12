@@ -1,6 +1,6 @@
 import Foundation
 
-/// Everything a user can configure. It lives in a plain JSON file, ~/.config/snapmark/config.json,
+/// Everything a user can configure. It lives in a plain JSON file, ~/.config/shotate/config.json,
 /// so people and agents can edit it directly; the app reloads it as soon as it changes, and the
 /// Settings window writes the same file.
 public struct Settings: Equatable {
@@ -20,7 +20,24 @@ public struct Settings: Equatable {
     public static let defaultShortcut = "cmd+shift+s"
     public static let actions = ["captureArea", "captureWindow", "captureScreen"]
     public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "", "captureScreen": ""]
-    public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/snapmark/config.json")
+    public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/shotate/config.json")
+    /// Where the app kept its config when it was called Snapmark.
+    public static let legacyConfigURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/snapmark/config.json")
+
+    /// Copies the Snapmark-era config into place the first time Shotate runs, so shortcuts and
+    /// folders carry over. The old file is left where it was. Returns true when it copied.
+    @discardableResult
+    public static func adoptLegacyConfig(from old: URL = legacyConfigURL, to new: URL = configURL) -> Bool {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: new.path), fm.fileExists(atPath: old.path) else { return false }
+        do {
+            try fm.createDirectory(at: new.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.copyItem(at: old, to: new)
+            return true
+        } catch {
+            return false
+        }
+    }
 
     public init(saveFolder: URL = Settings.defaultFolder, copyOnCapture: Bool = true, showMenuBarIcon: Bool = true,
                 shortcuts: [String: String] = Settings.defaultShortcuts, commandHotkeys: [String: String] = [:],
@@ -96,15 +113,15 @@ public struct Settings: Equatable {
         return s
     }
 
-    /// The file as Snapmark writes it: every setting spelled out, with a pointer to the docs.
+    /// The file as Shotate writes it: every setting spelled out, with a pointer to the docs.
     public func json() -> Data {
         let home = NSHomeDirectory()
         let folder = saveFolder.path.hasPrefix(home + "/") ? "~" + saveFolder.path.dropFirst(home.count) : saveFolder.path
         var tools: [String: String] = [:]
         for (t, k) in resolvedToolKeys { tools[t.title.lowercased()] = k }
         let o: [String: Any] = [
-            "_help": "Snapmark settings. Edit and save; Snapmark reloads right away. "
-                + "Docs: https://github.com/baney75/snapmark#configuration",
+            "_help": "Shotate settings. Edit and save; Shotate reloads right away. "
+                + "Docs: https://github.com/baney75/shotate#configuration",
             "saveFolder": folder,
             "copyOnCapture": copyOnCapture,
             "showMenuBarIcon": showMenuBarIcon,
@@ -137,12 +154,12 @@ public struct Settings: Equatable {
         return s
     }
 
-    /// "Snapmark 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
+    /// "Shotate 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
     public func newCaptureURL(date: Date = Date()) -> URL {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let base = "Snapmark \(f.string(from: date))"
+        let base = "Shotate \(f.string(from: date))"
         var url = saveFolder.appendingPathComponent(base + ".png")
         var n = 2
         while FileManager.default.fileExists(atPath: url.path) {

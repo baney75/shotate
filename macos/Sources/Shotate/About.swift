@@ -1,12 +1,12 @@
 import AppKit
 
-/// Who made Snapmark and where to find them. One place, used by the About panel, Settings and Welcome.
+/// Who made Shotate and where to find them. One place, used by the About panel, Settings and Welcome.
 enum Credits {
     static let author = "Donovan Baney"
     static let handle = "@baney75"
     static let links: [(String, String)] = [
         ("dbaney.com", "https://dbaney.com"),
-        ("GitHub", "https://github.com/baney75/snapmark"),
+        ("GitHub", "https://github.com/baney75/shotate"),
         ("X \(handle)", "https://x.com/baney75"),
     ]
 

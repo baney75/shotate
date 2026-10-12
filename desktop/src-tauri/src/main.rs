@@ -4,7 +4,7 @@
 fn main() {
     #[cfg(target_os = "linux")]
     webkit_safe_rendering();
-    snapmark_lib::run()
+    shotate_lib::run()
 }
 
 /// WebKitGTK aborts at startup when the system has no OpenGL ES library (virtual machines, some

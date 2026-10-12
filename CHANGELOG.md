@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 (2026-10-11)
+
+### Changed
+- **Snapmark is now Shotate.** Many screenshot tools already share the old name. Shotate is
+  screenshot and annotate in one word. It has a new icon, the red marker loop you'd draw around the
+  thing that matters, and a new home at github.com/baney75/shotate (old links redirect).
+  Updating keeps everything: the macOS Screen Recording permission, your settings (copied from
+  `~/.config/snapmark` to `~/.config/shotate`), your shortcuts and your screenshots. The installers
+  remove the old Snapmark app, and `snapmark://` links still work on macOS. The command line is now
+  `shotate --capture`. On Windows and Linux, turn on Open at login again if you used it.
 
 ### Added
 - **Wrapping text.** Drag with the Text tool to set the width a label wraps at; drag a label's side
@@ -18,7 +27,7 @@
   click. The typing field looks like the finished label and grows as you type, instead of a bar
   across the whole window. Drag a label (with Text or Select) to move it, click it to edit, and drag
   its corner handle to scale it to any size. The size buttons still set the presets.
-- **Captures land instantly on macOS.** Snapmark now captures with ScreenCaptureKit and its own
+- **Captures land instantly on macOS.** Shotate now captures with ScreenCaptureKit and its own
   area picker instead of macOS's screencapture tool, which took 0.4 to 3 seconds to write each
   capture. Area capture freezes the screen when you press the shortcut, so the editor opens as soon
   as you let go of the mouse. Drag for an area, press Space to switch to picking a window, and Esc or

@@ -1,8 +1,8 @@
 import AppKit
-import SnapmarkCore
+import ShotateCore
 
 /// Click, then press a key combination: the standard macOS way to set a shortcut. Delete clears it,
-/// Esc cancels. The value is Snapmark's text form ("cmd+shift+s"), so it round-trips through the
+/// Esc cancels. The value is Shotate's text form ("cmd+shift+s"), so it round-trips through the
 /// config file unchanged.
 final class ShortcutRecorder: NSView {
     var value: String { didSet { update() } }

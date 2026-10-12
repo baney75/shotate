@@ -1,20 +1,20 @@
 import AppKit
 import CoreGraphics
-import SnapmarkCore
+import ShotateCore
 
 /// Screen Recording permission. A running app may not see a change until it relaunches.
 ///
 /// macOS stores a grant together with the code signature of the build that asked. If that signature
-/// changes (older Snapmark builds were signed ad hoc, so every build had a new one), the switch in
+/// changes (older Shotate builds were signed ad hoc, so every build had a new one), the switch in
 /// System Settings can show "on" while macOS still refuses this build, and flipping it doesn't help.
-/// `request()` therefore clears Snapmark's own entry before asking, so macOS records this build.
+/// `request()` therefore clears Shotate's own entry before asking, so macOS records this build.
 enum ScreenRecording {
     static var isGranted: Bool { CGPreflightScreenCaptureAccess() }
 
     static let askedKey = "askedScreenRecording"
     static var hasAsked: Bool { UserDefaults.standard.bool(forKey: askedKey) }
 
-    /// Shows the system prompt, which also adds Snapmark to the list in System Settings.
+    /// Shows the system prompt, which also adds Shotate to the list in System Settings.
     ///
     /// The stale-entry reset runs at most once per installed build. A second click must never wipe a
     /// grant the user just made in System Settings, which this process can't see until it relaunches.
@@ -41,7 +41,7 @@ enum ScreenRecording {
         return "\(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "")-\(date?.timeIntervalSince1970 ?? 0)"
     }
 
-    /// Removes only Snapmark's Screen Recording entry (never another app's), so macOS asks again.
+    /// Removes only Shotate's Screen Recording entry (never another app's), so macOS asks again.
     @discardableResult
     static func resetOwnEntry() -> Bool {
         let p = Process()
@@ -59,7 +59,7 @@ enum ScreenRecording {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
     }
 
-    /// Quits and reopens Snapmark so it picks up a permission granted in System Settings.
+    /// Quits and reopens Shotate so it picks up a permission granted in System Settings.
     /// macOS ends an app's helper processes with it, so a helper can't do the reopening. Instead
     /// LaunchServices starts a second copy, which waits for this one to exit (see main.swift) and
     /// then opens the welcome window so the user sees the result.
@@ -75,7 +75,7 @@ enum ScreenRecording {
             guard let error else { return }
             DispatchQueue.main.async {
                 failed = true
-                Alerts.show("Snapmark couldn't relaunch itself", "Quit it from the menu bar and open it again.\n\n"
+                Alerts.show("Shotate couldn't relaunch itself", "Quit it from the menu bar and open it again.\n\n"
                             + error.localizedDescription)
             }
         }
@@ -103,7 +103,7 @@ enum Alerts {
     }
 }
 
-/// First launch and missing permission: one window that gets Snapmark ready to use.
+/// First launch and missing permission: one window that gets Shotate ready to use.
 final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private weak var app: AppDelegate?
     private let statusLabel = NSTextField(labelWithString: "")
@@ -112,7 +112,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let relaunchButton = NSButton(title: "Relaunch", target: nil, action: nil)
     private let settingsLink = NSButton(title: "Open System Settings", target: nil, action: nil)
     private let shortcutLabel = NSTextField(labelWithString: "")
-    private let loginBox = NSButton(checkboxWithTitle: "Open Snapmark when I log in", target: nil, action: nil)
+    private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
     private let primary = NSButton(title: "Try a Capture", target: nil, action: nil)
     private var timer: Timer?
     private var openedSettings = false
@@ -126,7 +126,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.collectionBehavior.insert(.moveToActiveSpace)  // open on the Space the user is looking at
-        window.title = "Welcome to Snapmark"
+        window.title = "Welcome to Shotate"
         super.init(window: window)
         window.delegate = self
         build()
@@ -149,7 +149,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let icon = NSImageView(image: NSApp.applicationIconImage ?? NSImage())
         icon.widthAnchor.constraint(equalToConstant: 72).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 72).isActive = true
-        let title = NSTextField(labelWithString: "Welcome to Snapmark")
+        let title = NSTextField(labelWithString: "Welcome to Shotate")
         title.font = .systemFont(ofSize: 22, weight: .bold)
         let subtitle = NSTextField(labelWithString: "Capture, mark up, and paste in a few seconds.")
         subtitle.textColor = .secondaryLabelColor
@@ -262,9 +262,9 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         relaunchButton.isHidden = granted || !openedSettings
         relaunchButton.bezelColor = .controlAccentColor
         settingsLink.isHidden = granted || !openedSettings
-        statusLabel.stringValue = granted ? "Allowed. Snapmark can capture your screen."
-            : openedSettings ? "Turn Snapmark on when macOS asks (or in System Settings), then click Relaunch."
-            : "Needed to capture your screen. Snapmark never sends it anywhere."
+        statusLabel.stringValue = granted ? "Allowed. Shotate can capture your screen."
+            : openedSettings ? "Turn Shotate on when macOS asks (or in System Settings), then click Relaunch."
+            : "Needed to capture your screen. Shotate never sends it anywhere."
         let s = app?.settings
         if let keys = s?.captureShortcut?.displayString {
             shortcutLabel.stringValue = "Press \(keys) and drag. Space switches to a whole window."

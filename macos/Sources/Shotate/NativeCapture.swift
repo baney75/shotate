@@ -1,8 +1,8 @@
 import AppKit
 import ScreenCaptureKit
-import SnapmarkCore
+import ShotateCore
 
-/// Snapmark's own capture. On recent macOS the screencapture tool takes 0.4–3 s to write even a small
+/// Shotate's own capture. On recent macOS the screencapture tool takes 0.4–3 s to write even a small
 /// region, while ScreenCaptureKit returns a screen in milliseconds. Area and window capture freeze
 /// every screen when the shortcut is pressed, so letting go of the mouse only crops.
 @available(macOS 14.0, *)
@@ -56,14 +56,14 @@ enum NativeCapture {
                                 let (image, scale) = try await capture(w.window)
                                 completion(.image(image, dpi: 72 * scale))
                             } catch {
-                                NSLog("Snapmark: window capture: %@", error.localizedDescription)
+                                NSLog("Shotate: window capture: %@", error.localizedDescription)
                                 completion(.cancelled)
                             }
                         }
                     }
                 }
             } catch {
-                NSLog("Snapmark: ScreenCaptureKit: %@", error.localizedDescription)
+                NSLog("Shotate: ScreenCaptureKit: %@", error.localizedDescription)
                 completion(.failed)
             }
         }
@@ -160,7 +160,7 @@ final class Picker {
         current = p
         p.screens = shots.map(\.0)
         p.overlays = shots.map { PickerWindow(screen: $0.0, image: $0.1, picker: p) }
-        // The overlays take keys without activating Snapmark, so the app being captured keeps its
+        // The overlays take keys without activating Shotate, so the app being captured keeps its
         // active look and its focus comes back on Esc.
         let mouse = NSEvent.mouseLocation
         for w in p.overlays { w.orderFrontRegardless() }

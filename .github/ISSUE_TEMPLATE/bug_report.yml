@@ -19,11 +19,11 @@ body:
   - type: input
     id: version
     attributes:
-      label: Snapmark version
-      description: Menu bar icon › Settings, or About Snapmark.
+      label: Shotate version
+      description: Menu bar icon › Settings, or About Shotate.
   - type: textarea
     id: logs
     attributes:
       label: Logs (optional)
-      description: "On macOS: /usr/bin/log show --last 10m --predicate 'process == \"Snapmark\"' --style compact. On Windows or Linux, run snapmark from a terminal and paste what it prints."
+      description: "On macOS: /usr/bin/log show --last 10m --predicate 'process == \"Shotate\"' --style compact. On Windows or Linux, run shotate from a terminal and paste what it prints."
       render: text

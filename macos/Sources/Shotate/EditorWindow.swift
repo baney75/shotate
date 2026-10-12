@@ -1,13 +1,13 @@
 import AppKit
-import SnapmarkCore
+import ShotateCore
 
 /// One screenshot's editor. A capture is already on disk and on the clipboard before this opens.
-/// Edits are written back into Snapmark's own captures; an image opened from elsewhere is never
+/// Edits are written back into Shotate's own captures; an image opened from elsewhere is never
 /// overwritten, its edits go to a "… (edited).png" copy next to it.
 final class EditorWindowController: NSWindowController, NSWindowDelegate {
     let doc: Document
     let fileURL: URL
-    /// True for Snapmark's own captures, false for images opened from Finder or the Open panel.
+    /// True for Shotate's own captures, false for images opened from Finder or the Open panel.
     let ownsFile: Bool
     let canvas: CanvasView
     var onClose: ((EditorWindowController) -> Void)?
@@ -313,7 +313,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         canvas.commitText()
         guard doc.revision != savedRevision else { return savedCopy ?? fileURL }
         guard let image = flattened() else {
-            Alerts.show("Snapmark couldn't render this image", "Your edits are still open. Try Save a Copy (⌘S).",
+            Alerts.show("Shotate couldn't render this image", "Your edits are still open. Try Save a Copy (⌘S).",
                         in: window)
             return nil
         }
@@ -327,7 +327,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
                 try Output.write(image, to: fallback, dpi: doc.dpi)
                 url = fallback
             } catch {
-                Alerts.show("Snapmark couldn't save this image", error: error, in: window)
+                Alerts.show("Shotate couldn't save this image", error: error, in: window)
                 return nil
             }
         }
@@ -343,7 +343,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         finished = true
         if copyImage, !copy(savedAt: url) {
             finished = false
-            Alerts.show("Snapmark couldn't copy the image", "It is saved at \(url.path).", in: window)
+            Alerts.show("Shotate couldn't copy the image", "It is saved at \(url.path).", in: window)
             return
         }
         if copyPath { Output.copyPath(url) }
@@ -351,7 +351,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Copies the image `saveEdits` just saved at `url` without rendering and encoding it again: an
-    /// unedited capture copies the bytes it was captured with, and a PNG Snapmark saved copies that
+    /// unedited capture copies the bytes it was captured with, and a PNG Shotate saved copies that
     /// file. An opened original may be another format, so it is rendered.
     private func copy(savedAt url: URL) -> Bool {
         if savedRevision == 0, let png = capturePNG { return Output.copy(png: png, fileURL: url) }
@@ -391,7 +391,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// ⌘⌫: a capture you didn't want goes to the Trash (recoverable). An opened image is never trashed;
-    /// only Snapmark's edited copy of it is.
+    /// only Shotate's edited copy of it is.
     func trashCapture() {
         canvas.commitText()
         guard let window else { return }
@@ -406,7 +406,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             guard let self, r == .alertFirstButtonReturn else { return }
             if let target {
                 do { try FileManager.default.trashItem(at: target, resultingItemURL: nil) } catch {
-                    Alerts.show("Snapmark couldn't move \(target.lastPathComponent) to the Trash", error: error, in: window)
+                    Alerts.show("Shotate couldn't move \(target.lastPathComponent) to the Trash", error: error, in: window)
                     return
                 }
             }
@@ -423,7 +423,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         panel.beginSheetModal(for: window) { [doc] r in
             guard r == .OK, let url = panel.url else { return }
             do { try Output.write(image, to: url, dpi: doc.dpi) } catch {
-                Alerts.show("Snapmark couldn't save \(url.lastPathComponent)", error: error, in: window)
+                Alerts.show("Shotate couldn't save \(url.lastPathComponent)", error: error, in: window)
             }
         }
     }

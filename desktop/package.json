@@ -1,8 +1,8 @@
 {
-  "name": "snapmark-desktop",
+  "name": "shotate-desktop",
   "private": true,
-  "version": "0.11.0",
-  "description": "Snapmark for Windows and Linux",
+  "version": "0.12.0",
+  "description": "Shotate for Windows and Linux",
   "type": "module",
   "scripts": {
     "dev": "vite",

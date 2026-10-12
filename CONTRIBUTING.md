@@ -1,6 +1,6 @@
-# Contributing to Snapmark
+# Contributing to Shotate
 
-Thanks for helping. Snapmark stays small on purpose: fast capture, the annotations people actually
+Thanks for helping. Shotate stays small on purpose: fast capture, the annotations people actually
 use, and nothing that phones home.
 
 ## Before you start
@@ -19,8 +19,8 @@ cd ../desktop && npm ci && npm test   # Windows/Linux editor tests
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-- On macOS, drawing, geometry and file handling belong in `macos/Sources/SnapmarkCore`, covered by
-  tests in `macos/Tests/SnapmarkCoreTests`; the AppKit layer stays thin. On Windows and Linux the
+- On macOS, drawing, geometry and file handling belong in `macos/Sources/ShotateCore`, covered by
+  tests in `macos/Tests/ShotateCoreTests`; the AppKit layer stays thin. On Windows and Linux the
   same model lives in `desktop/src/core`, with tests beside it, and Rust (`desktop/src-tauri`) owns
   capture, files, the clipboard, shortcuts and the config file.
 - A behavior change lands on both apps, or the PR says why it is platform-specific.

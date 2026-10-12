@@ -49,7 +49,7 @@ export async function startSettings(root: HTMLElement) {
     root.innerHTML = `
       <div class="shell">
         <nav class="nav" role="tablist" aria-label="Settings">
-          <div class="brand"><img src="/icon.png" alt="">Snapmark</div>
+          <div class="brand"><img src="/icon.png" alt="">Shotate</div>
           ${PANES.map(([id, t, ic]) => `<button class="tab" role="tab" data-pane="${id}" aria-selected="${id === pane}">${icon(ic)}${t}</button>`).join("")}
           <div class="grow"></div>
         </nav>
@@ -72,10 +72,10 @@ export async function startSettings(root: HTMLElement) {
                   toggle("copy", config.copyOnCapture, "Copy every capture to the clipboard"))}
           </div>
           <div class="card">
-            ${row("capture", "Show Snapmark in the system tray", "The tray menu has every capture mode, Open Image and Settings.",
-                  toggle("tray", config.showMenuBarIcon, "Show Snapmark in the system tray"))}
-            ${row("check", "Open Snapmark when I log in", "So the capture shortcut always works.",
-                  toggle("login", login, "Open Snapmark when I log in"))}
+            ${row("capture", "Show Shotate in the system tray", "The tray menu has every capture mode, Open Image and Settings.",
+                  toggle("tray", config.showMenuBarIcon, "Show Shotate in the system tray"))}
+            ${row("check", "Open Shotate when I log in", "So the capture shortcut always works.",
+                  toggle("login", login, "Open Shotate when I log in"))}
           </div>
           <p class="note">Captures are saved and copied the moment you take them. Opened images are never overwritten; edits go to a copy beside them.</p>
           ${credits()}`;
@@ -93,7 +93,7 @@ export async function startSettings(root: HTMLElement) {
           </div>
           <p class="note">Click a shortcut, then press the keys. These work from any app.${
             document.documentElement.dataset.platform === "linux-wayland"
-              ? " On Wayland your desktop owns global shortcuts: add one in its keyboard settings that runs <code>snapmark --capture</code>." : ""}</p>
+              ? " On Wayland your desktop owns global shortcuts: add one in its keyboard settings that runs <code>shotate --capture</code>." : ""}</p>
           <div class="section">Editor tool keys</div>
           <div class="card keys">${TOOLS.map((t) => `<div class="key-row"><span>${icon(t.tool)}${t.title}</span>
             <input type="text" class="key" maxlength="1" data-tool="${t.title.toLowerCase()}" value="${keys[t.tool].toUpperCase()}" aria-label="${t.title} key"></div>`).join("")}</div>
@@ -108,12 +108,12 @@ export async function startSettings(root: HTMLElement) {
       default:
         return `
           <div class="card">
-            ${row("sliders", "Config file", "Every setting lives in one JSON file. Edit it yourself or let a script or AI agent change it; Snapmark applies changes the moment it's saved.",
+            ${row("sliders", "Config file", "Every setting lives in one JSON file. Edit it yourself or let a script or AI agent change it; Shotate applies changes the moment it's saved.",
                   `<button class="btn" id="open-config">Edit…</button>`)}
           </div>
           <div class="section">Command line</div>
           <div class="card">
-            ${row("terminal", "Capture and open from scripts", "<code>snapmark --capture</code> · <code>--capture-window</code> · <code>--capture-screen</code> · <code>--open FILE</code> · <code>--settings</code>", "")}
+            ${row("terminal", "Capture and open from scripts", "<code>shotate --capture</code> · <code>--capture-window</code> · <code>--capture-screen</code> · <code>--open FILE</code> · <code>--settings</code>", "")}
           </div>`;
     }
   };

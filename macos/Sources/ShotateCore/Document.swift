@@ -423,7 +423,7 @@ public enum Geometry {
         return hypot(dx, dy)
     }
 
-    /// Snapmark a drag end to 45-degree steps (Shift while drawing an arrow).
+    /// Shotate a drag end to 45-degree steps (Shift while drawing an arrow).
     public static func snap45(from a: CGPoint, to b: CGPoint) -> CGPoint {
         let angle = (atan2(b.y - a.y, b.x - a.x) / (.pi / 4)).rounded() * (.pi / 4)
         let len = hypot(b.x - a.x, b.y - a.y)
