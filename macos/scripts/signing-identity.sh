@@ -6,6 +6,8 @@
 # touches the login keychain and is not trusted for anything else.
 #   scripts/signing-identity.sh   ->  "Snapmark Local Signing<TAB>/path/to/snapmark-signing.keychain-db"
 # Passwords go through files and stdin, never command-line arguments, so `ps` can't show them.
+# The names say Snapmark, the app's name before 0.12: renaming them would make a new certificate,
+# and macOS would ask for Screen Recording again.
 set -euo pipefail
 NAME="Snapmark Local Signing"
 DIR="$HOME/Library/Application Support/Snapmark/Signing"

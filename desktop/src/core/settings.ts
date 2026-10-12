@@ -1,5 +1,5 @@
-// The config file format, shared with the macOS app: ~/.config/snapmark/config.json on Linux,
-// %APPDATA%\snapmark\config.json on Windows. The Rust side owns reading, writing and watching it;
+// The config file format, shared with the macOS app: ~/.config/shotate/config.json on Linux,
+// %APPDATA%\shotate\config.json on Windows. The Rust side owns reading, writing and watching it;
 // this module holds the parts the editor needs.
 import { TOOLS, type Tool } from "./model";
 

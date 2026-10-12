@@ -1,9 +1,9 @@
 import AppKit
-import SnapmarkCore
+import ShotateCore
 
-/// Snapmark Settings: a standard macOS settings window with a toolbar of panes. Every control
-/// applies at once and writes ~/.config/snapmark/config.json; edits to that file (by hand or by
-/// an agent) show up here as soon as Snapmark reloads it.
+/// Shotate Settings: a standard macOS settings window with a toolbar of panes. Every control
+/// applies at once and writes ~/.config/shotate/config.json; edits to that file (by hand or by
+/// an agent) show up here as soon as Shotate reloads it.
 final class SettingsWindowController: NSWindowController {
     private weak var app: AppDelegate?
     private let panes: [SettingsPane]
@@ -22,7 +22,7 @@ final class SettingsWindowController: NSWindowController {
         }
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
-        window.title = "Snapmark Settings"
+        window.title = "Shotate Settings"
         window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
         window.collectionBehavior.insert(.moveToActiveSpace)  // open on the Space the user is looking at
@@ -132,8 +132,8 @@ final class GeneralPane: SettingsPane {
     private let permissionButton = NSButton(title: "Set Up…", target: nil, action: nil)
     private let folder = NSPathControl()
     private let copyBox = NSButton(checkboxWithTitle: "Copy every capture to the clipboard", target: nil, action: nil)
-    private let menuBox = NSButton(checkboxWithTitle: "Show Snapmark in the menu bar", target: nil, action: nil)
-    private let loginBox = NSButton(checkboxWithTitle: "Open Snapmark when I log in", target: nil, action: nil)
+    private let menuBox = NSButton(checkboxWithTitle: "Show Shotate in the menu bar", target: nil, action: nil)
+    private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
 
     init(app: AppDelegate) { super.init(app: app, title: "General", symbol: "gearshape") }
     required init?(coder: NSCoder) { fatalError() }
@@ -177,7 +177,7 @@ final class GeneralPane: SettingsPane {
         permissionIcon.image = NSImage(systemSymbolName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
                                        accessibilityDescription: nil)
         permissionIcon.contentTintColor = granted ? .systemGreen : .systemOrange
-        permissionLabel.stringValue = granted ? "Allowed" : "Off: Snapmark can't capture yet"
+        permissionLabel.stringValue = granted ? "Allowed" : "Off: Shotate can't capture yet"
         permissionButton.isHidden = granted
         folder.url = s.saveFolder
         copyBox.state = s.copyOnCapture ? .on : .off
@@ -410,19 +410,19 @@ final class AdvancedPane: SettingsPane {
         let reload = NSButton(title: "Reload", target: self, action: #selector(reloadConfig))
         let buttons = NSStackView(views: [edit, reveal, reload])
 
-        let urls = NSTextField(labelWithString: "snapmark://capture    snapmark://capture/window    snapmark://capture/screen\n"
-                               + "snapmark://open?path=…    snapmark://settings    snapmark://config\n"
-                               + "snapmark://reload    snapmark://relaunch")
+        let urls = NSTextField(labelWithString: "shotate://capture    shotate://capture/window    shotate://capture/screen\n"
+                               + "shotate://open?path=…    shotate://settings    shotate://config\n"
+                               + "shotate://reload    shotate://relaunch")
         urls.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         urls.textColor = .secondaryLabelColor
         urls.isSelectable = true
 
         let permissions = NSButton(title: "Set Up Screen Recording…", target: self, action: #selector(welcome))
-        let relaunch = NSButton(title: "Relaunch Snapmark", target: self, action: #selector(relaunchApp))
+        let relaunch = NSButton(title: "Relaunch Shotate", target: self, action: #selector(relaunchApp))
         return [
             heading("Config file"),
             note("Every setting lives in one JSON file. Edit it yourself or let a script or AI agent change it; "
-                 + "Snapmark applies changes the moment the file is saved."),
+                 + "Shotate applies changes the moment the file is saved."),
             path, buttons,
             separator(),
             heading("Automation"),

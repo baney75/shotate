@@ -1,4 +1,4 @@
-//! Snapmark for Windows and Linux: a tray app that captures the screen, opens the annotation
+//! Shotate for Windows and Linux: a tray app that captures the screen, opens the annotation
 //! editor, and copies the result. The editor and settings UI live in the web view (../src); this
 //! side owns capture, files, the clipboard, global shortcuts, the tray and the config file.
 
@@ -31,7 +31,7 @@ struct Pending {
 #[derive(Default)]
 struct State {
     config: Mutex<Config>,
-    /// True while the config file has a JSON error; Snapmark then never writes it.
+    /// True while the config file has a JSON error; Shotate then never writes it.
     broken: Mutex<bool>,
     pending: Mutex<Option<Pending>>,
     /// Kept alive for the whole run: on Linux the clipboard empties when its owner goes away.
@@ -54,7 +54,7 @@ fn capture(app: &AppHandle, mode: &'static str) {
     // Off the main thread: grabbing a screen can take a moment, and on Wayland a portal may ask.
     std::thread::spawn(move || {
         if let Err(e) = capture_inner(&app, mode) {
-            error(&app, "Snapmark couldn't capture the screen", &e);
+            error(&app, "Shotate couldn't capture the screen", &e);
         }
     });
 }
@@ -119,7 +119,7 @@ fn capture_inner(app: &AppHandle, mode: &'static str) -> Result<(), String> {
             "overlay",
             WebviewUrl::App("index.html?view=overlay".into()),
         )
-        .title("Snapmark")
+        .title("Shotate")
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
@@ -135,7 +135,7 @@ fn capture_inner(app: &AppHandle, mode: &'static str) -> Result<(), String> {
             }
             Err(e) => error(
                 &handle,
-                "Snapmark couldn't show the capture overlay",
+                "Shotate couldn't show the capture overlay",
                 &e.to_string(),
             ),
         }
@@ -150,7 +150,7 @@ fn linux_tool_capture() -> Option<RgbaImage> {
         return None;
     }
     // A private (0700) folder, not a guessable name in shared /tmp.
-    let dir = tempfile::Builder::new().prefix("snapmark-").tempdir().ok()?;
+    let dir = tempfile::Builder::new().prefix("shotate-").tempdir().ok()?;
     let out = dir.path().join("screen.png");
     let o = out.to_string_lossy().into_owned();
     let tools: [(&str, Vec<&str>); 3] = [
@@ -159,7 +159,10 @@ fn linux_tool_capture() -> Option<RgbaImage> {
         ("spectacle", vec!["-b", "-n", "-f", "-o", o.as_str()]),
     ];
     for (tool, args) in tools {
-        let ok = std::process::Command::new(tool).args(&args).status().is_ok_and(|s| s.success());
+        let ok = std::process::Command::new(tool)
+            .args(&args)
+            .status()
+            .is_ok_and(|s| s.success());
         if ok {
             let image = image::open(&out).ok().map(|i| i.to_rgba8());
             let _ = std::fs::remove_file(&out);
@@ -174,7 +177,7 @@ fn linux_tool_capture() -> Option<RgbaImage> {
 fn wayland_hint(e: String) -> String {
     if platform() == "linux-wayland" {
         format!(
-            "{e}\n\nOn Wayland, Snapmark captures through your desktop's screenshot portal. \
+            "{e}\n\nOn Wayland, Shotate captures through your desktop's screenshot portal. \
                  Make sure xdg-desktop-portal and your desktop's portal backend are installed, \
                  or install grim (Sway, Hyprland) or gnome-screenshot."
         )
@@ -196,7 +199,7 @@ fn finish(app: &AppHandle, image: RgbaImage) -> Result<(), String> {
         if let Err(e) = copy_rgba(app, &image) {
             error(
                 app,
-                "Snapmark couldn't copy the capture",
+                "Shotate couldn't copy the capture",
                 &format!("It is saved at {}.\n\n{e}", path.display()),
             );
         }
@@ -386,7 +389,13 @@ async fn save_dialog(app: AppHandle, name: String) -> Option<String> {
 #[tauri::command]
 async fn pick_folder(app: AppHandle) -> Option<String> {
     let start = app.state::<State>().config.lock().unwrap().save_dir();
-    let picked = app.dialog().file().set_directory(start).blocking_pick_folder()?.into_path().ok()?;
+    let picked = app
+        .dialog()
+        .file()
+        .set_directory(start)
+        .blocking_pick_folder()?
+        .into_path()
+        .ok()?;
     let home = dirs::home_dir().unwrap_or_default();
     Some(match picked.strip_prefix(&home) {
         Ok(rest) => format!("~/{}", rest.to_string_lossy().replace('\\', "/")),
@@ -407,7 +416,7 @@ fn set_config(app: AppHandle, config: Config) -> Result<(), String> {
     c.normalize();
     if *app.state::<State>().broken.lock().unwrap() {
         return Err(format!(
-            "{} has an error, so Snapmark won't overwrite it. Fix or delete the file first.",
+            "{} has an error, so Shotate won't overwrite it. Fix or delete the file first.",
             config::path().display()
         ));
     }
@@ -452,8 +461,8 @@ fn reload(app: &AppHandle, at_launch: bool) {
         Err(e) => {
             let was = std::mem::replace(&mut *app.state::<State>().broken.lock().unwrap(), true);
             if !was {
-                error(app, "Snapmark couldn't read its config file",
-                      &format!("{e}\n\nSnapmark keeps its current settings and won't change the file until it is fixed."));
+                error(app, "Shotate couldn't read its config file",
+                      &format!("{e}\n\nShotate keeps its current settings and won't change the file until it is fixed."));
             }
             if at_launch {
                 register_shortcuts(app);
@@ -534,7 +543,7 @@ fn register_shortcuts(app: &AppHandle) {
     }
     *app.state::<State>().bindings.lock().unwrap() = bindings;
     if !taken.is_empty() {
-        eprintln!("Snapmark: shortcuts already in use: {}", taken.join(", "));
+        eprintln!("Shotate: shortcuts already in use: {}", taken.join(", "));
     }
 }
 
@@ -568,7 +577,7 @@ fn on_shortcut(app: &AppHandle, shortcut: &Shortcut) {
     }
 }
 
-/// Runs a user-configured command through the shell, detached from Snapmark.
+/// Runs a user-configured command through the shell, detached from Shotate.
 fn run_command(command: &str) {
     #[cfg(windows)]
     let result = std::process::Command::new("cmd")
@@ -580,7 +589,7 @@ fn run_command(command: &str) {
             .args(["-lc", command])
             .spawn();
     if let Err(e) = result {
-        eprintln!("Snapmark: couldn't run {command}: {e}");
+        eprintln!("Shotate: couldn't run {command}: {e}");
     }
 }
 
@@ -605,7 +614,7 @@ fn open_editor(app: &AppHandle, file: &Path, owns: bool) {
     let title = file
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Snapmark".into());
+        .unwrap_or_else(|| "Shotate".into());
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let (w, h) = editor_size(&handle);
@@ -620,7 +629,7 @@ fn open_editor(app: &AppHandle, file: &Path, owns: bool) {
             Ok(win) => {
                 let _ = win.set_focus();
             }
-            Err(e) => error(&handle, "Snapmark couldn't open the editor", &e.to_string()),
+            Err(e) => error(&handle, "Shotate couldn't open the editor", &e.to_string()),
         }
     });
 }
@@ -650,7 +659,11 @@ fn encode(s: &str) -> String {
 
 fn show_view(app: &AppHandle, label: &str, title: &str, size: (f64, f64)) {
     // Windows Settings puts navigation on the left, which needs a wider window.
-    let size = if cfg!(windows) && label == "settings" { (900.0, 640.0) } else { size };
+    let size = if cfg!(windows) && label == "settings" {
+        (900.0, 640.0)
+    } else {
+        size
+    };
     if let Some(w) = app.get_webview_window(label) {
         let _ = w.show();
         let _ = w.set_focus();
@@ -706,6 +719,29 @@ fn autostart(app: AppHandle, enable: Option<bool>) -> bool {
     manager.is_enabled().unwrap_or(false)
 }
 
+/// Shotate was called Snapmark before 0.12. On Linux its Open at login entry is a desktop file named
+/// after the app; this turns on Shotate's own and removes the old one. (On Windows the installer
+/// carries the setting over, because removing Snapmark deletes its entry.)
+fn adopt_legacy_autostart(app: &AppHandle) {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let Some(dir) = dirs::config_dir().map(|d| d.join("autostart")) else {
+        return;
+    };
+    let old: Vec<_> = ["Snapmark.desktop", "snapmark.desktop"]
+        .iter()
+        .map(|n| dir.join(n))
+        .filter(|p| p.exists())
+        .collect();
+    if old.is_empty() || app.autolaunch().enable().is_err() {
+        return;
+    }
+    for p in old {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
 /// "windows", "linux-x11" or "linux-wayland", "macos" (for development builds).
 #[tauri::command]
 fn platform() -> &'static str {
@@ -723,7 +759,7 @@ fn platform() -> &'static str {
 }
 
 fn error(app: &AppHandle, title: &str, detail: &str) {
-    eprintln!("Snapmark: {title}: {detail}");
+    eprintln!("Shotate: {title}: {detail}");
     app.dialog()
         .message(detail)
         .title(title)
@@ -747,18 +783,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
             &PredefinedMenuItem::separator(app)?,
             &item("settings", "Settings…")?,
             &item("config", "Edit Config File…")?,
-            &item("about", "About Snapmark")?,
+            &item("about", "About Shotate")?,
             &PredefinedMenuItem::separator(app)?,
-            &item("quit", "Quit Snapmark")?,
+            &item("quit", "Quit Shotate")?,
         ],
     )?;
-    TrayIconBuilder::with_id("snapmark")
+    TrayIconBuilder::with_id("shotate")
         .icon(
             app.default_window_icon()
                 .cloned()
                 .ok_or(tauri::Error::InvalidIcon(std::io::Error::other("no icon")))?,
         )
-        .tooltip("Snapmark")
+        .tooltip("Shotate")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -771,11 +807,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
                 let _ = std::fs::create_dir_all(&dir);
                 let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
             }
-            "settings" => show_view(app, "settings", "Snapmark Settings", (620.0, 560.0)),
+            "settings" => show_view(app, "settings", "Shotate Settings", (620.0, 560.0)),
             "config" => {
                 let _ = open_config(app.clone());
             }
-            "about" => show_view(app, "welcome", "About Snapmark", (560.0, 600.0)),
+            "about" => show_view(app, "welcome", "About Shotate", (560.0, 600.0)),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -798,7 +834,7 @@ fn open_image_dialog(app: &AppHandle) {
 
 // MARK: - Command line
 
-/// `snapmark --capture` and friends. On Wayland, bind these to keys in your desktop's settings.
+/// `shotate --capture` and friends. On Wayland, bind these to keys in your desktop's settings.
 fn handle_args(app: &AppHandle, args: &[String], first_run: bool) {
     let has = |flag: &str| args.iter().any(|a| a == flag);
     if has("--capture") || has("--capture-area") {
@@ -812,16 +848,16 @@ fn handle_args(app: &AppHandle, args: &[String], first_run: bool) {
             open_editor(app, Path::new(p), false);
         }
     } else if has("--settings") {
-        show_view(app, "settings", "Snapmark Settings", (620.0, 560.0));
+        show_view(app, "settings", "Shotate Settings", (620.0, 560.0));
     } else if let Some(p) = args
         .iter()
         .skip(1)
         .find(|a| !a.starts_with("--") && Path::new(a).is_file())
     {
-        // "Open with Snapmark" from a file manager.
+        // "Open with Shotate" from a file manager.
         open_editor(app, Path::new(p), false);
     } else if first_run {
-        show_view(app, "welcome", "Welcome to Snapmark", (560.0, 600.0));
+        show_view(app, "welcome", "Welcome to Shotate", (560.0, 600.0));
     }
 }
 
@@ -842,7 +878,7 @@ pub fn run() {
                 .collect();
             // A second launch hands its arguments to the running copy; a plain relaunch opens Settings.
             if args.len() <= 1 {
-                show_view(app, "settings", "Snapmark Settings", (620.0, 560.0));
+                show_view(app, "settings", "Shotate Settings", (620.0, 560.0));
             } else {
                 handle_args(app, &args, false);
             }
@@ -866,7 +902,13 @@ pub fn run() {
         .on_window_event(|window, event| {
             // However the overlay goes away (Esc, Alt+F4, the window manager), drop its capture.
             if window.label() == "overlay" && matches!(event, tauri::WindowEvent::Destroyed) {
-                window.app_handle().state::<State>().pending.lock().unwrap().take();
+                window
+                    .app_handle()
+                    .state::<State>()
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .take();
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -893,6 +935,8 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            config::adopt_legacy(&config::legacy_path(), &config::path());
+            adopt_legacy_autostart(&handle);
             let first_run = !config::path().exists();
             reload(&handle, true);
             watch_config(&handle);
@@ -913,7 +957,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Snapmark failed to start");
+        .expect("Shotate failed to start");
 
     app.run(|_app, event| {
         // A tray app keeps running with no windows open.

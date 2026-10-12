@@ -1,5 +1,5 @@
 import AppKit
-import SnapmarkCore
+import ShotateCore
 
 /// Shows the screenshot scaled to fit and turns mouse input into marks. All geometry is kept in
 /// image pixels (origin bottom-left); the view converts at the edges.

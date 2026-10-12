@@ -26,7 +26,7 @@ if (view === "editor") root.innerHTML = `<div class="center"><div><div class="sp
 start().catch((err) => {
   // A broken overlay must never strand a full-screen, always-on-top window.
   if (view === "overlay") { void api.finishCapture(null); return; }
-  root.innerHTML = `<div class="center"><div><b>Snapmark couldn't open this</b><p class="note"></p>
+  root.innerHTML = `<div class="center"><div><b>Shotate couldn't open this</b><p class="note"></p>
     <button class="btn" id="close-view">Close</button></div></div>`;
   root.querySelector(".note")!.textContent = String(err);
   root.querySelector("#close-view")!.addEventListener("click", () => void api.closeWindow());

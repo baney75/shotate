@@ -1,14 +1,14 @@
 [package]
-name = "snapmark"
-version = "0.11.0"
+name = "shotate"
+version = "0.12.0"
 description = "Fast, free screenshot and annotation tool"
 authors = ["Donovan Baney (@baney75)"]
 license = "MIT"
-repository = "https://github.com/baney75/snapmark"
+repository = "https://github.com/baney75/shotate"
 edition = "2021"
 
 [lib]
-name = "snapmark_lib"
+name = "shotate_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

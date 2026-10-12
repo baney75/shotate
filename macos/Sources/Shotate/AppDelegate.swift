@@ -1,7 +1,7 @@
 import AppKit
 import OSLog
 import ServiceManagement
-import SnapmarkCore
+import ShotateCore
 
 private let log = Logger(subsystem: "com.baney.snapmark", category: "config")
 
@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var welcomeWindow: WelcomeWindowController?
     private var capturing = false
     private var configSource: DispatchSourceFileSystemObject?
-    /// True while the config file has a JSON error. Snapmark then never writes it, so a typo
+    /// True while the config file has a JSON error. Shotate then never writes it, so a typo
     /// can't cost someone their settings.
     private(set) var configBroken = false
     /// Shortcuts that registered (or failed) last time, so a conflict is reported once, not on every change.
@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ShortcutRecorder.onRecordingChange = { [weak self] recording in
             if recording { self?.hotkeys.removeAll() } else { self?.applySettings(save: false) }
         }
+        Settings.adoptLegacyConfig()
+        moveLoginItem()
         settings = loadConfig() ?? settings
         settings.normalize()
         applySettings(save: !FileManager.default.fileExists(atPath: Settings.configURL.path))
@@ -53,13 +55,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return false
     }
 
-    /// Finder "Open With › Snapmark" and dropping images on the app icon.
+    /// Finder "Open With › Shotate" and dropping images on the app icon.
     func application(_ application: NSApplication, open urls: [URL]) {
         urls.filter(\.isFileURL).forEach(open)
     }
 
-    /// snapmark://capture, snapmark://capture/window, snapmark://capture/screen, snapmark://open?path=/x.png,
-    /// snapmark://settings, snapmark://config (open the config file), snapmark://reload, snapmark://welcome
+    /// shotate://capture, shotate://capture/window, shotate://capture/screen, shotate://open?path=/x.png,
+    /// shotate://settings, shotate://config (open the config file), shotate://reload, shotate://welcome
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URLComponents(string: s) else { return }
@@ -96,15 +98,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return s
         } catch {
             configBroken = true
-            Alerts.show("Snapmark couldn't read its config file",
+            Alerts.show("Shotate couldn't read its config file",
                         "\((url.path as NSString).abbreviatingWithTildeInPath): \(error.localizedDescription)\n\n"
-                        + "Snapmark keeps its current settings and won't change the file until it is fixed.")
+                        + "Shotate keeps its current settings and won't change the file until it is fixed.")
             return nil
         }
     }
 
-    /// Reloads when the file changes, whoever changed it: a text editor, an agent, `snapmark://reload`.
-    /// A kernel file event wakes Snapmark even while macOS naps it (a timer would stall). Editors that
+    /// Reloads when the file changes, whoever changed it: a text editor, an agent, `shotate://reload`.
+    /// A kernel file event wakes Shotate even while macOS naps it (a timer would stall). Editors that
     /// save by replacing the file end the watch, so it re-arms on the new file.
     private func watchConfig() {
         configSource?.cancel()
@@ -162,12 +164,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applySettings(save: Bool = true) {
         if save, configBroken {
             Alerts.show("Fix the config file first",
-                        "\((Settings.configURL.path as NSString).abbreviatingWithTildeInPath) has an error, so Snapmark "
+                        "\((Settings.configURL.path as NSString).abbreviatingWithTildeInPath) has an error, so Shotate "
                         + "won't overwrite it. Fix or delete the file; your change applies to this session only.")
         } else if save {
             settings.normalize()
             do { try settings.save() } catch {
-                Alerts.show("Snapmark couldn't save its settings", error: error)
+                Alerts.show("Shotate couldn't save its settings", error: error)
             }
         }
         hotkeys.removeAll()
@@ -184,10 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lastShortcuts = settings.shortcuts
         if !taken.isEmpty {
             Alerts.show("\(taken.joined(separator: ", ")) \(taken.count == 1 ? "is" : "are") already in use",
-                        "Another app owns that shortcut. Pick a different one in Snapmark Settings.")
+                        "Another app owns that shortcut. Pick a different one in Shotate Settings.")
         }
         for (keys, command) in settings.commandHotkeys {
-            guard let s = Shortcut(keys) else { NSLog("Snapmark: bad shortcut %@", keys); continue }
+            guard let s = Shortcut(keys) else { NSLog("Shotate: bad shortcut %@", keys); continue }
             hotkeys.register(s) { Self.run(command) }
         }
         if settings.showMenuBarIcon { installStatusItem() } else if let item = statusItem {
@@ -217,12 +219,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             defer { try? FileManager.default.removeItem(at: shot.file) }  // gone already once moved
             let url = self.settings.newCaptureURL()
             do { try Output.place(shot.file, at: url) } catch {
-                Alerts.show("Snapmark couldn't save the capture to \(url.deletingLastPathComponent().path)",
+                Alerts.show("Shotate couldn't save the capture to \(url.deletingLastPathComponent().path)",
                             error: error)
                 return
             }
             if self.settings.copyOnCapture, !Output.copy(png: shot.png, fileURL: url) {
-                Alerts.show("Snapmark couldn't copy the capture", "It is saved at \(url.path).")
+                Alerts.show("Shotate couldn't copy the capture", "It is saved at \(url.path).")
             }
             self.edit(shot.doc, fileURL: url, ownsFile: true, capturePNG: shot.png)
         }
@@ -230,13 +232,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func open(_ url: URL) {
         guard let doc = Renderer.loadDocument(at: url) else {
-            Alerts.show("Snapmark can't open \(url.lastPathComponent)", "It isn't an image Snapmark can read.")
+            Alerts.show("Shotate can't open \(url.lastPathComponent)", "It isn't an image Shotate can read.")
             return
         }
         edit(doc, fileURL: url, ownsFile: false)
     }
 
-    /// Snapmark lives in the menu bar only: no Dock icon, even while an editor is open. The editor
+    /// Shotate lives in the menu bar only: no Dock icon, even while an editor is open. The editor
     /// window activates the app to take keyboard focus, and the hidden main menu still routes ⌘V,
     /// ⌘A and friends to text labels.
     private func edit(_ doc: Document, fileURL: URL, ownsFile: Bool, capturePNG: Data? = nil) {
@@ -257,10 +259,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Menu bar
 
+    /// The app icon's mark, crop corners around a marker loop, as a template image so macOS tints it
+    /// for light and dark menu bars.
+    static let menuBarIcon: NSImage = {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { r in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let box = r.insetBy(dx: 1.5, dy: 2.5), arm: CGFloat = 4.5
+            ctx.setStrokeColor(.black)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            ctx.setLineWidth(1.6)
+            for (x, y, dx, dy) in [(box.minX, box.minY, 1.0, 1.0), (box.maxX, box.minY, -1.0, 1.0),
+                                   (box.minX, box.maxY, 1.0, -1.0), (box.maxX, box.maxY, -1.0, -1.0)] {
+                ctx.move(to: CGPoint(x: x + dx * arm, y: y)); ctx.addLine(to: CGPoint(x: x, y: y))
+                ctx.addLine(to: CGPoint(x: x, y: y + dy * arm))
+            }
+            ctx.strokePath()
+            // A little more than one turn, growing, like the icon's loop.
+            ctx.setLineWidth(1.9)
+            let c = CGPoint(x: r.midX, y: r.midY), start = CGFloat.pi * 0.7, sweep = CGFloat.pi * 2.18
+            for i in 0...60 {
+                let t = CGFloat(i) / 60, a = start - sweep * t, grow = 0.86 + 0.24 * t
+                let x = cos(a) * 4.6 * grow, y = sin(a) * 3.1 * grow
+                let p = CGPoint(x: c.x + x * cos(0.28) - y * sin(0.28), y: c.y + x * sin(0.28) + y * cos(0.28))
+                i == 0 ? ctx.move(to: p) : ctx.addLine(to: p)
+            }
+            ctx.strokePath()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Shotate"
+        return image
+    }()
+
     private func installStatusItem() {
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Snapmark")
+        item.button?.image = Self.menuBarIcon
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
@@ -294,8 +329,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   .separator(),
                   NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","),
                   NSMenuItem(title: "Edit Config File…", action: #selector(openConfig), keyEquivalent: ""),
-                  NSMenuItem(title: "About Snapmark", action: #selector(showAbout), keyEquivalent: ""),
-                  NSMenuItem(title: "Quit Snapmark", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
+                  NSMenuItem(title: "About Shotate", action: #selector(showAbout), keyEquivalent: ""),
+                  NSMenuItem(title: "Quit Shotate", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
             if i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
             menu.addItem(i)
         }
@@ -323,13 +358,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Launch at login
 
+    /// Open at login was registered for Snapmark.app. Registering again once points it at Shotate.app;
+    /// macOS keeps the old path otherwise, and the item stops working once that app is gone.
+    private func moveLoginItem() {
+        let key = "loginItemMovedToShotate"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard launchAtLogin else { return UserDefaults.standard.set(true, forKey: key) }
+        do {
+            try? SMAppService.mainApp.unregister()
+            try SMAppService.mainApp.register()
+            UserDefaults.standard.set(true, forKey: key)
+        } catch {
+            NSLog("Shotate: moving the login item: %@", error.localizedDescription)
+        }
+    }
+
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
         set {
             do {
                 if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             } catch {
-                NSLog("Snapmark: launch at login: %@", error.localizedDescription)
+                NSLog("Shotate: launch at login: %@", error.localizedDescription)
             }
         }
     }

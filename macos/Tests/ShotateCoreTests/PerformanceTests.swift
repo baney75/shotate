@@ -1,7 +1,7 @@
 import CoreGraphics
 import ImageIO
 import XCTest
-@testable import SnapmarkCore
+@testable import ShotateCore
 
 /// The caches that keep capture and editing fast. Each test fails if its cache stops being used or
 /// changes what gets drawn.

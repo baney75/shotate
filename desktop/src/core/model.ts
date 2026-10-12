@@ -1,5 +1,5 @@
 // The editable state of one screenshot, shared by the Windows and Linux editor. It mirrors the macOS
-// app's SnapmarkCore (Swift) so both behave the same. Coordinates are image pixels with the origin
+// app's ShotateCore (Swift) so both behave the same. Coordinates are image pixels with the origin
 // at the top left (y grows downward), as the web canvas uses.
 
 export type Tool = "select" | "arrow" | "box" | "ellipse" | "highlight" | "text" | "redact" | "step" | "crop";

@@ -1,8 +1,8 @@
 import CoreGraphics
 import XCTest
-@testable import SnapmarkCore
+@testable import ShotateCore
 
-final class SnapmarkCoreTests: XCTestCase {
+final class ShotateCoreTests: XCTestCase {
     func solidImage(_ w: Int = 400, _ h: Int = 300, gray: CGFloat = 0.5) -> CGImage {
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -173,12 +173,12 @@ final class SnapmarkCoreTests: XCTestCase {
     }
 
     func tempConfig() -> URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent("snapmark-\(UUID().uuidString)/config.json")
+        FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
     }
 
     func testConfigFileRoundTrips() throws {
         let url = tempConfig()
-        var s = Settings(saveFolder: URL(fileURLWithPath: "/tmp/snapmark-\(UUID().uuidString)-missing", isDirectory: true))
+        var s = Settings(saveFolder: URL(fileURLWithPath: "/tmp/shotate-\(UUID().uuidString)-missing", isDirectory: true))
         s.copyOnCapture = false
         s.commandHotkeys = ["cmd+shift+a": "/usr/bin/true"]
         s.shortcuts["captureWindow"] = "ctrl+shift+2"
@@ -250,7 +250,7 @@ final class SnapmarkCoreTests: XCTestCase {
     }
 
     func testMigratesOldDefaults() {
-        let d = UserDefaults(suiteName: "snapmark-test-\(UUID().uuidString)")!
+        let d = UserDefaults(suiteName: "shotate-test-\(UUID().uuidString)")!
         d.set(false, forKey: "captureHotkeyEnabled")
         d.set(["cmd+shift+a": "x"], forKey: "commandHotkeys")
         let s = Settings.migrated(from: d)
@@ -262,7 +262,7 @@ final class SnapmarkCoreTests: XCTestCase {
     /// Captures are read from a temp file that is deleted right away. The image must not depend on
     /// that file afterwards, or saving and copying fail with "No IDATs written".
     func testLoadedDocumentSurvivesSourceFileDeletion() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("snapmark-test-\(UUID().uuidString).png")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-test-\(UUID().uuidString).png")
         try XCTUnwrap(Renderer.pngData(solidImage(gray: 0.2), dpi: 144)).write(to: url)
         let doc = try XCTUnwrap(Renderer.loadDocument(at: url))
         try FileManager.default.removeItem(at: url)
@@ -470,5 +470,20 @@ final class SnapmarkCoreTests: XCTestCase {
         // A shape's style drops a label's hand-set size back to its preset.
         label.fontSize = 50
         XCTAssertNil(label.styled(like: Mark(tool: .box, color: RGBA.palette[2], start: .zero, end: .zero)).fontSize)
+    }
+
+    /// Settings from the Snapmark days carry over once and are never overwritten after that.
+    func testAdoptsSnapmarkConfigOnce() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-adopt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let old = dir.appendingPathComponent("snapmark/config.json"), new = dir.appendingPathComponent("shotate/config.json")
+        XCTAssertFalse(Settings.adoptLegacyConfig(from: old, to: new), "nothing to adopt")
+        try FileManager.default.createDirectory(at: old.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"saveFolder": "~/Desktop"}"#.utf8).write(to: old)
+        XCTAssertTrue(Settings.adoptLegacyConfig(from: old, to: new))
+        XCTAssertEqual(try Settings.load(from: new).saveFolder.path, NSHomeDirectory() + "/Desktop")
+        try Data(#"{"saveFolder": "~/Documents"}"#.utf8).write(to: new)
+        XCTAssertFalse(Settings.adoptLegacyConfig(from: old, to: new), "an existing Shotate config wins")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: old.path), "the old file stays")
     }
 }

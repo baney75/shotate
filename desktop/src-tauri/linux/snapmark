@@ -1,0 +1,3 @@
+#!/bin/sh
+# Shotate was called Snapmark; keyboard shortcuts bound to `snapmark --capture` keep working.
+exec shotate "$@"

@@ -1,6 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
-import SnapmarkCore
+import ShotateCore
 
 /// System-wide shortcuts through RegisterEventHotKey. No Accessibility or Input Monitoring
 /// permission is needed, and a registered shortcut never reaches the front app.
@@ -42,7 +42,7 @@ final class Hotkeys {
         let status = RegisterEventHotKey(UInt32(code), UInt32(mods), EventHotKeyID(signature: OSType(0x534E4150), id: id),
                                          GetApplicationEventTarget(), 0, &ref)
         guard status == noErr, let ref else {
-            NSLog("Snapmark: shortcut %@ is taken (status %d)", shortcut.key, status)
+            NSLog("Shotate: shortcut %@ is taken (status %d)", shortcut.key, status)
             return false
         }
         refs.append(ref)

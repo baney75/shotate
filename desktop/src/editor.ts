@@ -713,7 +713,7 @@ class Editor {
       this.refresh();
       return written;
     } catch (err) {
-      this.toast(`Snapmark couldn't save this image: ${err}`);
+      this.toast(`Shotate couldn't save this image: ${err}`);
       return null;
     }
   }
@@ -728,7 +728,7 @@ class Editor {
       if (copyPath) await api.copyText(path);
     } catch (err) {
       this.finishing = false;
-      this.toast(`Snapmark couldn't copy the image. It is saved at ${path}. (${err})`);
+      this.toast(`Shotate couldn't copy the image. It is saved at ${path}. (${err})`);
       return;
     }
     this.finished = true;
@@ -736,11 +736,11 @@ class Editor {
   }
 
   async saveCopy() {
-    const name = this.file.split(/[\\/]/).pop() ?? "Snapmark.png";
+    const name = this.file.split(/[\\/]/).pop() ?? "Shotate.png";
     const target = await api.saveDialog(name.replace(/\.\w+$/, "") + ".png");
     if (!target) return;
     try { await api.savePng(target, await this.png()); this.toast(`Saved ${target}`); }
-    catch (err) { this.toast(`Snapmark couldn't save ${target}: ${err}`); }
+    catch (err) { this.toast(`Shotate couldn't save ${target}: ${err}`); }
   }
 
   async trash() {
