@@ -486,4 +486,114 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertFalse(Settings.adoptLegacyConfig(from: old, to: new), "an existing Shotate config wins")
         XCTAssertTrue(FileManager.default.fileExists(atPath: old.path), "the old file stays")
     }
+
+    func testArrowsBendFromTheirMiddleHandle() throws {
+        let doc = Document(image: solidImage(600, 300, gray: 0.8))
+        let arrow = Mark(tool: .arrow, color: RGBA.palette[2], start: CGPoint(x: 100, y: 100), end: CGPoint(x: 500, y: 100))
+        XCTAssertEqual(arrow.handles.count, 3)
+        XCTAssertEqual(arrow.handles[2], CGPoint(x: 300, y: 100), "a straight arrow's middle handle is on its line")
+        let bent = arrow.moving(handle: 2, to: CGPoint(x: 260, y: 180))
+        XCTAssertEqual(bent.bend, 80, accuracy: 0.001, "only the distance off the line counts")
+        XCTAssertEqual(bent.midpoint.y, 180, accuracy: 0.001)
+        XCTAssertEqual(bent.handles[2].x, 300, accuracy: 0.001)
+        doc.add(bent)
+        // The curve, not the straight line between the ends, is what hits and what draws.
+        XCTAssertEqual(doc.hitTest(CGPoint(x: 300, y: 178), tolerance: 6)?.id, bent.id)
+        XCTAssertNil(doc.hitTest(CGPoint(x: 300, y: 100), tolerance: 6))
+        XCTAssertGreaterThan(Renderer.extent(of: bent, imageWidth: 600).maxY, 180)
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        let on = pixel(flat, 300, 180), off = pixel(flat, 300, 100)
+        XCTAssertGreaterThan(Int(on.2), Int(on.0) + 60, "the curve's middle is painted in the arrow's blue")
+        XCTAssertEqual(Int(off.0), Int(off.2), accuracy: 2, "the chord is left bare")
+        // The bend is relative, so moving an end keeps the shape bowing the same way.
+        XCTAssertEqual(bent.moving(handle: 1, to: CGPoint(x: 500, y: 140)).bend, 80)
+        XCTAssertEqual(bent.duplicate(offset: 5).bend, 80)
+    }
+
+    func testDoubleClickedArrowEndsGetALabelTheArrowPointsAt() {
+        let doc = Document(image: solidImage(1000, 600))
+        let arrow = Mark(tool: .arrow, color: RGBA.palette[0], start: CGPoint(x: 100, y: 300), end: CGPoint(x: 400, y: 300))
+        doc.add(arrow)
+        let hit = doc.arrowEnd(at: CGPoint(x: 405, y: 302), tolerance: 10)
+        XCTAssertEqual(hit?.arrow.id, arrow.id)
+        XCTAssertEqual(hit?.end, 1)
+        XCTAssertEqual(doc.arrowEnd(at: CGPoint(x: 98, y: 300), tolerance: 10)?.end, 0)
+        XCTAssertNil(doc.arrowEnd(at: CGPoint(x: 250, y: 300), tolerance: 10), "the middle is not an end")
+        // Pointing right, the label goes right of the tip with its left edge on it.
+        let anchor = arrow.calloutAnchor(end: 1)
+        XCTAssertEqual(anchor, CGPoint(x: 0, y: 0.5))
+        let blank = Mark(tool: .text, color: arrow.color, start: .zero, end: .zero, text: "Here")
+        let label = Renderer.pinned(blank, at: arrow.end, anchor: anchor, imageWidth: 1000)
+        let r = Renderer.textOrStepRect(label, imageWidth: 1000)
+        XCTAssertEqual(r.minX, 400, accuracy: 0.001)
+        XCTAssertEqual(r.midY, 300, accuracy: 0.001)
+        let before = doc.revision
+        doc.addCallout(label, arrow: arrow.id, end: 1, anchor: anchor)
+        XCTAssertEqual(doc.revision, before + 1, "label and attachment are one undo step")
+        XCTAssertEqual(doc.marks.first!.endBinding?.id, label.id)
+        // Moving the label drags the arrow's tip with it.
+        doc.update(label.offset(by: CGVector(dx: 30, dy: 40)))
+        XCTAssertEqual(doc.marks.first!.end.x, 430, accuracy: 0.001)
+        XCTAssertEqual(doc.marks.first!.end.y, 340, accuracy: 0.001)
+        doc.undo(); doc.undo()
+        XCTAssertEqual(doc.marks.map(\.id), [arrow.id])
+        XCTAssertNil(doc.marks.first!.endBinding)
+        // Pointing down, the label hangs below the tip; the tail of an upward arrow is the same.
+        let down = Mark(tool: .arrow, color: RGBA.palette[0], start: CGPoint(x: 100, y: 500), end: CGPoint(x: 110, y: 200))
+        XCTAssertEqual(down.calloutAnchor(end: 1), CGPoint(x: 0.5, y: 1))
+        XCTAssertEqual(down.calloutAnchor(end: 0), CGPoint(x: 0.5, y: 0))
+    }
+
+    func testArrowLabelsSitOnTheMiddleOfTheCurve() throws {
+        let doc = Document(image: solidImage(1000, 600, gray: 0.8))
+        var arrow = Mark(tool: .arrow, color: RGBA.palette[2], start: CGPoint(x: 100, y: 300), end: CGPoint(x: 700, y: 300))
+        arrow.bend = -120
+        XCTAssertNil(Renderer.arrowLabel(of: arrow, imageWidth: 1000))
+        arrow.text = "Step two"
+        doc.add(arrow)
+        let label = try XCTUnwrap(Renderer.arrowLabel(of: arrow, imageWidth: 1000))
+        let r = Renderer.textOrStepRect(label, imageWidth: 1000)
+        XCTAssertEqual(r.midX, 400, accuracy: 0.5)
+        XCTAssertEqual(r.midY, 180, accuracy: 0.5)
+        XCTAssertEqual(doc.hitTest(CGPoint(x: r.minX + 3, y: r.maxY - 3), tolerance: 0)?.id, arrow.id, "the label is part of the arrow")
+        XCTAssertTrue(Renderer.extent(of: arrow, imageWidth: 1000).contains(r))
+        // The middle handle sits just outside the label, and dragging it moves the curve by as much.
+        let h = Renderer.handles(of: arrow, imageWidth: 1000)[2]
+        XCTAssertEqual(h.x, 400, accuracy: 0.5)
+        XCTAssertLessThan(h.y, r.minY)
+        let dragged = Renderer.moving(arrow, handle: 2, to: CGPoint(x: h.x, y: h.y - 30), imageWidth: 1000)
+        XCTAssertEqual(dragged.bend, arrow.bend - 30, accuracy: 0.001)
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        let fill = pixel(flat, Int(r.minX + 4), Int(r.midY))
+        XCTAssertGreaterThan(Int(fill.2), Int(fill.0) + 60, "the label is a pill in the arrow's color")
+    }
+
+    /// Stretching an edge with detail on it streaks every line that touches it across the new space.
+    func testDetailedEdgesFillWithTheirColorInsteadOfStreaking() throws {
+        let ctx = CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        // A vertical gradient (smooth on the left and right edges) with a red line touching the left edge.
+        for y in 0..<100 {
+            ctx.setFillColor(CGColor(srgbRed: 0.2, green: 0.2 + CGFloat(y) / 400, blue: 0.3, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: y, width: 200, height: 1))
+        }
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 40, width: 120, height: 2))
+        // A wide band on the top of the right edge, like a title bar, which should carry on.
+        ctx.setFillColor(CGColor(srgbRed: 0.9, green: 0.9, blue: 0.9, alpha: 1))
+        ctx.fill(CGRect(x: 150, y: 80, width: 50, height: 20))
+        let doc = Document(image: ctx.makeImage()!)
+        doc.add(Mark(tool: .box, color: RGBA.palette[3], start: CGPoint(x: -80, y: 70), end: CGPoint(x: -40, y: 90)))
+        doc.add(Mark(tool: .box, color: RGBA.palette[3], start: CGPoint(x: 240, y: 70), end: CGPoint(x: 280, y: 90)))
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        let grownLeft = pixel(flat, 5, 40)
+        XCTAssertLessThan(Int(grownLeft.0), 100, "no red streak runs into the new space")
+        XCTAssertEqual(Int(grownLeft.1), Int(pixel(flat, 5, 39).1), accuracy: 3, "the gradient carries on through it")
+        // On the right the gradient carries on: the grown pixels match the edge's at the same height.
+        let x = flat.width - 3, edgeX = Int(199 - doc.canvas.minX)
+        XCTAssertEqual(Int(pixel(flat, x, 10).1), Int(pixel(flat, edgeX, 10).1), accuracy: 2)
+        XCTAssertNotEqual(Int(pixel(flat, x, 10).1), Int(pixel(flat, x, 60).1), "still a gradient, not one color")
+        XCTAssertEqual(Int(pixel(flat, x, 90).0), 230, accuracy: 2, "the wide band carries on too")
+    }
 }

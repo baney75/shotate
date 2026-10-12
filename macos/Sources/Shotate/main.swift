@@ -13,8 +13,14 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
     doc.add(box)
     doc.add(Mark(tool: .ellipse, color: RGBA.palette[4], start: p(0.55, 0.1), end: p(0.75, 0.35)))
     doc.add(Mark(tool: .highlight, color: RGBA.palette[1], start: p(0.05, 0.05), end: p(0.45, 0.15)))
-    doc.add(Mark(tool: .arrow, color: RGBA.palette[0], start: p(0.30, 0.52), end: p(0.18, 0.235)))
+    let pointer = Mark(tool: .arrow, color: RGBA.palette[0], start: p(0.30, 0.52), end: p(0.18, 0.235), bend: w * 0.04)
+    doc.add(pointer)
     doc.add(Mark(tool: .text, color: RGBA.palette[2], start: p(0.08, 0.64), end: .zero, text: "Click Deploy"))
+    // A label the curved arrow starts from, as double-clicking its tail makes.
+    let anchor = pointer.calloutAnchor(end: 0)
+    let callout = Renderer.pinned(Mark(tool: .text, color: RGBA.palette[0], size: .thin, start: .zero, end: .zero, text: "Start"),
+                                  at: pointer.start, anchor: anchor, imageWidth: image.width)
+    doc.addCallout(callout, arrow: pointer.id, end: 0, anchor: anchor)
     // An arrow attached to the box, from a label that wraps at its width.
     doc.add(Mark(tool: .arrow, color: RGBA.palette[4], start: p(0.44, 0.3), end: p(0.5, 0.6),
                  endBinding: Binding(id: box.id, anchor: CGPoint(x: 0, y: 0.3))))
@@ -22,6 +28,9 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
                  text: "Release notes go here", textWidth: w * 0.14))
     doc.add(Mark(tool: .step, color: RGBA.palette[3], start: p(0.85, 0.2), end: .zero))
     doc.add(Mark(tool: .step, color: RGBA.palette[3], start: p(0.85, 0.45), end: .zero))
+    // A curved arrow between the steps, labeled in its middle.
+    doc.add(Mark(tool: .arrow, color: RGBA.palette[3], size: .thin, start: p(0.88, 0.41), end: p(0.88, 0.25), text: "then",
+                 bend: w * 0.05))
     // A callout past the right edge shows the canvas growing in the screenshot's border color.
     doc.add(Mark(tool: .text, color: RGBA.palette[4], start: p(0.93, 0.68), end: .zero, text: "Room to explain"))
     guard let out = Renderer.flatten(doc), let data = Renderer.pngData(out) else { exit(3) }

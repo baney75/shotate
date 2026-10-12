@@ -85,6 +85,10 @@ export interface Mark {
   /** The marks an arrow's ends are attached to. */
   startBinding?: Binding;
   endBinding?: Binding;
+  /** How far an arrow's middle sits off the straight line between its ends, in image pixels, to the
+   *  left of the direction it points. Unset is straight. Kept relative so a curve keeps its shape
+   *  when an attached end moves. */
+  bend?: number;
 }
 
 /** An arrow end attached to another mark: it follows that mark, at the same spot in its box. */
@@ -94,12 +98,12 @@ export interface Binding {
   anchor: Point;
 }
 
-type MarkOpts = Partial<Pick<Mark, "size" | "text" | "number" | "id" | "fontSize" | "textWidth" | "startBinding" | "endBinding">>;
+type MarkOpts = Partial<Pick<Mark, "size" | "text" | "number" | "id" | "fontSize" | "textWidth" | "startBinding" | "endBinding" | "bend">>;
 
 export function mark(tool: Tool, color: RGBA, start: Point, end: Point = start, opts: MarkOpts = {}): Mark {
   const m: Mark = { id: opts.id ?? newId(), tool, color, size: opts.size ?? 2, start, end, text: opts.text ?? "",
                     number: opts.number ?? 0 };
-  for (const k of ["fontSize", "textWidth", "startBinding", "endBinding"] as const) if (opts[k]) (m as any)[k] = opts[k];
+  for (const k of ["fontSize", "textWidth", "startBinding", "endBinding", "bend"] as const) if (opts[k]) (m as any)[k] = opts[k];
   return m;
 }
 
@@ -126,10 +130,65 @@ export function offset(m: Mark, dx: number, dy: number): Mark {
   return { ...rest, start: { x: m.start.x + dx, y: m.start.y + dy }, end: { x: m.end.x + dx, y: m.end.y + dy } };
 }
 
-/** Grab points for resizing: the two ends of an arrow, the four corners of a shape. */
+// Arrow geometry: an arrow is a quadratic curve from `start` to `end` whose middle sits `bend`
+// pixels off the chord.
+
+/** The unit vector to the left of the chord, or zero for an arrow with no length. */
+function normal(m: Mark): Point {
+  const dx = m.end.x - m.start.x, dy = m.end.y - m.start.y, len = Math.hypot(dx, dy);
+  return len > 0 ? { x: -dy / len, y: dx / len } : { x: 0, y: 0 };
+}
+const chordMidpoint = (m: Mark): Point => ({ x: (m.start.x + m.end.x) / 2, y: (m.start.y + m.end.y) / 2 });
+
+/** The curve's control point. A quadratic passes halfway to its control point at its middle. */
+export function control(m: Mark): Point {
+  const n = normal(m), c = chordMidpoint(m), b = m.bend ?? 0;
+  return { x: c.x + n.x * b * 2, y: c.y + n.y * b * 2 };
+}
+
+/** The point halfway along the arrow: where its label sits and where its curve handle is. */
+export function midpoint(m: Mark): Point {
+  const n = normal(m), c = chordMidpoint(m), b = m.bend ?? 0;
+  return { x: c.x + n.x * b, y: c.y + n.y * b };
+}
+
+/** The point at `t` (0 at `start`, 1 at `end`) along the curve. */
+export function pointAt(m: Mark, t: number): Point {
+  const c = control(m), u = 1 - t;
+  return { x: u * u * m.start.x + 2 * u * t * c.x + t * t * m.end.x, y: u * u * m.start.y + 2 * u * t * c.y + t * t * m.end.y };
+}
+
+/** The curve as a polyline, fine enough for hit testing and bounds. */
+export function curvePoints(m: Mark): Point[] {
+  return m.bend ? Array.from({ length: 33 }, (_, i) => pointAt(m, i / 32)) : [m.start, m.end];
+}
+
+/** The box around the arrow's line, curve included. */
+export function curveBounds(m: Mark): Rect {
+  const pts = curvePoints(m);
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+/** The bend that puts the arrow's middle at the point on the curve's axis nearest `p`. */
+export function bendThrough(m: Mark, p: Point): number {
+  const n = normal(m), c = chordMidpoint(m);
+  return (p.x - c.x) * n.x + (p.y - c.y) * n.y;
+}
+
+/** Where a label for end `i` (0 start, 1 end) attaches, as a fraction of its box: the side that faces
+ *  back along the arrow, so the label sits beyond the end and the arrow meets its edge. */
+export function calloutAnchor(m: Mark, i: number): Point {
+  const tip = i === 0 ? m.start : m.end, c = control(m);
+  const dx = tip.x - c.x, dy = tip.y - c.y;
+  return Math.abs(dx) >= Math.abs(dy) ? { x: dx >= 0 ? 0 : 1, y: 0.5 } : { x: 0.5, y: dy >= 0 ? 0 : 1 };
+}
+
+/** Grab points for resizing: the two ends and the middle of an arrow, the four corners of a shape. */
 export function handles(m: Mark): Point[] {
   switch (m.tool) {
-    case "arrow": return [m.start, m.end];
+    case "arrow": return [m.start, m.end, midpoint(m)];
     case "box": case "ellipse": case "highlight": case "redact":
       return [m.start, m.end, { x: m.start.x, y: m.end.y }, { x: m.end.x, y: m.start.y }];
     default: return [];
@@ -140,7 +199,13 @@ export function handles(m: Mark): Point[] {
 export function moveHandle(m: Mark, i: number, p: Point): Mark {
   const h = handles(m);
   if (i < 0 || i >= h.length) return m;
-  if (m.tool === "arrow") return i === 0 ? { ...m, start: p } : { ...m, end: p };
+  if (m.tool === "arrow") {
+    if (i === 0) return { ...m, start: p };
+    if (i === 1) return { ...m, end: p };
+    const { bend: _b, ...rest } = m;
+    const bend = bendThrough(m, p);
+    return bend ? { ...rest, bend } : rest;
+  }
   const opposite = { x: h[i].x === m.start.x ? m.end.x : m.start.x, y: h[i].y === m.start.y ? m.end.y : m.start.y };
   return { ...m, start: opposite, end: p };
 }
@@ -238,9 +303,38 @@ export function rewrapText(m: Mark, x: number, imageWidth: number): Mark {
   return { ...m, textWidth: Math.max(size * 1.5, x - m.start.x - size * PAD_X * 2) };
 }
 
+/** `label` moved so the point at `anchor` (fractions of its box) sits on `p`. A label grows right and
+ *  down from its top-left corner as it gets text; pinning keeps it on its spot instead. */
+export function pinned(label: Mark, p: Point, anchor: Point, imageWidth: number, measure: Measure): Mark {
+  const r = textOrStepRect(label, imageWidth, measure);
+  const start = { x: p.x - anchor.x * r.w, y: p.y - anchor.y * r.h };
+  return { ...label, start, end: start };
+}
+
+/** The label an arrow carries in its middle, as a text mark, or null when it has none. */
+export function arrowLabel(m: Mark, imageWidth: number, measure: Measure): Mark | null {
+  if (m.tool !== "arrow" || !m.text) return null;
+  const label = mark("text", m.color, { x: 0, y: 0 }, { x: 0, y: 0 }, { id: m.id, size: m.size, text: m.text });
+  return pinned(label, midpoint(m), { x: 0.5, y: 0.5 }, imageWidth, measure);
+}
+
+/** How far a labeled arrow's middle handle sits from its middle, along its normal: just outside the
+ *  label, on the side the arrow bends to, so the handle doesn't cover the text. 0 without a label. */
+function labelClearance(m: Mark, imageWidth: number, measure: Measure): number {
+  const label = arrowLabel(m, imageWidth, measure);
+  if (!label) return 0;
+  const r = textOrStepRect(label, imageWidth, measure), n = normal(m);
+  const side = (m.bend ?? 0) < 0 ? -1 : 1;
+  return side * (Math.abs(n.x) * r.w / 2 + Math.abs(n.y) * r.h / 2 + markFontSize(label, imageWidth) * 0.3);
+}
+
 /** A mark's grab points. A label has two: its bottom-right corner scales it, its right edge sets
- *  where it wraps. Shapes and arrows use `handles`. */
+ *  where it wraps. An arrow's middle handle clears its label. Shapes use `handles`. */
 export function markHandles(m: Mark, imageWidth: number, measure: Measure): Point[] {
+  if (m.tool === "arrow") {
+    const k = labelClearance(m, imageWidth, measure), mid = midpoint(m), n = normal(m);
+    return [m.start, m.end, { x: mid.x + n.x * k, y: mid.y + n.y * k }];
+  }
   if (m.tool !== "text") return handles(m);
   const r = textOrStepRect(m, imageWidth, measure);
   return [{ x: r.x + r.w, y: r.y + r.h }, { x: r.x + r.w, y: r.y + r.h / 2 }];
@@ -248,6 +342,11 @@ export function markHandles(m: Mark, imageWidth: number, measure: Measure): Poin
 
 /** The mark with handle `i` (an index into `markHandles`) dragged to `p`. */
 export function moveMarkHandle(m: Mark, i: number, p: Point, imageWidth: number, measure: Measure): Mark {
+  if (m.tool === "arrow" && i === 2) {
+    const { bend: _b, ...rest } = m;
+    const bend = bendThrough(m, p) - labelClearance(m, imageWidth, measure);
+    return bend ? { ...rest, bend } : rest;
+  }
   if (m.tool !== "text") return moveHandle(m, i, p);
   return i === 0 ? resizeText(m, p, imageWidth, measure) : rewrapText(m, p.x, imageWidth);
 }
@@ -256,14 +355,23 @@ export function moveMarkHandle(m: Mark, i: number, p: Point, imageWidth: number,
 export function extent(m: Mark, imageWidth: number, measure: Measure): Rect {
   const w = strokeWidth(m.size, imageWidth);
   if (m.tool === "text" || m.tool === "step") return inset(textOrStepRect(m, imageWidth, measure), -w);
-  if (m.tool === "arrow") return inset(markRect(m), -Math.max(w * 4.5, 10));
+  if (m.tool === "arrow") {
+    const r = inset(curveBounds(m), -Math.max(w * 4.5, 10));
+    const label = arrowLabel(m, imageWidth, measure);
+    return label ? union(r, extent(label, imageWidth, measure)) : r;
+  }
   return inset(markRect(m), -w);
 }
 
 export function distance(p: Point, m: Mark, imageWidth: number, measure: Measure): number {
   const r = markRect(m);
   switch (m.tool) {
-    case "arrow": return Geometry.segmentDistance(p, m.start, m.end);
+    case "arrow": {
+      const label = arrowLabel(m, imageWidth, measure);
+      if (label && contains(textOrStepRect(label, imageWidth, measure), p)) return 0;
+      const pts = curvePoints(m);
+      return Math.min(...pts.slice(1).map((q, i) => Geometry.segmentDistance(p, pts[i], q)));
+    }
     case "highlight": case "redact": return contains(r, p) ? 0 : Geometry.rectDistance(p, r);
     case "ellipse": {
       const a = Math.max(r.w / 2, 1), b = Math.max(r.h / 2, 1);
@@ -334,6 +442,26 @@ export class Doc {
       if (out.endBinding?.id === id) delete out.endBinding;
       return out;
     });
+  }
+
+  /** Adds `label` and attaches end `i` (0 start, 1 end) of `arrow` to it at `anchor`, in one undo step. */
+  addCallout(label: Mark, arrow: string, i: number, anchor: Point): Mark {
+    if (!this.marks.some((m) => m.id === arrow)) return this.add(label);
+    this.checkpoint();
+    const b = { id: label.id, anchor };
+    const marks = this.marks.map((m) => (m.id !== arrow ? m : i === 0 ? { ...m, startBinding: b } : { ...m, endBinding: b }));
+    this.marks = this.resolveBindings([...marks, label]);
+    return this.marks[this.marks.length - 1];
+  }
+
+  /** The topmost arrow with an end within `tolerance` of `p`, and which end (0 start, 1 end). */
+  arrowEnd(p: Point, tolerance: number): { arrow: Mark; end: number } | null {
+    for (const m of [...this.marks].reverse()) {
+      if (m.tool !== "arrow") continue;
+      const ds = Math.hypot(p.x - m.start.x, p.y - m.start.y), de = Math.hypot(p.x - m.end.x, p.y - m.end.y);
+      if (Math.min(ds, de) <= tolerance) return { arrow: m, end: de < ds ? 1 : 0 };
+    }
+    return null;
   }
 
   // Arrow bindings
@@ -486,3 +614,28 @@ export const Snap = {
     return { p: q, guides: Snap.guides({ x: q.x, y: q.y, w: 0, h: 0 }, targets) };
   },
 };
+
+/** Paints over the short runs of similar neighboring pixels in a one-pixel strip of RGBA bytes, with
+ *  the pixel beside them, so only wide bands and gradients are left. The canvas grows by stretching
+ *  each edge's strip: this keeps a title bar or page background carrying on while a line, text or an
+ *  icon touching the edge doesn't streak. A run is short below 2% of the strip (at least 6 pixels). */
+export function removeThinRuns(px: Uint8ClampedArray) {
+  const n = px.length / 4;
+  if (n < 2) return;
+  const similar = (a: number, b: number) => [0, 1, 2, 3].every((c) => Math.abs(px[a * 4 + c] - px[b * 4 + c]) <= 12);
+  const runs: [number, number][] = [];
+  let from = 0;
+  for (let i = 1; i <= n; i++) if (i === n || !similar(i - 1, i)) { runs.push([from, i]); from = i; }
+  const minRun = Math.max(6, Math.floor(n / 50));
+  const long = runs.filter(([a, b]) => b - a >= minRun);
+  if (!long.length || long.length === runs.length) return;
+  const src = px.slice();
+  const copy = (from: number, to: number) => { for (let c = 0; c < 4; c++) px[to * 4 + c] = src[from * 4 + c]; };
+  for (const [a, b] of runs) {
+    if (b - a >= minRun) continue;
+    // The last pixel of the long run before it, else the first of the one after.
+    const before = long.filter(([, e]) => e <= a).pop(), after = long.find(([s]) => s >= b);
+    const fill = before ? before[1] - 1 : after ? after[0] : -1;
+    if (fill >= 0) for (let i = a; i < b; i++) copy(fill, i);
+  }
+}
