@@ -31,7 +31,8 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
 
 // A relaunch starts this copy while the old one is still quitting: wait for it (up to 10 s), so the
 // global shortcuts and the menu bar icon are free.
-if let i = args.firstIndex(of: "--wait-for"), i + 1 < args.count, let pid = pid_t(args[i + 1]) {
+let waitPid = args.firstIndex(of: "--wait-for").flatMap { $0 + 1 < args.count ? pid_t(args[$0 + 1]) : nil }
+if let pid = waitPid {
     for _ in 0..<100 where kill(pid, 0) == 0 { usleep(100_000) }
 }
 
@@ -39,9 +40,11 @@ if let i = args.firstIndex(of: "--wait-for"), i + 1 < args.count, let pid = pid_
 // copy installed somewhere else) would fight it for the shortcuts: quit that one. If another Shotate
 // is already running, hand over to it.
 for other in NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-where other.processIdentifier != getpid() {
+where other.processIdentifier != getpid() && other.processIdentifier != waitPid && !other.isTerminated {
     if other.bundleURL?.lastPathComponent == "Snapmark.app" {
         other.terminate()
+        // Let it let go of the shortcuts and the menu bar icon (up to 5 s).
+        for _ in 0..<50 where !other.isTerminated { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
     } else {
         other.activate()
         exit(0)

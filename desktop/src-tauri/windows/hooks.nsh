@@ -5,6 +5,7 @@
   StrCmp $0 "" +2 0
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Shotate" '"$INSTDIR\shotate.exe" --autostart'
   nsExec::Exec 'taskkill /F /IM snapmark.exe'
+  Pop $0
   IfFileExists "$LOCALAPPDATA\Snapmark\uninstall.exe" 0 +3
     ExecWait '"$LOCALAPPDATA\Snapmark\uninstall.exe" /S _?=$LOCALAPPDATA\Snapmark'
     RMDir /r "$LOCALAPPDATA\Snapmark"

@@ -30,11 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if recording { self?.hotkeys.removeAll() } else { self?.applySettings(save: false) }
         }
         Settings.adoptLegacyConfig()
-        // Open at login was registered for Snapmark.app; register once more so it points at Shotate.app.
-        if !UserDefaults.standard.bool(forKey: "loginItemMovedToShotate") {
-            UserDefaults.standard.set(true, forKey: "loginItemMovedToShotate")
-            if launchAtLogin { launchAtLogin = true }
-        }
+        moveLoginItem()
         settings = loadConfig() ?? settings
         settings.normalize()
         applySettings(save: !FileManager.default.fileExists(atPath: Settings.configURL.path))
@@ -361,6 +357,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: Launch at login
+
+    /// Open at login was registered for Snapmark.app. Registering again once points it at Shotate.app;
+    /// macOS keeps the old path otherwise, and the item stops working once that app is gone.
+    private func moveLoginItem() {
+        let key = "loginItemMovedToShotate"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard launchAtLogin else { return UserDefaults.standard.set(true, forKey: key) }
+        do {
+            try? SMAppService.mainApp.unregister()
+            try SMAppService.mainApp.register()
+            UserDefaults.standard.set(true, forKey: key)
+        } catch {
+            NSLog("Shotate: moving the login item: %@", error.localizedDescription)
+        }
+    }
 
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
