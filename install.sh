@@ -5,10 +5,15 @@
 #        its Screen Recording permission across updates).
 # Linux: installs the latest release: the .deb on Debian and Ubuntu, the .rpm on Fedora and
 #        openSUSE, otherwise the AppImage in ~/.local/bin. Windows uses install.ps1.
+# Stable by default. For the nightly build of the newest code (docs/updates.md):
+#   curl -fsSL https://raw.githubusercontent.com/baney75/shotate/main/install.sh | bash -s -- --nightly
+# Running it again updates in place; Shotate can also update itself from its menu.
 set -euo pipefail
 REPO="baney75/shotate"
 REPO_URL="${SHOTATE_REPO:-https://github.com/$REPO.git}"
-REF="${SHOTATE_REF:-main}"
+CHANNEL="${SHOTATE_CHANNEL:-stable}"
+for arg in "$@"; do case "$arg" in --nightly) CHANNEL=nightly ;; --stable) CHANNEL=stable ;; esac; done
+case "$CHANNEL" in stable|nightly) ;; *) echo "Unknown channel: $CHANNEL (use stable or nightly)" >&2; exit 1 ;; esac
 bold=$(tput bold 2>/dev/null || true); dim=$(tput dim 2>/dev/null || true); reset=$(tput sgr0 2>/dev/null || true)
 step() { printf '%s==>%s %s\n' "$bold" "$reset" "$*"; }
 fail() { printf 'Shotate install failed: %s\n' "$*" >&2; exit 1; }
@@ -22,9 +27,16 @@ install_macos() {
     echo "When the install finishes, run this command again."
     exit 1
   fi
+  # Stable builds the newest release tag; nightly builds main.
+  REF="${SHOTATE_REF:-}"
+  if [ -z "$REF" ]; then
+    if [ "$CHANNEL" = nightly ]; then REF=main
+    else REF=$(curl -fsSI "https://github.com/$REPO/releases/latest" | tr -d '\r' | sed -n 's#^[Ll]ocation: .*/tag/##p'); fi
+  fi
+  [ -n "$REF" ] || fail "couldn't find the latest release."
   WORK=$(mktemp -d)
   trap 'rm -rf "$WORK"' EXIT
-  step "Downloading Shotate"
+  step "Downloading Shotate ($CHANNEL, $REF)"
   git clone --quiet --depth 1 --branch "$REF" "$REPO_URL" "$WORK/shotate"
   step "Building (about a minute the first time)"
   "$WORK/shotate/macos/scripts/bundle.sh" --install 2>&1 | sed "s/^/${dim}    /;s/\$/${reset}/" | tail -4
@@ -33,9 +45,11 @@ install_macos() {
   echo "A welcome window will ask for Screen Recording permission. After that, press ⇧⌘S to capture."
 }
 
-# The download URL of the latest release asset whose name matches a pattern.
+# The download URL of the channel's newest release asset whose name matches a pattern.
 asset_url() {
-  curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+  local release=latest
+  [ "$CHANNEL" = stable ] || release=tags/nightly
+  curl -fsSL "https://api.github.com/repos/$REPO/releases/$release" \
     | grep -o '"browser_download_url": *"[^"]*"' | cut -d'"' -f4 | grep -E "$1" | head -1
 }
 

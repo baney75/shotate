@@ -16,7 +16,7 @@
 <p align="center">
   <b>Shotate is a free, open-source screenshot and annotation tool for macOS, Windows and Linux.</b><br>
   Press a shortcut, drag over anything, circle or point at what matters, and press Return. It's on
-  your clipboard, ready to paste. No account, no upsell, no network code.<br>
+  your clipboard, ready to paste. No account, no upsell, no analytics.<br>
   <sub>Made by <a href="https://dbaney.com">Donovan Baney</a> · <a href="https://x.com/baney75">@baney75</a> · Formerly called Snapmark</sub>
 </p>
 
@@ -85,7 +85,8 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | **Retina-correct** | Captures keep their real size when pasted, instead of doubling |
 | **Out of the way** | A menu bar or tray icon, no Dock or taskbar clutter, no windows until you need one |
 | **Same everywhere** | One config file format, the same tools and keys on macOS, Windows and Linux |
-| **Private** | No network code, no analytics, no account. Your screenshots never leave your computer |
+| **Private** | No analytics, no account. Your screenshots never leave your computer. The only network request is a daily update check, which you can turn off |
+| **Easy updates** | Pick Stable or Nightly in Settings. Shotate checks once a day and updates itself with one click from its menu |
 
 ## Keyboard
 
@@ -107,6 +108,24 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 On Windows and Linux, use Ctrl where this table shows ⌘ (Ctrl+Backspace moves a capture to the
 Trash, Ctrl+Y also redoes). Tool letters can be changed in Settings or the
 [config file](#configuration).
+
+## Updates
+
+Shotate checks GitHub once a day and shows **Update to Shotate x.y.z…** at the top of its menu
+when there is one. Click it, or **Check for Updates…**, and it installs itself and restarts. Your
+settings, shortcuts and permission stay as they are.
+
+Pick a channel in **Settings › General › Updates**:
+
+- **Stable** (the default) gets tested releases.
+- **Nightly** is built every day from the newest code. It gets fixes first and may have rough
+  edges. Switch back to Stable any time.
+
+On macOS an update is built from source on your Mac, like the install command, so macOS keeps the
+Screen Recording permission. On Windows and Linux the installer is checked against its SHA-256
+before it runs. To install a channel directly, or to update from a terminal, run the install
+command again (add `-s -- --nightly` after `bash` for nightly, or set
+`$env:SHOTATE_CHANNEL = "nightly"` in PowerShell first). How it works: [docs/updates.md](docs/updates.md).
 
 ## Permissions
 
@@ -139,6 +158,8 @@ carry over the first time Shotate starts.
   "saveFolder": "~/Pictures/Screenshots",
   "copyOnCapture": true,
   "showMenuBarIcon": true,
+  "updateChannel": "stable",
+  "checkForUpdates": true,
   "shortcuts": {
     "captureArea": "cmd+shift+s",
     "captureWindow": "ctrl+shift+2",
@@ -156,11 +177,13 @@ carry over the first time Shotate starts.
 
 | Key | What it does |
 | --- | --- |
-| `saveFolder` | Where captures are saved. `~` works. |
+| `saveFolder` | Where captures are saved. `~` works. Settings offers Pictures › Screenshots, Desktop, Downloads or any folder. |
 | `copyOnCapture` | Put every capture on the clipboard as soon as it's taken. |
 | `showMenuBarIcon` | Show the menu bar icon. URLs and shortcuts work either way. |
 | `shortcuts` | Global shortcuts for `captureArea`, `captureWindow` and `captureScreen`. An empty string turns one off. |
 | `commands` | Extra global shortcuts that run a shell command in your login shell. |
+| `updateChannel` | `stable` or `nightly`. Leave it out to follow the build you installed. |
+| `checkForUpdates` | Check GitHub for updates once a day. `false` means Shotate makes no network request at all. |
 | `toolKeys` | The single letter that picks each editor tool. A letter already used by another tool is ignored, so every tool stays reachable. |
 
 Shortcuts are written as modifiers plus one key: `cmd`, `shift`, `option` (or `alt`), `ctrl`, and a
@@ -180,6 +203,7 @@ open "shotate://open?path=$HOME/Desktop/shot.png"
 open shotate://settings
 open shotate://config             # open the config file
 open shotate://reload             # reload it now
+open shotate://update             # check for updates now
 ```
 
 On Windows and Linux, the same actions are command-line flags. A second launch hands them to the

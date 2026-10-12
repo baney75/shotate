@@ -1,7 +1,14 @@
 # Security
 
-Shotate has no network code. It reads and writes images on your Mac, runs the system
-`screencapture` tool, and runs shell commands only for shortcuts you configure yourself.
+Shotate makes one kind of network request: the update check, an HTTPS download of a small
+`manifest.json` from the project's GitHub releases, with no identifiers, once a day and when you ask.
+Turn it off with `"checkForUpdates": false` and Shotate makes none. Otherwise it reads and writes
+images on your computer, captures the screen, and runs shell commands only for shortcuts you
+configure yourself.
+
+Updates are verified before they run: on Windows and Linux the installer's SHA-256 must match the
+manifest; on macOS the update is built from the release's tagged source (or, on the nightly
+channel, the exact commit), the same way the install command builds it.
 
 ## Reporting a vulnerability
 

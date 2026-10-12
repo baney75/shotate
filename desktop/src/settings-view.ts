@@ -6,7 +6,10 @@ import { api, onEvent } from "./api";
 import { credits, wireLinks } from "./credits";
 import { icon } from "./icons";
 import { TOOLS } from "./core/model";
-import { resolveToolKeys, shortcutLabel, type Config } from "./core/settings";
+import {
+  buildLabel, folderChoice, resolveToolKeys, shortcutLabel, updateStatusLine,
+  type Config, type FolderPreset, type UpdateStatus,
+} from "./core/settings";
 
 const PANES = [["general", "General", "gear"], ["shortcuts", "Shortcuts", "keyboard"],
                ["commands", "Commands", "terminal"], ["advanced", "Advanced", "sliders"]] as const;
@@ -19,11 +22,18 @@ const row = (ic: string, title: string, detail: string, controls: string) => `
   <div class="row">${ic ? icon(ic) : ""}<div class="label"><b>${title}</b>${detail ? `<span>${detail}</span>` : ""}</div>
   <div class="controls">${controls}</div></div>`;
 
+const FOLDER_NAMES: Record<FolderPreset["id"], string> = { pictures: "Pictures › Screenshots", desktop: "Desktop", downloads: "Downloads" };
+
+const CHANNELS = [["stable", "Stable — recommended"],
+                  ["nightly", "Nightly — built daily from the newest code, may have rough edges"]] as const;
+
 const toggle = (id: string, on: boolean, label: string) =>
   `<button class="switch" role="switch" id="${id}" aria-checked="${on}" aria-label="${label}"></button>`;
 
 export async function startSettings(root: HTMLElement) {
   let config = await api.getConfig();
+  const presets = await api.folderPresets();
+  let updates = await api.updateStatus();
   let pane: string = PANES[0][0];
   // Command rows being edited, including half-filled ones that aren't saved yet.
   let drafts: { keys: string; command: string }[] = Object.entries(config.commands).sort().map(([keys, command]) => ({ keys, command }));
@@ -64,10 +74,15 @@ export async function startSettings(root: HTMLElement) {
     switch (pane) {
       case "general": {
         const login = await api.autostart();
+        const choice = folderChoice(config.saveFolder, presets);
+        const folders = presets.map((f) =>
+          `<option value="${f.id}"${choice === f.id ? " selected" : ""}>${FOLDER_NAMES[f.id]}</option>`).join("");
         return `
           <div class="card">
-            ${row("save", "Save captures to", esc(config.saveFolder),
-                  `<button class="btn" id="browse">Browse…</button>`)}
+            ${row("save", "Save screenshots to", esc(config.saveFolder),
+                  `<select id="folder" aria-label="Save screenshots to">${folders}
+                     ${choice === "other" ? `<option value="current" selected>${esc(config.saveFolder)}</option>` : ""}
+                     <option value="other">Other folder…</option></select>`)}
             ${row("path", "Copy every capture to the clipboard", "Paste it anywhere the moment you take it.",
                   toggle("copy", config.copyOnCapture, "Copy every capture to the clipboard"))}
           </div>
@@ -78,6 +93,15 @@ export async function startSettings(root: HTMLElement) {
                   toggle("login", login, "Open Shotate when I log in"))}
           </div>
           <p class="note">Captures are saved and copied the moment you take them. Opened images are never overwritten; edits go to a copy beside them.</p>
+          <div class="section">Updates</div>
+          <div class="card">
+            ${row("check", "Update channel", "Stable gets tested releases. Nightly gets the newest code every day.",
+                  `<select id="channel" aria-label="Update channel">${CHANNELS.map(([id, label]) =>
+                    `<option value="${id}"${updates.channel === id ? " selected" : ""}>${label}</option>`).join("")}</select>`)}
+            ${row("path", "Check for updates automatically", "Once a day, one request to GitHub. Nothing about you is sent.",
+                  toggle("auto-update", config.checkForUpdates, "Check for updates automatically"))}
+            <div id="update-row">${updateRow()}</div>
+          </div>
           ${credits()}`;
       }
       case "shortcuts": {
@@ -118,6 +142,43 @@ export async function startSettings(root: HTMLElement) {
     }
   };
 
+  /** The version, the status line, and Check Now / Install Update. */
+  const updateRow = () => {
+    const a = updates.available;
+    const busy = updates.checking || updates.installing;
+    const status = esc(updateStatusLine(updates, Date.now()));
+    return row("", esc(buildLabel(updates.current)), `<span id="update-status" role="status">${status}</span>`, `
+      ${a ? `<a class="link" href="${esc(a.notes)}" data-url="${esc(a.notes)}">What's new</a>
+             <button class="primary" id="install-update"${busy ? " disabled" : ""}>Install Update</button>` : ""}
+      <button class="btn" id="check-now"${busy ? " disabled" : ""}>Check Now</button>`);
+  };
+
+  /** Redraws only the update row, so a status change never steals focus elsewhere. */
+  const refreshUpdates = (fresh: UpdateStatus) => {
+    updates = fresh;
+    const slot = root.querySelector<HTMLElement>("#update-row");
+    if (!slot) return;
+    slot.innerHTML = updateRow();
+    wireUpdates();
+    wireLinks(slot);
+  };
+
+  const wireUpdates = () => {
+    root.querySelector("#check-now")?.addEventListener("click", async () => {
+      refreshUpdates({ ...updates, checking: true });
+      refreshUpdates(await api.checkUpdates());
+    });
+    root.querySelector("#install-update")?.addEventListener("click", async () => {
+      refreshUpdates({ ...updates, installing: true });
+      try {
+        await api.installUpdate();
+      } catch (err) {
+        alert(String(err));
+      }
+      refreshUpdates(await api.updateStatus());
+    });
+  };
+
   const cmdRow = (keys: string, command: string, i: number) => `
     <div class="row" data-row="${i}">
       <button class="btn recorder" data-cmdkey="${i}">${esc(shortcutLabel(keys)) || "Set shortcut"}</button>
@@ -142,10 +203,24 @@ export async function startSettings(root: HTMLElement) {
 
   const wire = () => {
     const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel);
-    $("#browse")?.addEventListener("click", async () => {
-      const folder = await api.pickFolder();
-      if (folder) { await save((c) => { c.saveFolder = folder; }); await render(); }
+    $<HTMLSelectElement>("#folder")?.addEventListener("change", async (e) => {
+      // "current" is the custom folder already in use; "other" always opens the picker, even when a
+      // custom folder is set, because it is a separate option from that folder.
+      const id = (e.target as HTMLSelectElement).value;
+      if (id === "current") return;
+      const preset = presets.find((f) => f.id === id);
+      const folder = preset ? preset.path : await api.pickFolder();
+      if (folder) await save((c) => { c.saveFolder = folder; });
+      await render();  // a cancelled picker puts the select back on the folder in use
     });
+    $<HTMLSelectElement>("#channel")?.addEventListener("change", async (e) => {
+      const channel = (e.target as HTMLSelectElement).value as Config["updateChannel"];
+      await save((c) => { c.updateChannel = channel; });
+      // Automatic checks off means no request unless asked: the user can press Check Now.
+      refreshUpdates(config.checkForUpdates ? await api.checkUpdates() : await api.updateStatus());
+    });
+    flip("auto-update", (on) => save((c) => { c.checkForUpdates = on; }));
+    wireUpdates();
     flip("copy", (on) => save((c) => { c.copyOnCapture = on; }));
     flip("tray", (on) => save((c) => { c.showMenuBarIcon = on; }));
     flip("login", (on) => api.autostart(on));
@@ -218,6 +293,12 @@ export async function startSettings(root: HTMLElement) {
     drafts = Object.entries(config.commands).sort().map(([keys, command]) => ({ keys, command }));
     await render();
   });
+  await onEvent("update-status", async () => refreshUpdates(await api.updateStatus()));
+  // Keeps "Checked 3 minutes ago" current.
+  setInterval(() => {
+    const line = root.querySelector("#update-status");
+    if (line) line.textContent = updateStatusLine(updates, Date.now());
+  }, 30_000);
   window.addEventListener("beforeunload", () => stopRecording?.());
   await render();
 }

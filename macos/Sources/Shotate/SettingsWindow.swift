@@ -130,10 +130,22 @@ final class GeneralPane: SettingsPane {
     private let permissionIcon = NSImageView()
     private let permissionLabel = NSTextField(labelWithString: "")
     private let permissionButton = NSButton(title: "Set Up…", target: nil, action: nil)
-    private let folder = NSPathControl()
+    private let folderMenu = NSPopUpButton()
     private let copyBox = NSButton(checkboxWithTitle: "Copy every capture to the clipboard", target: nil, action: nil)
     private let menuBox = NSButton(checkboxWithTitle: "Show Shotate in the menu bar", target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
+    private let channelMenu = NSPopUpButton()
+    private let autoUpdateBox = NSButton(checkboxWithTitle: "Check for updates automatically", target: nil, action: nil)
+    private let checkButton = NSButton(title: "Check Now", target: nil, action: nil)
+    private let installButton = NSButton(title: "Install Update", target: nil, action: nil)
+    private let updateStatus = NSTextField(wrappingLabelWithString: "")
+
+    /// The folders offered by name; anything else shows as its own item.
+    private static let presets: [(String, URL)] = [
+        ("Pictures › Screenshots", Settings.defaultFolder),
+        ("Desktop", FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop", isDirectory: true)),
+        ("Downloads", FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)),
+    ]
 
     init(app: AppDelegate) { super.init(app: app, title: "General", symbol: "gearshape") }
     required init?(coder: NSCoder) { fatalError() }
@@ -145,27 +157,42 @@ final class GeneralPane: SettingsPane {
         let permission = NSStackView(views: [permissionIcon, permissionLabel, permissionButton])
         permission.spacing = 8
 
-        folder.pathStyle = .popUp
-        folder.url = app?.settings.saveFolder
-        folder.target = self
-        folder.action = #selector(folderPicked)
-        folder.delegate = self
-        let choose = NSButton(title: "Choose…", target: self, action: #selector(chooseFolder))
+        folderMenu.target = self
+        folderMenu.action = #selector(folderChosen)
         let show = NSButton(title: "Show", target: self, action: #selector(showFolder))
-        let folderRow = NSStackView(views: [folder, choose, show])
-        folder.widthAnchor.constraint(equalToConstant: 170).isActive = true
+        let folderRow = NSStackView(views: [folderMenu, show])
+        folderMenu.widthAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
 
-        for b in [copyBox, menuBox, loginBox] { b.target = self; b.action = #selector(toggled(_:)) }
+        for b in [copyBox, menuBox, loginBox, autoUpdateBox] { b.target = self; b.action = #selector(toggled(_:)) }
         let options = NSStackView(views: [copyBox, menuBox, loginBox])
         options.orientation = .vertical
         options.alignment = .leading
         options.spacing = 8
 
+        channelMenu.addItems(withTitles: ["Stable", "Nightly"])
+        channelMenu.target = self
+        channelMenu.action = #selector(channelChosen)
+        checkButton.target = self
+        checkButton.action = #selector(checkNow)
+        installButton.target = self
+        installButton.action = #selector(install)
+        updateStatus.textColor = .secondaryLabelColor
+        updateStatus.font = .systemFont(ofSize: 11)
+        updateStatus.preferredMaxLayoutWidth = 320
+        let channelRow = NSStackView(views: [channelMenu, checkButton, installButton])
+        let updates = NSStackView(views: [channelRow, autoUpdateBox, updateStatus])
+        updates.orientation = .vertical
+        updates.alignment = .leading
+        updates.spacing = 8
+
         return [
-            form([("Screen Recording:", permission), ("Save captures to:", folderRow), ("Options:", options)]),
+            form([("Screen Recording:", permission), ("Save captures to:", folderRow), ("Options:", options),
+                  ("Updates:", updates)]),
             separator(),
-            note("Captures are saved and copied the moment you take them. Opened images are never "
-                 + "overwritten; edits go to a copy beside them."),
+            note("Stable gets tested releases. Nightly is built every day from the newest code and may have "
+                 + "rough edges; switch back any time. Checking asks GitHub for one small file and sends "
+                 + "nothing about you. Captures are saved and copied the moment you take them, and opened "
+                 + "images are never overwritten."),
             separator(),
             Credits.label(),
         ]
@@ -179,10 +206,44 @@ final class GeneralPane: SettingsPane {
         permissionIcon.contentTintColor = granted ? .systemGreen : .systemOrange
         permissionLabel.stringValue = granted ? "Allowed" : "Off: Shotate can't capture yet"
         permissionButton.isHidden = granted
-        folder.url = s.saveFolder
+        reloadFolderMenu(s.saveFolder)
         copyBox.state = s.copyOnCapture ? .on : .off
         menuBox.state = s.showMenuBarIcon ? .on : .off
         loginBox.state = (app?.launchAtLogin ?? false) ? .on : .off
+        if let updater = app?.updater {
+            channelMenu.selectItem(at: updater.channel == "nightly" ? 1 : 0)
+            autoUpdateBox.state = s.checkForUpdates ? .on : .off
+            updateStatus.stringValue = updater.statusText
+            installButton.isHidden = updater.available == nil
+            checkButton.isEnabled = updater.state != .checking && updater.state != .installing
+        }
+    }
+
+    /// The presets, the current folder if it is none of them, and "Other Folder…".
+    private func reloadFolderMenu(_ current: URL) {
+        folderMenu.removeAllItems()
+        func add(_ title: String, _ url: URL?) {
+            folderMenu.addItem(withTitle: title)
+            folderMenu.lastItem?.representedObject = url
+            if let url {
+                let icon = NSWorkspace.shared.icon(forFile: url.path)
+                icon.size = NSSize(width: 16, height: 16)
+                folderMenu.lastItem?.image = icon
+            }
+        }
+        let currentPath = current.standardizedFileURL.path
+        for (title, url) in Self.presets { add(title, url) }
+        if !Self.presets.contains(where: { $0.1.standardizedFileURL.path == currentPath }) {
+            folderMenu.menu?.addItem(.separator())
+            add(FileManager.default.displayName(atPath: currentPath), current)
+        }
+        folderMenu.menu?.addItem(.separator())
+        add("Other Folder…", nil)
+        let index = folderMenu.itemArray.firstIndex {
+            ($0.representedObject as? URL)?.standardizedFileURL.path == currentPath
+        }
+        folderMenu.selectItem(at: index ?? 0)
+        folderMenu.toolTip = (currentPath as NSString).abbreviatingWithTildeInPath
     }
 
     @objc private func setUp() { app?.showWelcome() }
@@ -191,16 +252,17 @@ final class GeneralPane: SettingsPane {
         switch b {
         case loginBox: app?.launchAtLogin = b.state == .on
         case copyBox: apply { $0.copyOnCapture = b.state == .on }
+        case autoUpdateBox: apply { $0.checkForUpdates = b.state == .on }
         default: apply { $0.showMenuBarIcon = b.state == .on }
         }
         reload()
     }
 
-    @objc private func folderPicked() {
-        if let url = folder.clickedPathItem?.url { setFolder(url) }
+    @objc private func folderChosen() {
+        if let url = folderMenu.selectedItem?.representedObject as? URL { setFolder(url) } else { chooseFolder() }
     }
 
-    @objc private func chooseFolder() {
+    private func chooseFolder() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -208,7 +270,7 @@ final class GeneralPane: SettingsPane {
         panel.directoryURL = app?.settings.saveFolder
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] r in
-            if r == .OK, let url = panel.url { self?.setFolder(url) }
+            if r == .OK, let url = panel.url { self?.setFolder(url) } else { self?.reload() }
         }
     }
 
@@ -218,15 +280,14 @@ final class GeneralPane: SettingsPane {
     }
 
     @objc private func showFolder() { app?.openFolder() }
-}
 
-extension GeneralPane: NSPathControlDelegate {
-    func pathControl(_ pathControl: NSPathControl, willDisplay openPanel: NSOpenPanel) {
-        openPanel.canChooseDirectories = true
-        openPanel.canChooseFiles = false
-        openPanel.canCreateDirectories = true
+    @objc private func channelChosen() {
+        let channel = channelMenu.indexOfSelectedItem == 1 ? "nightly" : "stable"
+        apply { $0.updateChannel = channel }
     }
-    func pathControl(_ pathControl: NSPathControl, willPopUp menu: NSMenu) {}
+
+    @objc private func checkNow() { app?.checkForUpdates() }
+    @objc private func install() { app?.installUpdate() }
 }
 
 // MARK: - Shortcuts

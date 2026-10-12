@@ -19,6 +19,12 @@ pub struct Config {
     pub shortcuts: BTreeMap<String, String>,
     pub commands: BTreeMap<String, String>,
     pub tool_keys: BTreeMap<String, String>,
+    /// "stable" or "nightly". Absent means the channel this build came from, and stays absent on
+    /// save so a later install from the other channel still follows its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_channel: Option<String>,
+    /// False means Shotate never checks for updates on its own (Check Now still works).
+    pub check_for_updates: bool,
 }
 
 impl Default for Config {
@@ -34,6 +40,8 @@ impl Default for Config {
             shortcuts,
             commands: BTreeMap::new(),
             tool_keys: BTreeMap::new(),
+            update_channel: None,
+            check_for_updates: true,
         };
         c.shortcuts
             .insert("captureArea".into(), "ctrl+shift+s".into());
@@ -42,13 +50,25 @@ impl Default for Config {
 }
 
 fn default_folder() -> String {
-    let pictures = dirs::picture_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("Pictures"));
-    tilde(&pictures.join("Screenshots"))
+    folder_presets()[0].1.clone()
+}
+
+/// The save folders Settings offers by name, written the way the config file stores them:
+/// Pictures › Screenshots (the default), Desktop and Downloads.
+pub fn folder_presets() -> [(&'static str, String); 3] {
+    let home = dirs::home_dir().unwrap_or_default();
+    let pictures = dirs::picture_dir().unwrap_or_else(|| home.join("Pictures"));
+    let desktop = dirs::desktop_dir().unwrap_or_else(|| home.join("Desktop"));
+    let downloads = dirs::download_dir().unwrap_or_else(|| home.join("Downloads"));
+    [
+        ("pictures", tilde(&pictures.join("Screenshots"))),
+        ("desktop", tilde(&desktop)),
+        ("downloads", tilde(&downloads)),
+    ]
 }
 
 /// Writes paths under the home folder as "~/…", the way people type them.
-fn tilde(p: &Path) -> String {
+pub fn tilde(p: &Path) -> String {
     match dirs::home_dir().and_then(|h| p.strip_prefix(&h).ok().map(|r| r.to_path_buf())) {
         Some(rest) => format!("~/{}", rest.to_string_lossy().replace('\\', "/")),
         None => p.to_string_lossy().into_owned(),
@@ -156,6 +176,10 @@ impl Config {
             .retain(|k, v| accelerator(k).is_some() && !v.trim().is_empty());
         if self.save_folder.trim().is_empty() {
             self.save_folder = default_folder();
+        }
+        if let Some(ch) = &self.update_channel {
+            let ch = ch.trim().to_lowercase();
+            self.update_channel = matches!(ch.as_str(), "stable" | "nightly").then_some(ch);
         }
     }
 
@@ -296,6 +320,58 @@ mod tests {
         assert!(load(&file).is_err());
         assert_eq!(load(&dir.join("missing.json")).unwrap(), None);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn update_keys_round_trip_and_stay_absent_by_default() {
+        let dir = std::env::temp_dir().join(format!("shotate-upd-{}", std::process::id()));
+        let file = dir.join("config.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&file, "{}").unwrap();
+        let c = load(&file).unwrap().unwrap();
+        assert_eq!(
+            c.update_channel, None,
+            "absent means the build's own channel"
+        );
+        assert!(c.check_for_updates);
+        save(&file, &c).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            !text.contains("updateChannel"),
+            "an absent channel stays absent"
+        );
+        assert!(text.contains(r#""checkForUpdates": true"#));
+
+        std::fs::write(
+            &file,
+            r#"{"updateChannel": "Nightly", "checkForUpdates": false}"#,
+        )
+        .unwrap();
+        let c = load(&file).unwrap().unwrap();
+        assert_eq!(c.update_channel.as_deref(), Some("nightly"));
+        assert!(!c.check_for_updates);
+        save(&file, &c).unwrap();
+        assert_eq!(load(&file).unwrap().unwrap(), c);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(r#""updateChannel": "nightly""#));
+
+        std::fs::write(&file, r#"{"updateChannel": "beta"}"#).unwrap();
+        let c = load(&file).unwrap().unwrap();
+        assert_eq!(c.update_channel, None, "unknown channels are ignored");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn folder_presets_default_to_pictures_screenshots() {
+        let presets = folder_presets();
+        assert_eq!(
+            presets.clone().map(|p| p.0),
+            ["pictures", "desktop", "downloads"]
+        );
+        assert_eq!(Config::default().save_folder, presets[0].1);
+        assert!(presets[0].1.ends_with("Screenshots"));
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(tilde(&home.join("Downloads")), "~/Downloads");
     }
 
     #[test]

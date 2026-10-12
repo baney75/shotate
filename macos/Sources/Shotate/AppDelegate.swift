@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Shortcuts that registered (or failed) last time, so a conflict is reported once, not on every change.
     private var lastShortcuts: [String: String] = [:]
     var settings = Settings()
+    private(set) lazy var updater = Updater { [weak self] in self?.settings ?? Settings() }
 
     func applicationDidFinishLaunching(_ n: Notification) {
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
@@ -35,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.normalize()
         applySettings(save: !FileManager.default.fileExists(atPath: Settings.configURL.path))
         watchConfig()
+        updater.onChange = { [weak self] in self?.settingsWindow?.reload() }
+        updater.start()
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--open"), i + 1 < args.count { open(URL(fileURLWithPath: args[i + 1])) }
         if args.contains("--capture") { capture(.area) }
@@ -61,7 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// shotate://capture, shotate://capture/window, shotate://capture/screen, shotate://open?path=/x.png,
-    /// shotate://settings, shotate://config (open the config file), shotate://reload, shotate://welcome
+    /// shotate://settings, shotate://config (open the config file), shotate://reload, shotate://welcome,
+    /// shotate://update (check for updates now)
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URLComponents(string: s) else { return }
@@ -78,6 +82,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "config": openConfig()
         case "reload": reloadConfig()
         case "relaunch": ScreenRecording.relaunch()
+        case "update", "check-for-updates":
+            // Any web page can open these links, so they never install anything, and with update
+            // checks off they only open Settings.
+            settings.checkForUpdates ? checkForUpdates() : showSettings()
+        case "update-failed":
+            let token = url.queryItems?.first { $0.name == "token" }?.value
+            guard updater.state == .installing else { break }
+            updater.installFailed(token: token)
+            if case .failed = updater.state { showUpdateResult() }
         default: break
         }
     }
@@ -162,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Applies settings to the running app; with `save`, also writes the config file.
     func applySettings(save: Bool = true) {
+        defer { updater.settingsChanged() }
         if save, configBroken {
             Alerts.show("Fix the config file first",
                         "\((Settings.configURL.path as NSString).abbreviatingWithTildeInPath) has an error, so Shotate "
@@ -311,6 +325,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(fix)
             menu.addItem(.separator())
         }
+        if let offer = updater.available {
+            let update = NSMenuItem(title: Updater.menuTitle(offer), action: #selector(installUpdate), keyEquivalent: "")
+            update.target = self
+            update.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: nil)
+            menu.addItem(update)
+            menu.addItem(.separator())
+        }
         func item(_ title: String, _ action: Selector, shortcut name: String) -> NSMenuItem {
             let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
             if let s = settings.shortcuts[name].flatMap(Shortcut.init), s.key.count == 1 {
@@ -330,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","),
                   NSMenuItem(title: "Edit Config File…", action: #selector(openConfig), keyEquivalent: ""),
                   NSMenuItem(title: "About Shotate", action: #selector(showAbout), keyEquivalent: ""),
+                  NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: ""),
                   NSMenuItem(title: "Quit Shotate", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
             if i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
             menu.addItem(i)
@@ -345,6 +367,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func showAbout() { Credits.showAbout() }
+
+    // MARK: Updates
+
+    /// Checks now and says what it found, with the choice to install.
+    @objc func checkForUpdates() {
+        updater.check(manual: true) { [weak self] _ in self?.showUpdateResult() }
+    }
+
+    @objc func installUpdate() {
+        guard let offer = updater.available else { return checkForUpdates() }
+        confirmInstall(offer)
+    }
+
+    func showUpdateResult() {
+        NSApp.activate(ignoringOtherApps: true)
+        switch updater.state {
+        case let .available(offer):
+            confirmInstall(offer)
+        case let .failed(why):
+            Alerts.show("Shotate couldn't update", why)
+        case .installing:
+            Alerts.show("Shotate is updating", "The update is building and Shotate restarts by itself when it's done.")
+        case .idle, .checking:
+            break
+        case .upToDate:
+            let a = NSAlert()
+            a.messageText = "Shotate is up to date"
+            a.informativeText = "You have Shotate \(updater.build.version) on the \(updater.channel) channel. "
+                + "Change channels in Settings."
+            a.runModal()
+        }
+    }
+
+    private func confirmInstall(_ offer: Updates.Offer) {
+        let m = offer.manifest
+        let a = NSAlert()
+        a.icon = NSApp.applicationIconImage
+        switch offer {
+        case .update:
+            a.messageText = "\(Updater.name(of: m)) is available"
+            a.informativeText = "You have \(updater.build.version). Shotate builds the update on this Mac, "
+                + "which takes a minute or two, then restarts. Your settings and permission stay as they are."
+        case .switchToStable:
+            a.messageText = "Switch to \(Updater.name(of: m))?"
+            a.informativeText = "You're on a nightly build. This installs the newest stable release, "
+                + "which may be a little older. Your settings and permission stay as they are."
+        }
+        a.addButton(withTitle: "Install Update")
+        a.addButton(withTitle: "Later")
+        a.addButton(withTitle: "What's New")
+        switch a.runModal() {
+        case .alertFirstButtonReturn: updater.install(offer)
+        case .alertThirdButtonReturn: NSWorkspace.shared.open(m.notes)
+        default: break
+        }
+    }
 
     @objc func showWelcome() {
         if welcomeWindow == nil { welcomeWindow = WelcomeWindowController(app: self) }
