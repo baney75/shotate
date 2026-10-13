@@ -3,13 +3,20 @@
 ## Unreleased
 
 ### Changed
+- **Setup explains every permission.** A Permissions section says what Screen Recording (required)
+  and Accessibility (optional, only for choosing what to paste) are used for, what Shotate never
+  does with them, and whether each is allowed right now, with a button to allow it. It also says
+  plainly that screenshots never leave your Mac and that Shotate only goes online on its own to check
+  for updates, at launch and once a day. The capture shortcut can be changed right there too.
 - The editor opens on Select instead of Arrow, so a click on a new screenshot never drops an
   arrow by accident. Press A for arrows.
 
 ### Added
-- **Choose which screenshot to paste** (macOS, off by default). Turn it on in setup or Settings.
-  After two or more screenshots in the last 15 minutes, ⌘V shows them in a menu at the pointer,
-  newest first and numbered; pick one and Shotate pastes it. Anything else you copy pastes as
+- **Choose which screenshot to paste** (macOS, off by default). Turn it on in setup, Settings or
+  the menu bar menu. Take screenshots within 3 seconds of each other and, for the next minute,
+  ⌘V opens a panel of them, newest first and numbered; click one, press its number, or use the
+  arrow keys and Return, and Shotate pastes it where you were typing. A switch in the panel
+  turns it off. Anything else you copy pastes as
   usual. Shotate types the paste for you, so turning it on asks for Accessibility.
 - The editor's drag-out button shows an open hand when you point at it, so it's clear the
   screenshot can be dragged into another app.

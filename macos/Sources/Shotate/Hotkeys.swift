@@ -57,8 +57,9 @@ final class Hotkeys {
                 var dead: UInt32 = 0
                 var chars = [UniChar](repeating: 0, count: 4)
                 var length = 0
-                let status = UCKeyTranslate(layout, UInt16(code), UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
-                                            OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars)
+                // With ⌘ held, as the shortcut is pressed: "Dvorak – QWERTY ⌘" is QWERTY only then.
+                let status = UCKeyTranslate(layout, UInt16(code), UInt16(kUCKeyActionDown), UInt32((cmdKey >> 8) & 0xFF),
+                                            UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars)
                 if status == noErr, length == 1, String(utf16CodeUnits: chars, count: 1) == character { return code }
             }
             return fallback

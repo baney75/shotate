@@ -6,12 +6,19 @@ public struct PasteChoices: Equatable {
     public struct Entry: Equatable {
         /// The file the image is saved as; it names the entry.
         public let file: URL
-        public let copiedAt: Date
+        /// When it was last put on the clipboard; it drops off `maxAge` after that.
+        public var copiedAt: Date
+        /// When it first joined: the 3-second rule compares screenshots by when they were taken.
+        public let takenAt: Date
         public var pasted = false
     }
 
-    /// Older screenshots drop off: the menu is for the ones just taken.
-    public static let maxAge: TimeInterval = 15 * 60
+    /// Older screenshots drop off after a minute: the choice is for the ones just taken, and after
+    /// that ⌘V pastes the latest as usual.
+    public static let maxAge: TimeInterval = 60
+    /// Screenshots count as one batch to choose from only when each comes within this long of
+    /// the one before; one taken later starts a new batch.
+    public static let burstGap: TimeInterval = 3
     /// One per number key.
     public static let maxCount = 9
 
@@ -21,8 +28,16 @@ public struct PasteChoices: Equatable {
 
     /// Shotate just put this screenshot on the clipboard.
     public mutating func copied(_ file: URL, at date: Date = Date()) {
-        entries.removeAll { $0.file == file }
-        entries.insert(Entry(file: file, copiedAt: date), at: 0)
+        // Copying one already here again (Return in its editor) only moves it to the front; a new
+        // screenshot more than `burstGap` after the last one starts a new batch.
+        if let i = entries.firstIndex(where: { $0.file == file }) {
+            var e = entries.remove(at: i)
+            e.copiedAt = date
+            entries.insert(e, at: 0)
+            return
+        }
+        if let newest = entries.map(\.takenAt).max(), date.timeIntervalSince(newest) > Self.burstGap { entries.removeAll() }
+        entries.insert(Entry(file: file, copiedAt: date, takenAt: date), at: 0)
         if entries.count > Self.maxCount { entries.removeLast(entries.count - Self.maxCount) }
     }
 

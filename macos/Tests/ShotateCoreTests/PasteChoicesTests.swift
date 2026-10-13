@@ -13,6 +13,20 @@ final class PasteChoicesTests: XCTestCase {
         XCTAssertEqual(p.entries.map(\.file), [a, b])
     }
 
+    func testOnlyScreenshotsWithinThreeSecondsOfEachOtherAreAChoice() {
+        var p = PasteChoices()
+        p.copied(a, at: t0)
+        p.copied(b, at: t0 + 2.5)
+        p.copied(c, at: t0 + 5)
+        XCTAssertEqual(p.entries.map(\.file), [c, b, a], "each within 3 s of the one before")
+        p.copied(b, at: t0 + 20)
+        XCTAssertEqual(p.entries.map(\.file), [b, c, a], "copying one again from its editor keeps the batch")
+        let d = URL(fileURLWithPath: "/tmp/d.png")
+        p.copied(d, at: t0 + 24)
+        XCTAssertEqual(p.entries.map(\.file), [d], "a new screenshot 4 s later starts over")
+        XCTAssertFalse(p.shouldAsk(enabled: true, clipboardIsOurs: true))
+    }
+
     func testAsksOnlyWithTwoChoicesTheSettingOnAndOurClipboard() {
         var p = PasteChoices()
         p.copied(a, at: t0)
@@ -26,26 +40,44 @@ final class PasteChoicesTests: XCTestCase {
     func testOldScreenshotsAndDeletedFilesDropOff() {
         var p = PasteChoices()
         p.copied(a, at: t0)
-        p.copied(b, at: t0 + PasteChoices.maxAge - 10)
-        p.copied(c, at: t0 + PasteChoices.maxAge - 5)
-        p.prune(now: t0 + PasteChoices.maxAge + 1) { $0 != c }
-        XCTAssertEqual(p.entries.map(\.file), [b])
+        p.copied(b, at: t0 + 2)
+        p.copied(c, at: t0 + 4)
+        p.prune(now: t0 + 2 + PasteChoices.maxAge - 1) { $0 != c }
+        XCTAssertEqual(p.entries.map(\.file), [b], "a too old, c deleted")
+    }
+
+    func testTheChoiceClearsAfterAMinute() {
+        var p = PasteChoices()
+        p.copied(a, at: t0)
+        p.copied(b, at: t0 + 1)
+        p.prune(now: t0 + 59) { _ in true }
+        XCTAssertTrue(p.shouldAsk(enabled: true, clipboardIsOurs: true), "still a choice within the minute")
+        p.prune(now: t0 + 62) { _ in true }
+        XCTAssertFalse(p.shouldAsk(enabled: true, clipboardIsOurs: true), "after a minute ⌘V pastes as usual")
     }
 
     func testKeepsNineAtMost() {
         var p = PasteChoices()
-        for i in 0..<12 { p.copied(URL(fileURLWithPath: "/tmp/\(i).png"), at: t0 + Double(i)) }
+        for i in 0..<12 { p.copied(URL(fileURLWithPath: "/tmp/\(i).png"), at: t0 + Double(i) * 2) }
         XCTAssertEqual(p.entries.count, PasteChoices.maxCount)
         XCTAssertEqual(p.entries.first?.file.lastPathComponent, "11.png")
     }
 
-    func testPastedIsMarkedAndACopyAgainClearsIt() {
+    func testACopyAgainKeepsItsPastedMark() {
         var p = PasteChoices()
         p.copied(a, at: t0)
         p.markPasted(a)
-        XCTAssertTrue(p.entries[0].pasted)
         p.copied(a, at: t0 + 1)
-        XCTAssertFalse(p.entries[0].pasted)
+        XCTAssertTrue(p.entries[0].pasted)
+    }
+
+    func testANewScreenshotAfterACopyAgainIsJudgedByWhenTheOthersWereTaken() {
+        var p = PasteChoices()
+        p.copied(a, at: t0)
+        p.copied(b, at: t0 + 2)
+        p.copied(a, at: t0 + 30)  // Return in its editor, much later
+        p.copied(c, at: t0 + 31)  // taken 29 s after b: a new batch
+        XCTAssertEqual(p.entries.map(\.file), [c])
     }
 }
 
