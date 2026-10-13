@@ -8,8 +8,8 @@
 
 ### Added
 - **Choose which screenshot to paste** (macOS, off by default). Turn it on in setup or Settings.
-  After two or more screenshots in the last 15 minutes, ⌘V shows them in a menu at the pointer,
-  newest first and numbered; pick one and Shotate pastes it. Anything else you copy pastes as
+  After two or more screenshots in the last 15 minutes, ⌘V opens a panel of them, newest first
+  and numbered; pick one with the arrow keys, its number or a click, and Shotate pastes it. Anything else you copy pastes as
   usual. Shotate types the paste for you, so turning it on asks for Accessibility.
 - The editor's drag-out button shows an open hand when you point at it, so it's clear the
   screenshot can be dragged into another app.
