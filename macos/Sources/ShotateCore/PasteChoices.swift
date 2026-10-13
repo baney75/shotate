@@ -10,8 +10,9 @@ public struct PasteChoices: Equatable {
         public var pasted = false
     }
 
-    /// Older screenshots drop off: the menu is for the ones just taken.
-    public static let maxAge: TimeInterval = 15 * 60
+    /// Older screenshots drop off after a minute: the choice is for the ones just taken, and after
+    /// that ⌘V pastes the latest as usual.
+    public static let maxAge: TimeInterval = 60
     /// One per number key.
     public static let maxCount = 9
 

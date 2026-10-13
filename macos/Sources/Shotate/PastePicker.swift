@@ -186,7 +186,7 @@ final class PasteChooser {
         panel = ChooserPanel()
         model.choose = { [weak self] i in self?.choose(i) }
         panel.onKey = { [weak self] e in self?.key(e) ?? false }
-        let host = NSHostingView(rootView: ChooserView(model: model))
+        let host = FirstClickHostingView(rootView: ChooserView(model: model))
         host.layoutSubtreeIfNeeded()
         panel.setContentSize(host.fittingSize)
         panel.contentView = host
@@ -251,6 +251,12 @@ final class PasteChooser {
         }
         return true
     }
+}
+
+/// A click on a card picks it at once. Shotate isn't the active app, and without this the first
+/// click would only bring the panel forward.
+private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// Borderless and nonactivating, but able to take keys, as the capture overlay does.

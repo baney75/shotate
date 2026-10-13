@@ -32,6 +32,16 @@ final class PasteChoicesTests: XCTestCase {
         XCTAssertEqual(p.entries.map(\.file), [b])
     }
 
+    func testTheChoiceClearsAfterAMinute() {
+        var p = PasteChoices()
+        p.copied(a, at: t0)
+        p.copied(b, at: t0 + 1)
+        p.prune(now: t0 + 59) { _ in true }
+        XCTAssertTrue(p.shouldAsk(enabled: true, clipboardIsOurs: true), "still a choice within the minute")
+        p.prune(now: t0 + 62) { _ in true }
+        XCTAssertFalse(p.shouldAsk(enabled: true, clipboardIsOurs: true), "after a minute ⌘V pastes as usual")
+    }
+
     func testKeepsNineAtMost() {
         var p = PasteChoices()
         for i in 0..<12 { p.copied(URL(fileURLWithPath: "/tmp/\(i).png"), at: t0 + Double(i)) }

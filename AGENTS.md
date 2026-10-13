@@ -21,4 +21,6 @@ can run a command in their terminal. Ask them to try it, and say "untested live"
   and an `NSMenu` popped up from a background app looked unfinished and wasn't reliable at taking
   keys. Fixed in PR #16: recent screenshots are always remembered, and the chooser is a
   nonactivating key panel like the capture overlay. Live check: turn the option on, take two
-  captures, press ⌘V in a text field, see the panel, press 2, and the second screenshot pastes.
+  captures, press ⌘V in a text field, see the panel, press 2, and the second screenshot pastes;
+  again, and click a card instead. Follow-up from Donovan: a click on a card must paste (the panel
+  accepts the first click), and the choice clears after a minute.
