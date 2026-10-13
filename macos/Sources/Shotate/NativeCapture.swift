@@ -133,6 +133,23 @@ enum NativeCapture {
 
 /// The full-screen chooser over the frozen screens: drag out an area, or (in window mode, or after
 /// Space) click a window. Esc or a right-click cancels.
+/// The window server's switch that lets a background app set the cursor. Private, but unchanged
+/// since Mac OS X 10.5; without it the crosshair waits for the first mouse move.
+enum BackgroundCursor {
+    @_silgen_name("_CGSDefaultConnection") private static func defaultConnection() -> Int32
+    @_silgen_name("CGSSetConnectionProperty")
+    private static func setConnectionProperty(_ cid: Int32, _ target: Int32, _ key: CFString, _ value: CFTypeRef) -> Int32
+
+    private static var allowed = false
+    static func allow() {
+        guard !allowed else { return }
+        let cid = defaultConnection()
+        let err = setConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+        allowed = err == 0
+        if !allowed { NSLog("Shotate: SetsCursorInBackground failed: %d", err) }
+    }
+}
+
 final class Picker {
     enum Choice {
         /// In AppKit global coordinates, within `screen`.
@@ -167,7 +184,18 @@ final class Picker {
         (p.overlays.first { $0.frame.contains(mouse) } ?? p.overlays[0]).makeKey()
         p.hover(at: mouse)
         p.refresh()
+        // Shotate stays in the background while you pick, and macOS ignores a background app's
+        // cursor until the mouse moves, so the pointer stayed an arrow and nothing said to drag.
+        // The window server lets an app opt in to setting it from the background.
+        BackgroundCursor.allow()
         NSCursor.crosshair.set()
+        // The window server puts back its own cursor when the overlay arrives under the pointer;
+        // set it again once the overlay is there.
+        for delay in [0.05, 0.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                if Picker.current === p { NSCursor.crosshair.set() }
+            }
+        }
     }
 
     private init(windows: [(id: CGWindowID, frame: CGRect)], windowMode: Bool, done: @escaping (Choice?) -> Void) {
