@@ -19,8 +19,11 @@ final class PasteChoicesTests: XCTestCase {
         p.copied(b, at: t0 + 2.5)
         p.copied(c, at: t0 + 5)
         XCTAssertEqual(p.entries.map(\.file), [c, b, a], "each within 3 s of the one before")
-        p.copied(a, at: t0 + 9)
-        XCTAssertEqual(p.entries.map(\.file), [a], "4 s later starts over")
+        p.copied(b, at: t0 + 20)
+        XCTAssertEqual(p.entries.map(\.file), [b, c, a], "copying one again from its editor keeps the batch")
+        let d = URL(fileURLWithPath: "/tmp/d.png")
+        p.copied(d, at: t0 + 24)
+        XCTAssertEqual(p.entries.map(\.file), [d], "a new screenshot 4 s later starts over")
         XCTAssertFalse(p.shouldAsk(enabled: true, clipboardIsOurs: true))
     }
 

@@ -24,6 +24,7 @@ final class PastePicker {
     private var choosing = false
     private var timer: Timer?
     private var chooser: PasteChooser?
+    private var askedForAccessibility = false
     /// The app ⌘V was pressed in, which gets the paste whatever is in front by then.
     private var target: NSRunningApplication?
     /// Turns the option off (or on) from the chooser's switch.
@@ -93,7 +94,13 @@ final class PastePicker {
                               size: sizes[e.file].map { "\(Int($0.width)) × \(Int($0.height))" } ?? "", pasted: e.pasted)
         }
         target = NSWorkspace.shared.frontmostApplication
-        let c = PasteChooser(items: items, typesPaste: AXIsProcessTrusted())
+        let trusted = AXIsProcessTrusted()
+        // Pasting into the field needs Accessibility. Ask once per launch, the first time it matters.
+        if !trusted, !askedForAccessibility {
+            askedForAccessibility = true
+            AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        }
+        let c = PasteChooser(items: items, typesPaste: trusted)
         c.onToggle = { [weak self] on in self?.setEnabled(on) }
         c.onChoose = { [weak self] file in self?.chooser = nil; self?.paste(file) }
         c.onCancel = { [weak self] in self?.chooser = nil; self?.update() }
@@ -102,6 +109,7 @@ final class PastePicker {
     }
 
     private func paste(_ file: URL) {
+        NSLog("Shotate: paste chosen %@ target=%@ trusted=%d", file.lastPathComponent, target?.bundleIdentifier ?? "none", AXIsProcessTrusted() ? 1 : 0)
         guard let png = try? Data(contentsOf: file) else { return NSSound.beep() }
         choosing = true
         Output.copy(png: png, fileURL: file)
@@ -118,7 +126,11 @@ final class PastePicker {
         let app = target
         target = nil
         if let app, !app.isActive { app.activate() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { Self.pressCommandV(to: app) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            NSLog("Shotate: paste typing ⌘V into %@ (front %@)", app?.bundleIdentifier ?? "front app",
+                  NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")
+            Self.pressCommandV(to: app)
+        }
     }
 
     /// ⌘V into `app` (its focused field), or into whatever is in front.
@@ -231,6 +243,7 @@ final class PasteChooser {
     func chooseSelected() { choose(model.selected) }
 
     private func choose(_ i: Int) {
+        NSLog("Shotate: chooser pick %d", i + 1)
         guard model.items.indices.contains(i), close() else { return }
         onChoose(model.items[i].id)
     }
@@ -318,13 +331,28 @@ private struct ChooserView: View {
                                       : "Return copies it, then press ⌘V   Esc to cancel")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
+            if !model.typesPaste {
+                // Without Accessibility a pick can only copy. Say so plainly, with the fix one click away.
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+                    Text("Shotate needs Accessibility to paste into the field for you.")
+                        .font(.system(size: 12))
+                    Spacer(minLength: 12)
+                    Button("Allow Pasting…") {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                    }
+                    .controlSize(.small)
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.yellow.opacity(0.12)))
+            }
             // Five to a row, so nine still fit a laptop screen.
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(192), spacing: 12), count: model.columns),
                       alignment: .leading, spacing: 12) {
                 ForEach(Array(model.items.enumerated()), id: \.element.id) { i, item in
                     Card(item: item, selected: i == model.selected)
                         .onHover { if $0 { model.hovered(i) } }
-                        .onTapGesture { model.choose(i) }
+                        .onTapGesture { NSLog("Shotate: chooser click %d", i + 1); model.choose(i) }
                         .accessibilityAction { model.choose(i) }
                         .accessibilityAddTraits(i == model.selected ? .isSelected : [])
                 }

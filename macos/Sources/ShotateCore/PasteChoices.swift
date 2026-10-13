@@ -25,8 +25,11 @@ public struct PasteChoices: Equatable {
 
     /// Shotate just put this screenshot on the clipboard.
     public mutating func copied(_ file: URL, at date: Date = Date()) {
+        // Copying one already here again (Return in its editor) only moves it to the front; a new
+        // screenshot more than `burstGap` after the last one starts a new batch.
+        let again = entries.contains { $0.file == file }
         entries.removeAll { $0.file == file }
-        if let last = entries.first, date.timeIntervalSince(last.copiedAt) > Self.burstGap { entries.removeAll() }
+        if !again, let last = entries.first, date.timeIntervalSince(last.copiedAt) > Self.burstGap { entries.removeAll() }
         entries.insert(Entry(file: file, copiedAt: date), at: 0)
         if entries.count > Self.maxCount { entries.removeLast(entries.count - Self.maxCount) }
     }
