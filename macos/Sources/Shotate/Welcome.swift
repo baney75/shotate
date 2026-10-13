@@ -118,6 +118,18 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let axLabel = NSTextField(wrappingLabelWithString: "")
     private let axStatusIcon = NSImageView()
     private let axAllowButton = NSButton(title: "Allow…", target: nil, action: nil)
+    /// The capture shortcut, changeable right here: click, then press the keys you want.
+    private lazy var shortcutRecorder: ShortcutRecorder = {
+        let r = ShortcutRecorder(value: app?.settings.shortcuts["captureArea"] ?? "")
+        r.onChange = { [weak self] v in
+            guard let app = self?.app else { return }
+            app.settings.shortcuts["captureArea"] = v
+            app.applySettings()
+            self?.refresh()
+        }
+        r.toolTip = "Click, then press the keys you want for capturing an area. The × turns the shortcut off."
+        return r
+    }()
     private let primary = NSButton(title: "Try a Capture", target: nil, action: nil)
     private var timer: Timer?
     private var openedSettings = false
@@ -203,7 +215,12 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
                                 detail: axLabel, trailing: [axStatusIcon, axAllowButton])
 
         shortcutLabel.textColor = .secondaryLabelColor
-        let shortcut = row(symbol: "keyboard", title: "Capture from anywhere", detail: shortcutLabel, trailing: [])
+        shortcutLabel.maximumNumberOfLines = 0
+        shortcutLabel.lineBreakMode = .byWordWrapping
+        shortcutLabel.cell?.wraps = true
+        shortcutLabel.cell?.usesSingleLineMode = false
+        shortcutLabel.preferredMaxLayoutWidth = 200
+        let shortcut = row(symbol: "keyboard", title: "Capture from anywhere", detail: shortcutLabel, trailing: [shortcutRecorder])
         let mark = row(symbol: "pencil.tip.crop.circle", title: "Mark it up, press Return",
                        detail: NSTextField(labelWithString: "Return (or Esc) copies it and closes. It is saved too."),
                        trailing: [])
@@ -236,8 +253,8 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         card.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.06).cgColor
 
         let privacy = NSTextField(wrappingLabelWithString:
-            "Your screenshots never leave your Mac. Shotate has no analytics and no account. The only thing it "
-            + "does online on its own is a once-a-day check for updates, which you can turn off in Settings.")
+            "Your screenshots never leave your Mac. Shotate has no analytics and no account. On its own it goes "
+            + "online only to check for updates, when it starts and once a day. You can turn that off in Settings.")
         privacy.font = .systemFont(ofSize: 11)
         privacy.textColor = .secondaryLabelColor
         privacy.alignment = .center
@@ -260,9 +277,20 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         ])
         for v in card.arrangedSubviews { v.widthAnchor.constraint(equalTo: card.widthAnchor, constant: -32).isActive = true }
         window?.contentView = root
-        // As tall as the permissions need; the text wraps rather than clips.
+        refresh()
+    }
+
+    /// As tall as the text needs once it's filled in, and again whenever it changes length.
+    private func fitHeight() {
+        guard let window, let root = window.contentView else { return }
         root.layoutSubtreeIfNeeded()
-        window?.setContentSize(NSSize(width: 500, height: max(480, root.fittingSize.height)))
+        let height = max(480, root.fittingSize.height)
+        guard abs(window.contentLayoutRect.height - height) > 1 else { return }
+        var frame = window.frame
+        let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: 500, height: height)))
+        frame.origin.y += frame.height - newFrame.height  // keep the top edge where it is
+        frame.size = newFrame.size
+        window.setFrame(frame, display: true)
     }
 
     private func row(symbol: String, title: String, detail: NSTextField, trailing: [NSView]) -> NSView {
@@ -309,10 +337,12 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
             : what + "\nNot allowed yet. Click Allow."
         let s = app?.settings
         if let keys = s?.captureShortcut?.displayString {
-            shortcutLabel.stringValue = "Press \(keys) and drag. Space switches to a whole window."
+            shortcutLabel.stringValue = "Press \(keys) and drag. Space switches to a whole window. Click the shortcut to change it."
         } else {
-            shortcutLabel.stringValue = "Use the menu bar icon, or set a shortcut in Settings."
+            shortcutLabel.stringValue = "No shortcut set. Record one here, or use the menu bar icon."
         }
+        let current = s?.shortcuts["captureArea"] ?? ""
+        if shortcutRecorder.value != current { shortcutRecorder.value = current }
         loginBox.state = (app?.launchAtLogin ?? false) ? .on : .off
         let ax = AXIsProcessTrusted()
         let pasteOn = app?.settings.choosePaste == true
@@ -325,6 +355,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         axLabel.stringValue = axWhat + (ax ? "\nAllowed."
             : pasteOn ? "\nNeeded for the option below. Click Allow, then turn Shotate on in System Settings."
             : "\nNot allowed, and not needed unless you turn the option on.")
+        fitHeight()
         primary.isEnabled = granted
     }
 
@@ -350,6 +381,14 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
 
     /// Shows macOS's prompt (which also adds Shotate to the list), then the pane to turn it on.
     @objc private func allowAccessibility() {
+        // An entry left by an earlier build can show "on" while macOS refuses this one; clear only
+        // Shotate's own, so the switch in System Settings means what it says.
+        let reset = Process()
+        reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.baney.snapmark"]
+        reset.standardOutput = FileHandle.nullDevice
+        reset.standardError = FileHandle.nullDevice
+        if (try? reset.run()) != nil { reset.waitUntilExit() }
         AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }

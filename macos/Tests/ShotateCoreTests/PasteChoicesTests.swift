@@ -63,13 +63,21 @@ final class PasteChoicesTests: XCTestCase {
         XCTAssertEqual(p.entries.first?.file.lastPathComponent, "11.png")
     }
 
-    func testPastedIsMarkedAndACopyAgainClearsIt() {
+    func testACopyAgainKeepsItsPastedMark() {
         var p = PasteChoices()
         p.copied(a, at: t0)
         p.markPasted(a)
-        XCTAssertTrue(p.entries[0].pasted)
         p.copied(a, at: t0 + 1)
-        XCTAssertFalse(p.entries[0].pasted)
+        XCTAssertTrue(p.entries[0].pasted)
+    }
+
+    func testANewScreenshotAfterACopyAgainIsJudgedByWhenTheOthersWereTaken() {
+        var p = PasteChoices()
+        p.copied(a, at: t0)
+        p.copied(b, at: t0 + 2)
+        p.copied(a, at: t0 + 30)  // Return in its editor, much later
+        p.copied(c, at: t0 + 31)  // taken 29 s after b: a new batch
+        XCTAssertEqual(p.entries.map(\.file), [c])
     }
 }
 

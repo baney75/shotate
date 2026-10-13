@@ -22,7 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private(set) lazy var updater = Updater { [weak self] in self?.settings ?? Settings() }
     private lazy var pastePicker: PastePicker = {
         let p = PastePicker(hotkeys: hotkeys) { [weak self] in self?.settings.choosePaste ?? false }
-        p.setEnabled = { [weak self] on in self?.setChoosePaste(on) }
+        p.setEnabled = { [weak self] on in self?.setChoosePaste(on, prompt: false) }
         return p
     }()
 
@@ -181,11 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// "Choose which screenshot to paste", from Settings or setup. Pasting the chosen one types ⌘V
     /// for you, which needs Accessibility, so turning it on asks for that.
-    func setChoosePaste(_ on: Bool) {
+    /// `prompt` is false from the chooser's own switch: a system prompt would take focus and close it.
+    func setChoosePaste(_ on: Bool, prompt: Bool = true) {
         settings.choosePaste = on
         applySettings()
         pastePicker.update()
-        if on, !AXIsProcessTrusted() {
+        if on, prompt, !AXIsProcessTrusted() {
             AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         }
     }

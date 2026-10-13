@@ -6,7 +6,10 @@ public struct PasteChoices: Equatable {
     public struct Entry: Equatable {
         /// The file the image is saved as; it names the entry.
         public let file: URL
-        public let copiedAt: Date
+        /// When it was last put on the clipboard; it drops off `maxAge` after that.
+        public var copiedAt: Date
+        /// When it first joined: the 3-second rule compares screenshots by when they were taken.
+        public let takenAt: Date
         public var pasted = false
     }
 
@@ -27,10 +30,14 @@ public struct PasteChoices: Equatable {
     public mutating func copied(_ file: URL, at date: Date = Date()) {
         // Copying one already here again (Return in its editor) only moves it to the front; a new
         // screenshot more than `burstGap` after the last one starts a new batch.
-        let again = entries.contains { $0.file == file }
-        entries.removeAll { $0.file == file }
-        if !again, let last = entries.first, date.timeIntervalSince(last.copiedAt) > Self.burstGap { entries.removeAll() }
-        entries.insert(Entry(file: file, copiedAt: date), at: 0)
+        if let i = entries.firstIndex(where: { $0.file == file }) {
+            var e = entries.remove(at: i)
+            e.copiedAt = date
+            entries.insert(e, at: 0)
+            return
+        }
+        if let newest = entries.map(\.takenAt).max(), date.timeIntervalSince(newest) > Self.burstGap { entries.removeAll() }
+        entries.insert(Entry(file: file, copiedAt: date, takenAt: date), at: 0)
         if entries.count > Self.maxCount { entries.removeLast(entries.count - Self.maxCount) }
     }
 

@@ -24,7 +24,6 @@ final class PastePicker {
     private var choosing = false
     private var timer: Timer?
     private var chooser: PasteChooser?
-    private var askedForAccessibility = false
     /// The app ⌘V was pressed in, which gets the paste whatever is in front by then.
     private var target: NSRunningApplication?
     /// Turns the option off (or on) from the chooser's switch.
@@ -67,13 +66,20 @@ final class PastePicker {
 
     /// Claims ⌘V exactly while a paste should ask.
     func update() {
+        // Off: release ⌘V and do nothing else; the list is pruned when it's next used.
+        guard enabled() else {
+            if hotkeys.pasteClaimed { hotkeys.claimPaste(false) }
+            return
+        }
         choices.prune()
         let kept = Set(choices.entries.map(\.file))
         sizes = sizes.filter { kept.contains($0.key) }
         thumbnails = thumbnails.filter { kept.contains($0.key) }
         let ours = NSPasteboard.general.changeCount == ourChangeCount
         // In Shotate's own windows ⌘V is theirs; while the chooser is up, ⌘V pastes its choice.
-        let ask = choices.shouldAsk(enabled: enabled(), clipboardIsOurs: ours) && Date() >= holdOffUntil
+        // Without Accessibility a pick could only copy, and a claimed ⌘V can't be passed on, so
+        // ⌘V stays the app's own until Shotate is allowed (setup and the menu say so).
+        let ask = choices.shouldAsk(enabled: true, clipboardIsOurs: ours) && Date() >= holdOffUntil && AXIsProcessTrusted()
             && (!NSApp.isActive || chooser != nil)
         if ask != hotkeys.pasteClaimed { hotkeys.claimPaste(ask) }
     }
@@ -94,13 +100,9 @@ final class PastePicker {
                               size: sizes[e.file].map { "\(Int($0.width)) × \(Int($0.height))" } ?? "", pasted: e.pasted)
         }
         target = NSWorkspace.shared.frontmostApplication
-        let trusted = AXIsProcessTrusted()
-        // Pasting into the field needs Accessibility. Ask once per launch, the first time it matters.
-        if !trusted, !askedForAccessibility {
-            askedForAccessibility = true
-            AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
-        }
-        let c = PasteChooser(items: items, typesPaste: trusted)
+        // Without Accessibility the panel says so and offers Allow; a system prompt here would take
+        // focus and close the panel the moment it opened.
+        let c = PasteChooser(items: items, typesPaste: AXIsProcessTrusted())
         c.onToggle = { [weak self] on in self?.setEnabled(on) }
         c.onChoose = { [weak self] file in self?.chooser = nil; self?.paste(file) }
         c.onCancel = { [weak self] in self?.chooser = nil; self?.update() }
@@ -109,8 +111,8 @@ final class PastePicker {
     }
 
     private func paste(_ file: URL) {
-        NSLog("Shotate: paste chosen %@ target=%@ trusted=%d", file.lastPathComponent, target?.bundleIdentifier ?? "none", AXIsProcessTrusted() ? 1 : 0)
-        guard let png = try? Data(contentsOf: file) else { return NSSound.beep() }
+        // A capture is a PNG; an opened JPEG or HEIC that was copied is converted, never mislabeled.
+        guard let data = try? Data(contentsOf: file), let png = Self.asPNG(data) else { return NSSound.beep() }
         choosing = true
         Output.copy(png: png, fileURL: file)
         choosing = false
@@ -126,11 +128,7 @@ final class PastePicker {
         let app = target
         target = nil
         if let app, !app.isActive { app.activate() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            NSLog("Shotate: paste typing ⌘V into %@ (front %@)", app?.bundleIdentifier ?? "front app",
-                  NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")
-            Self.pressCommandV(to: app)
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { Self.pressCommandV(to: app) }
     }
 
     /// ⌘V into `app` (its focused field), or into whatever is in front.
@@ -141,6 +139,13 @@ final class PastePicker {
             e?.flags = .maskCommand
             if let app, app.processIdentifier > 0 { e?.postToPid(app.processIdentifier) } else { e?.post(tap: .cghidEventTap) }
         }
+    }
+
+    private static func asPNG(_ data: Data) -> Data? {
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return data }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
     }
 
     /// "Just now", "4 min ago".
@@ -243,7 +248,6 @@ final class PasteChooser {
     func chooseSelected() { choose(model.selected) }
 
     private func choose(_ i: Int) {
-        NSLog("Shotate: chooser pick %d", i + 1)
         guard model.items.indices.contains(i), close() else { return }
         onChoose(model.items[i].id)
     }
@@ -265,6 +269,11 @@ final class PasteChooser {
     /// ← → (and Tab) move, 1–9 pick, Return pastes, Esc cancels.
     private func key(_ e: NSEvent) -> Bool {
         let n = model.items.count
+        // ⌘V pastes the highlighted one, also after the switch below released Shotate's claim on it.
+        if e.modifierFlags.contains(.command), e.charactersIgnoringModifiers?.lowercased() == "v" {
+            chooseSelected()
+            return true
+        }
         switch Int(e.keyCode) {
         case kVK_LeftArrow: model.selected = (model.selected + n - 1) % n
         case kVK_RightArrow: model.selected = (model.selected + 1) % n
@@ -352,7 +361,7 @@ private struct ChooserView: View {
                 ForEach(Array(model.items.enumerated()), id: \.element.id) { i, item in
                     Card(item: item, selected: i == model.selected)
                         .onHover { if $0 { model.hovered(i) } }
-                        .onTapGesture { NSLog("Shotate: chooser click %d", i + 1); model.choose(i) }
+                        .onTapGesture { model.choose(i) }
                         .accessibilityAction { model.choose(i) }
                         .accessibilityAddTraits(i == model.selected ? .isSelected : [])
                 }
