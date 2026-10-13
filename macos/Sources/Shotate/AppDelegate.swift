@@ -20,7 +20,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastShortcuts: [String: String] = [:]
     var settings = Settings()
     private(set) lazy var updater = Updater { [weak self] in self?.settings ?? Settings() }
-    private lazy var pastePicker = PastePicker(hotkeys: hotkeys) { [weak self] in self?.settings.choosePaste ?? false }
+    private lazy var pastePicker: PastePicker = {
+        let p = PastePicker(hotkeys: hotkeys) { [weak self] in self?.settings.choosePaste ?? false }
+        p.setEnabled = { [weak self] on in self?.setChoosePaste(on) }
+        return p
+    }()
 
     func applicationDidFinishLaunching(_ n: Notification) {
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
@@ -361,6 +365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   NSMenuItem(title: "Open Image…", action: #selector(openImagePanel), keyEquivalent: ""),
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
                   .separator(),
+                  choosePasteItem(),
                   NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","),
                   NSMenuItem(title: "Edit Config File…", action: #selector(openConfig), keyEquivalent: ""),
                   NSMenuItem(title: "About Shotate", action: #selector(showAbout), keyEquivalent: ""),
@@ -370,6 +375,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(i)
         }
     }
+
+    /// A checkmark to turn "⌘V asks which screenshot" on and off without opening Settings.
+    private func choosePasteItem() -> NSMenuItem {
+        let i = NSMenuItem(title: "Ask Which Screenshot to Paste", action: #selector(toggleChoosePaste), keyEquivalent: "")
+        i.state = settings.choosePaste ? .on : .off
+        i.toolTip = "When you take screenshots within 3 seconds of each other, ⌘V lets you choose which one to paste."
+        return i
+    }
+
+    @objc private func toggleChoosePaste() { setChoosePaste(!settings.choosePaste) }
 
     @objc func captureArea() { capture(.area) }
     @objc func captureWindow() { capture(.window) }

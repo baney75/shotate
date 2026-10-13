@@ -24,6 +24,10 @@ final class PastePicker {
     private var choosing = false
     private var timer: Timer?
     private var chooser: PasteChooser?
+    /// The app ⌘V was pressed in, which gets the paste whatever is in front by then.
+    private var target: NSRunningApplication?
+    /// Turns the option off (or on) from the chooser's switch.
+    var setEnabled: (Bool) -> Void = { _ in }
 
     init(hotkeys: Hotkeys, enabled: @escaping () -> Bool) {
         self.hotkeys = hotkeys
@@ -88,7 +92,9 @@ final class PastePicker {
             PasteChooser.Item(id: e.file, number: i + 1, image: thumbnails[e.file], age: Self.age(e.copiedAt, now: now),
                               size: sizes[e.file].map { "\(Int($0.width)) × \(Int($0.height))" } ?? "", pasted: e.pasted)
         }
+        target = NSWorkspace.shared.frontmostApplication
         let c = PasteChooser(items: items, typesPaste: AXIsProcessTrusted())
+        c.onToggle = { [weak self] on in self?.setEnabled(on) }
         c.onChoose = { [weak self] file in self?.chooser = nil; self?.paste(file) }
         c.onCancel = { [weak self] in self?.chooser = nil; self?.update() }
         chooser = c
@@ -108,16 +114,20 @@ final class PastePicker {
             return
         }
         holdOffUntil = Date().addingTimeInterval(0.6)
-        // The chooser has closed and the app in front has its keys back; paste there.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { Self.pressCommandV() }
+        // The chooser has closed; the field you were typing in gets its keys back, then the paste.
+        let app = target
+        target = nil
+        if let app, !app.isActive { app.activate() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { Self.pressCommandV(to: app) }
     }
 
-    private static func pressCommandV() {
+    /// ⌘V into `app` (its focused field), or into whatever is in front.
+    private static func pressCommandV(to app: NSRunningApplication? = nil) {
         let src = CGEventSource(stateID: .combinedSessionState)
         for down in [true, false] {
             let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(Hotkeys.keyCode(typing: "v")), keyDown: down)
             e?.flags = .maskCommand
-            e?.post(tap: .cghidEventTap)
+            if let app, app.processIdentifier > 0 { e?.postToPid(app.processIdentifier) } else { e?.post(tap: .cghidEventTap) }
         }
     }
 
@@ -155,7 +165,10 @@ final class PasteChooser {
         /// Cards per row: five, or fewer on a narrow screen.
         let columns: Int
         @Published var selected = 0
+        /// The switch in the panel: on means ⌘V keeps asking.
+        @Published var asking = true { didSet { toggle(asking) } }
         var choose: (Int) -> Void = { _ in }
+        var toggle: (Bool) -> Void = { _ in }
         /// Where the pointer was when the panel opened. It usually opens under the pointer, so
         /// hover selects only once the mouse has really moved; a twitch never changes what pastes.
         private let mouseAtOpen = NSEvent.mouseLocation
@@ -172,6 +185,7 @@ final class PasteChooser {
 
     var onChoose: (URL) -> Void = { _ in }
     var onCancel: () -> Void = {}
+    var onToggle: (Bool) -> Void = { _ in }
     private let model: Model
     private let panel: ChooserPanel
     private var resignObserver: NSObjectProtocol?
@@ -185,6 +199,7 @@ final class PasteChooser {
         model = Model(items: items, typesPaste: typesPaste, columns: min(items.count, 5, fit))
         panel = ChooserPanel()
         model.choose = { [weak self] i in self?.choose(i) }
+        model.toggle = { [weak self] on in self?.onToggle(on) }
         panel.onKey = { [weak self] e in self?.key(e) ?? false }
         let host = FirstClickHostingView(rootView: ChooserView(model: model))
         host.layoutSubtreeIfNeeded()
@@ -314,6 +329,18 @@ private struct ChooserView: View {
                         .accessibilityAddTraits(i == model.selected ? .isSelected : [])
                 }
             }
+            Divider().opacity(0.5)
+            // The easy way out: turn it off here, and ⌘V goes back to pasting the latest.
+            HStack(spacing: 8) {
+                Toggle(isOn: $model.asking) {
+                    Text("Ask which screenshot to paste").font(.system(size: 12))
+                }
+                .toggleStyle(AccentSwitch())
+                Spacer(minLength: 12)
+                Text(model.asking ? "Only for screenshots taken within 3 seconds of each other"
+                                  : "Off. ⌘V pastes the latest. Turn it back on in Settings or the menu bar.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
         }
         .padding(18)
         .background(VisualEffect().clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)))
@@ -366,6 +393,28 @@ private struct ChooserView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Screenshot \(item.number), \(item.age), \(item.size)\(item.pasted ? ", pasted" : "")")
             .accessibilityAddTraits(.isButton)
+        }
+    }
+
+    /// A switch that reads as on even though Shotate isn't the active app (the system one turns
+    /// gray then): the accent color when on, gray when off.
+    private struct AccentSwitch: ToggleStyle {
+        func makeBody(configuration c: Configuration) -> some View {
+            HStack(spacing: 8) {
+                c.label
+                ZStack(alignment: c.isOn ? .trailing : .leading) {
+                    Capsule().fill(c.isOn ? Color.accentColor : Color.secondary.opacity(0.35))
+                    Circle().fill(Color.white).shadow(color: .black.opacity(0.25), radius: 1, y: 0.5).padding(2)
+                }
+                .frame(width: 32, height: 18)
+                .animation(.easeOut(duration: 0.15), value: c.isOn)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { c.isOn.toggle() }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityValue(c.isOn ? "On" : "Off")
+            .accessibilityAction { c.isOn.toggle() }
         }
     }
 

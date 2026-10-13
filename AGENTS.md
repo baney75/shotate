@@ -23,4 +23,6 @@ can run a command in their terminal. Ask them to try it, and say "untested live"
   nonactivating key panel like the capture overlay. Live check: turn the option on, take two
   captures, press ⌘V in a text field, see the panel, press 2, and the second screenshot pastes;
   again, and click a card instead. Follow-up from Donovan: a click on a card must paste (the panel
-  accepts the first click), and the choice clears after a minute.
+  accepts the first click) into the field you were typing in (the paste goes to the app ⌘V was
+  pressed in), it only applies to screenshots within 3 seconds of each other, the choice clears
+  after a minute, and a switch in the panel and the menu bar turns it off.

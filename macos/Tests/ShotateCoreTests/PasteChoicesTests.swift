@@ -13,6 +13,17 @@ final class PasteChoicesTests: XCTestCase {
         XCTAssertEqual(p.entries.map(\.file), [a, b])
     }
 
+    func testOnlyScreenshotsWithinThreeSecondsOfEachOtherAreAChoice() {
+        var p = PasteChoices()
+        p.copied(a, at: t0)
+        p.copied(b, at: t0 + 2.5)
+        p.copied(c, at: t0 + 5)
+        XCTAssertEqual(p.entries.map(\.file), [c, b, a], "each within 3 s of the one before")
+        p.copied(a, at: t0 + 9)
+        XCTAssertEqual(p.entries.map(\.file), [a], "4 s later starts over")
+        XCTAssertFalse(p.shouldAsk(enabled: true, clipboardIsOurs: true))
+    }
+
     func testAsksOnlyWithTwoChoicesTheSettingOnAndOurClipboard() {
         var p = PasteChoices()
         p.copied(a, at: t0)
@@ -26,10 +37,10 @@ final class PasteChoicesTests: XCTestCase {
     func testOldScreenshotsAndDeletedFilesDropOff() {
         var p = PasteChoices()
         p.copied(a, at: t0)
-        p.copied(b, at: t0 + PasteChoices.maxAge - 10)
-        p.copied(c, at: t0 + PasteChoices.maxAge - 5)
-        p.prune(now: t0 + PasteChoices.maxAge + 1) { $0 != c }
-        XCTAssertEqual(p.entries.map(\.file), [b])
+        p.copied(b, at: t0 + 2)
+        p.copied(c, at: t0 + 4)
+        p.prune(now: t0 + 2 + PasteChoices.maxAge - 1) { $0 != c }
+        XCTAssertEqual(p.entries.map(\.file), [b], "a too old, c deleted")
     }
 
     func testTheChoiceClearsAfterAMinute() {
@@ -44,7 +55,7 @@ final class PasteChoicesTests: XCTestCase {
 
     func testKeepsNineAtMost() {
         var p = PasteChoices()
-        for i in 0..<12 { p.copied(URL(fileURLWithPath: "/tmp/\(i).png"), at: t0 + Double(i)) }
+        for i in 0..<12 { p.copied(URL(fileURLWithPath: "/tmp/\(i).png"), at: t0 + Double(i) * 2) }
         XCTAssertEqual(p.entries.count, PasteChoices.maxCount)
         XCTAssertEqual(p.entries.first?.file.lastPathComponent, "11.png")
     }

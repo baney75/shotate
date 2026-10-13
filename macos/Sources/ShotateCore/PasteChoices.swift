@@ -13,6 +13,9 @@ public struct PasteChoices: Equatable {
     /// Older screenshots drop off after a minute: the choice is for the ones just taken, and after
     /// that ⌘V pastes the latest as usual.
     public static let maxAge: TimeInterval = 60
+    /// Screenshots count as one batch to choose from only when each comes within this long of
+    /// the one before; one taken later starts a new batch.
+    public static let burstGap: TimeInterval = 3
     /// One per number key.
     public static let maxCount = 9
 
@@ -23,6 +26,7 @@ public struct PasteChoices: Equatable {
     /// Shotate just put this screenshot on the clipboard.
     public mutating func copied(_ file: URL, at date: Date = Date()) {
         entries.removeAll { $0.file == file }
+        if let last = entries.first, date.timeIntervalSince(last.copiedAt) > Self.burstGap { entries.removeAll() }
         entries.insert(Entry(file: file, copiedAt: date), at: 0)
         if entries.count > Self.maxCount { entries.removeLast(entries.count - Self.maxCount) }
     }
