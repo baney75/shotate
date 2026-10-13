@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import ImageIO
 import ShotateCore
 
 /// With "Choose which screenshot to paste" on, ⌘V asks which one when several were copied lately:
@@ -9,7 +10,9 @@ final class PastePicker {
     private let hotkeys: Hotkeys
     private let enabled: () -> Bool
     private var choices = PasteChoices()
-    private var images: [URL: Data] = [:]
+    /// Pixel size and a small thumbnail per screenshot, made once when it's copied. The image
+    /// itself is read from its file only when chosen.
+    private var sizes: [URL: CGSize] = [:]
     private var thumbnails: [URL: NSImage] = [:]
     /// The pasteboard's change count right after Shotate last wrote it.
     private var ourChangeCount = -1
@@ -25,17 +28,26 @@ final class PastePicker {
         self.enabled = enabled
         hotkeys.onPaste = { [weak self] in self?.ask() }
         Output.onCopied = { [weak self] file, png, count in self?.copied(file, png: png, changeCount: count) }
-        let t = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in self?.update() }
+        let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.update() }
         RunLoop.main.add(t, forMode: .common)
         timer = t
+        // Switching apps changes who ⌘V belongs to; don't wait for the timer.
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.update() }
+        }
     }
 
     private func copied(_ file: URL, png: Data, changeCount: Int) {
         ourChangeCount = changeCount
-        guard !choosing else { return }
+        // With the option off, nothing is kept.
+        guard !choosing, enabled() else { return update() }
         choices.copied(file)
-        images[file] = png
-        thumbnails[file] = nil
+        let source = CGImageSourceCreateWithData(png as CFData, nil)
+        if let source, let p = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let w = p[kCGImagePropertyPixelWidth] as? Int, let h = p[kCGImagePropertyPixelHeight] as? Int {
+            sizes[file] = CGSize(width: w, height: h)
+        }
+        thumbnails[file] = source.flatMap(Self.thumbnail)
         update()
     }
 
@@ -43,7 +55,7 @@ final class PastePicker {
     func update() {
         choices.prune()
         let kept = Set(choices.entries.map(\.file))
-        images = images.filter { kept.contains($0.key) }
+        sizes = sizes.filter { kept.contains($0.key) }
         thumbnails = thumbnails.filter { kept.contains($0.key) }
         let ours = NSPasteboard.general.changeCount == ourChangeCount
         // In Shotate's own windows ⌘V is theirs.
@@ -53,7 +65,12 @@ final class PastePicker {
 
     private func ask() {
         update()
-        guard hotkeys.pasteClaimed else { return }
+        guard hotkeys.pasteClaimed else {
+            // Something changed since ⌘V was claimed (text copied, another app in front): this ⌘V
+            // was meant for the app in front, so pass it on.
+            if AXIsProcessTrusted() { Self.pressCommandV() }
+            return
+        }
         let trusted = AXIsProcessTrusted()
         let menu = NSMenu(title: "Paste a Screenshot")
         menu.autoenablesItems = false
@@ -66,7 +83,7 @@ final class PastePicker {
             item.keyEquivalentModifierMask = []
             item.target = self
             item.representedObject = e.file
-            item.image = thumbnail(e.file)
+            item.image = thumbnails[e.file]
             item.state = e.pasted ? .on : .off
             menu.addItem(item)
         }
@@ -76,7 +93,7 @@ final class PastePicker {
 
     @objc private func chosen(_ item: NSMenuItem) {
         guard let file = item.representedObject as? URL,
-              let png = images[file] ?? (try? Data(contentsOf: file)) else { return NSSound.beep() }
+              let png = try? Data(contentsOf: file) else { return NSSound.beep() }
         choosing = true
         Output.copy(png: png, fileURL: file)
         choosing = false
@@ -95,7 +112,7 @@ final class PastePicker {
     private static func pressCommandV() {
         let src = CGEventSource(stateID: .combinedSessionState)
         for down in [true, false] {
-            let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: down)
+            let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(Hotkeys.keyCode(typing: "v")), keyDown: down)
             e?.flags = .maskCommand
             e?.post(tap: .cghidEventTap)
         }
@@ -105,23 +122,19 @@ final class PastePicker {
     private func label(_ e: PasteChoices.Entry, now: Date) -> String {
         let minutes = Int(now.timeIntervalSince(e.copiedAt) / 60)
         let when = minutes < 1 ? "Just now" : "\(minutes) min ago"
-        guard let rep = images[e.file].flatMap(NSBitmapImageRep.init(data:)) else { return when }
-        return "\(when) · \(rep.pixelsWide) × \(rep.pixelsHigh)"
+        guard let size = sizes[e.file] else { return when }
+        return "\(when) · \(Int(size.width)) × \(Int(size.height))"
     }
 
-    /// The screenshot shrunk to fit 72 × 48 points.
-    private func thumbnail(_ file: URL) -> NSImage? {
-        if let t = thumbnails[file] { return t }
-        guard let data = images[file], let image = NSImage(data: data), image.size.width > 0, image.size.height > 0 else { return nil }
-        let scale = min(72 / image.size.width, 48 / image.size.height, 1)
-        let size = NSSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
-        let t = NSImage(size: size, flipped: false) { rect in
-            image.draw(in: rect)
-            NSColor.separatorColor.setStroke()
-            NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5)).stroke()
-            return true
-        }
-        thumbnails[file] = t
-        return t
+    /// The screenshot shrunk to fit 72 × 48 points, drawn once at Retina size.
+    private static func thumbnail(_ source: CGImageSource) -> NSImage? {
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: 144,
+                                        kCGImageSourceCreateThumbnailWithTransform: true]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        // Two pixels per point, shrunk further if it still doesn't fit.
+        let points = CGSize(width: CGFloat(cg.width) / 2, height: CGFloat(cg.height) / 2)
+        let fit = min(72 / points.width, 48 / points.height, 1)
+        return NSImage(cgImage: cg, size: NSSize(width: (points.width * fit).rounded(), height: (points.height * fit).rounded()))
     }
 }
