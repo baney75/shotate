@@ -131,6 +131,25 @@ enum NativeCapture {
     }
 }
 
+/// The window server's switch that lets a background app set the cursor. Private, but unchanged
+/// since Mac OS X 10.5; without it the crosshair waits for the first mouse move. Looked up at run
+/// time, so a macOS without it only loses the early crosshair.
+enum BackgroundCursor {
+    private typealias DefaultConnection = @convention(c) () -> Int32
+    private typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+
+    /// On while the picker is up, so the crosshair shows at once; off again after, so Shotate
+    /// never sets the cursor over the app you're using.
+    static func set(_ on: Bool) {
+        guard let conn = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_CGSDefaultConnection"),
+              let prop = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGSSetConnectionProperty") else { return }
+        let cid = unsafeBitCast(conn, to: DefaultConnection.self)()
+        let err = unsafeBitCast(prop, to: SetProperty.self)(cid, cid, "SetsCursorInBackground" as CFString,
+                                                           on ? kCFBooleanTrue : kCFBooleanFalse)
+        if err != 0 { NSLog("Shotate: SetsCursorInBackground %d failed: %d", on ? 1 : 0, err) }
+    }
+}
+
 /// The full-screen chooser over the frozen screens: drag out an area, or (in window mode, or after
 /// Space) click a window. Esc or a right-click cancels.
 final class Picker {
@@ -167,7 +186,18 @@ final class Picker {
         (p.overlays.first { $0.frame.contains(mouse) } ?? p.overlays[0]).makeKey()
         p.hover(at: mouse)
         p.refresh()
+        // Shotate stays in the background while you pick, and macOS ignores a background app's
+        // cursor until the mouse moves, so the pointer stayed an arrow and nothing said to drag.
+        // The window server lets an app opt in to setting it from the background.
+        BackgroundCursor.set(true)
         NSCursor.crosshair.set()
+        // The window server puts back its own cursor when the overlay arrives under the pointer;
+        // set it again once the overlay is there.
+        for delay in [0.05, 0.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                if Picker.current === p { NSCursor.crosshair.set() }
+            }
+        }
     }
 
     private init(windows: [(id: CGWindowID, frame: CGRect)], windowMode: Bool, done: @escaping (Choice?) -> Void) {
@@ -241,7 +271,7 @@ final class Picker {
         Picker.current = nil
         for w in overlays { w.orderOut(nil) }
         overlays = []
-        NSCursor.arrow.set()
+        BackgroundCursor.set(false)
         done(choice)
     }
 }
