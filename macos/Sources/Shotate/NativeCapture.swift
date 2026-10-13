@@ -131,25 +131,27 @@ enum NativeCapture {
     }
 }
 
-/// The full-screen chooser over the frozen screens: drag out an area, or (in window mode, or after
-/// Space) click a window. Esc or a right-click cancels.
 /// The window server's switch that lets a background app set the cursor. Private, but unchanged
-/// since Mac OS X 10.5; without it the crosshair waits for the first mouse move.
+/// since Mac OS X 10.5; without it the crosshair waits for the first mouse move. Looked up at run
+/// time, so a macOS without it only loses the early crosshair.
 enum BackgroundCursor {
-    @_silgen_name("_CGSDefaultConnection") private static func defaultConnection() -> Int32
-    @_silgen_name("CGSSetConnectionProperty")
-    private static func setConnectionProperty(_ cid: Int32, _ target: Int32, _ key: CFString, _ value: CFTypeRef) -> Int32
+    private typealias DefaultConnection = @convention(c) () -> Int32
+    private typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
 
-    private static var allowed = false
-    static func allow() {
-        guard !allowed else { return }
-        let cid = defaultConnection()
-        let err = setConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
-        allowed = err == 0
-        if !allowed { NSLog("Shotate: SetsCursorInBackground failed: %d", err) }
+    /// On while the picker is up, so the crosshair shows at once; off again after, so Shotate
+    /// never sets the cursor over the app you're using.
+    static func set(_ on: Bool) {
+        guard let conn = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_CGSDefaultConnection"),
+              let prop = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGSSetConnectionProperty") else { return }
+        let cid = unsafeBitCast(conn, to: DefaultConnection.self)()
+        let err = unsafeBitCast(prop, to: SetProperty.self)(cid, cid, "SetsCursorInBackground" as CFString,
+                                                           on ? kCFBooleanTrue : kCFBooleanFalse)
+        if err != 0 { NSLog("Shotate: SetsCursorInBackground %d failed: %d", on ? 1 : 0, err) }
     }
 }
 
+/// The full-screen chooser over the frozen screens: drag out an area, or (in window mode, or after
+/// Space) click a window. Esc or a right-click cancels.
 final class Picker {
     enum Choice {
         /// In AppKit global coordinates, within `screen`.
@@ -187,7 +189,7 @@ final class Picker {
         // Shotate stays in the background while you pick, and macOS ignores a background app's
         // cursor until the mouse moves, so the pointer stayed an arrow and nothing said to drag.
         // The window server lets an app opt in to setting it from the background.
-        BackgroundCursor.allow()
+        BackgroundCursor.set(true)
         NSCursor.crosshair.set()
         // The window server puts back its own cursor when the overlay arrives under the pointer;
         // set it again once the overlay is there.
@@ -269,7 +271,7 @@ final class Picker {
         Picker.current = nil
         for w in overlays { w.orderOut(nil) }
         overlays = []
-        NSCursor.arrow.set()
+        BackgroundCursor.set(false)
         done(choice)
     }
 }

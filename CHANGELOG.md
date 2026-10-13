@@ -3,8 +3,9 @@
 ## Unreleased
 
 ### Added
-- The editor's drag-out button shows an open hand when you point at it and a closed hand when you
-  pick the image up, so it's clear the screenshot can be dragged into another app.
+- The editor's drag-out button shows an open hand when you point at it, so it's clear the
+  screenshot can be dragged into another app.
+- The crosshair shows the moment a capture starts, instead of an arrow until the mouse moves.
 - **Pen.** Press P and draw freehand. With a drawing tablet the line is thin where you press lightly
   and full where you press hard. Hold still at the end of a stroke and it becomes the line, box or
   ellipse you meant; a line's end keeps following the pen until you lift it.

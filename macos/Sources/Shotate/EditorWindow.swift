@@ -465,17 +465,20 @@ final class DragOutButton: NSButton, NSDraggingSource {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    /// An open hand says the image can be picked up; it closes when pressed.
+    /// An open hand says the image can be picked up.
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
 
     override func mouseDown(with e: NSEvent) {
-        NSCursor.closedHand.set()
         guard let c = controller, let url = c.saveEdits() else { return }
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         item.setDraggingFrame(bounds, contents: NSWorkspace.shared.icon(forFile: url.path))
         beginDraggingSession(with: [item], event: e, source: self)
     }
     func draggingSession(_ s: NSDraggingSession, sourceOperationMaskFor c: NSDraggingContext) -> NSDragOperation { .copy }
+    /// Back from a drag over this button: the open hand again, not the drag's cursor.
+    func draggingSession(_ s: NSDraggingSession, endedAt p: NSPoint, operation: NSDragOperation) {
+        window?.invalidateCursorRects(for: self)
+    }
 }
 
 enum Output {
