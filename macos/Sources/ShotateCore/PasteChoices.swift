@@ -1,0 +1,43 @@
+import Foundation
+
+/// The screenshots Shotate put on the clipboard lately, newest first, for choosing which one ⌘V
+/// pastes. A capture that's copied again (edited, say) moves back to the front as one entry.
+public struct PasteChoices: Equatable {
+    public struct Entry: Equatable {
+        /// The file the image is saved as; it names the entry.
+        public let file: URL
+        public let copiedAt: Date
+        public var pasted = false
+    }
+
+    /// Older screenshots drop off: the menu is for the ones just taken.
+    public static let maxAge: TimeInterval = 15 * 60
+    /// One per number key.
+    public static let maxCount = 9
+
+    public private(set) var entries: [Entry] = []
+
+    public init() {}
+
+    /// Shotate just put this screenshot on the clipboard.
+    public mutating func copied(_ file: URL, at date: Date = Date()) {
+        entries.removeAll { $0.file == file }
+        entries.insert(Entry(file: file, copiedAt: date), at: 0)
+        if entries.count > Self.maxCount { entries.removeLast(entries.count - Self.maxCount) }
+    }
+
+    public mutating func markPasted(_ file: URL) {
+        if let i = entries.firstIndex(where: { $0.file == file }) { entries[i].pasted = true }
+    }
+
+    /// Forgets screenshots older than `maxAge`, and any whose file is gone.
+    public mutating func prune(now: Date = Date(), exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) {
+        entries.removeAll { now.timeIntervalSince($0.copiedAt) > Self.maxAge || !exists($0.file) }
+    }
+
+    /// Whether ⌘V should ask which screenshot to paste: the setting is on, the clipboard still holds
+    /// the screenshot Shotate put there (so text copied since pastes as usual), and there's a choice.
+    public func shouldAsk(enabled: Bool, clipboardIsOurs: Bool) -> Bool {
+        enabled && clipboardIsOurs && entries.count >= 2
+    }
+}

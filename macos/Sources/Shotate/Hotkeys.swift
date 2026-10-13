@@ -17,9 +17,52 @@ final class Hotkeys {
             var id = EventHotKeyID()
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
-            DispatchQueue.main.async { Hotkeys.shared?.actions[id.id]?() }
+            DispatchQueue.main.async {
+                if id.id == Hotkeys.pasteID { Hotkeys.shared?.onPaste() } else { Hotkeys.shared?.actions[id.id]?() }
+            }
             return noErr
         }, 1, &spec, nil, &handler)
+    }
+
+    /// ⌘V, claimed only while a paste should ask which screenshot (see PastePicker). It is kept
+    /// apart from the configured shortcuts, so reloading settings doesn't drop it.
+    private static let pasteID: UInt32 = 0xFFFF
+    private var pasteRef: EventHotKeyRef?
+    var onPaste: () -> Void = {}
+
+    var pasteClaimed: Bool { pasteRef != nil }
+
+    func claimPaste(_ on: Bool) {
+        if on, pasteRef == nil {
+            var ref: EventHotKeyRef?
+            let status = RegisterEventHotKey(UInt32(Hotkeys.keyCode(typing: "v")), UInt32(cmdKey), EventHotKeyID(signature: OSType(0x534E4150), id: Hotkeys.pasteID),
+                                             GetApplicationEventTarget(), 0, &ref)
+            if status == noErr { pasteRef = ref } else { NSLog("Shotate: couldn't claim ⌘V (status %d)", status) }
+        } else if !on, let ref = pasteRef {
+            UnregisterEventHotKey(ref)
+            pasteRef = nil
+        }
+    }
+
+    /// The key that types `character` in the current layout, as ⌘ shortcuts see it (Dvorak's "v"
+    /// is not where QWERTY's is). Falls back to the QWERTY key.
+    static func keyCode(typing character: String) -> Int {
+        let fallback = keyCodes[character] ?? kVK_ANSI_V
+        guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return fallback }
+        let data = Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue() as Data
+        return data.withUnsafeBytes { buf -> Int in
+            guard let layout = buf.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return fallback }
+            for code in 0..<128 {
+                var dead: UInt32 = 0
+                var chars = [UniChar](repeating: 0, count: 4)
+                var length = 0
+                let status = UCKeyTranslate(layout, UInt16(code), UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
+                                            OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars)
+                if status == noErr, length == 1, String(utf16CodeUnits: chars, count: 1) == character { return code }
+            }
+            return fallback
+        }
     }
 
     func removeAll() {

@@ -54,7 +54,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         window.controller = self
         buildContent()
         canvas.onChange = { [weak self] in self?.refresh() }
-        select(tool: .arrow)
+        // Select first, so a click on a fresh screenshot never drops an arrow by accident.
+        select(tool: .select)
         select(colorIndex: 0)
         refresh()
     }
@@ -514,8 +515,14 @@ enum Output {
         item.setString(fileURL.absoluteString, forType: .fileURL)
         let pb = NSPasteboard.general
         pb.clearContents()
-        return pb.writeObjects([item])
+        let ok = pb.writeObjects([item])
+        if ok { onCopied(fileURL, png, pb.changeCount) }
+        return ok
     }
+
+    /// Every screenshot put on the clipboard, with the pasteboard's change count right after, so
+    /// the paste picker can list it and tell whether the clipboard still holds it.
+    static var onCopied: (URL, Data, Int) -> Void = { _, _, _ in }
 
     /// The path as text, for pasting into a terminal prompt.
     static func copyPath(_ url: URL) {

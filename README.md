@@ -86,6 +86,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | **Arrows that stay put** | Drop an arrow's end on a mark and it stays attached when that mark moves or resizes |
 | **Draw by hand** | The pen draws freehand, and with a drawing tablet the line follows your pressure. Hold still at the end of a stroke and it becomes the clean line, box or ellipse you meant |
 | **Curved, labeled arrows** | Drag an arrow's middle handle to curve it. Double-click an arrow's end to type a label it points at; double-click along it to label its middle |
+| **Choose what to paste** | On a Mac, turn on "⌘V asks which to paste" in setup or Settings. After two or more screenshots, ⌘V opens a menu of them, newest first; pick one (or press its number) and it pastes. Copy anything else and ⌘V works as usual again |
 | **Paste anywhere** | The clipboard gets PNG, TIFF and the file, so chat apps, documents, Finder and terminal tools such as Claude Code all accept it |
 | **Safe with your files** | An image you open is never overwritten. Edits go to `name (edited).png` beside it |
 | **Retina-correct** | Captures keep their real size when pasted, instead of doubling |

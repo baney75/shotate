@@ -29,7 +29,7 @@ export async function startEditor(root: HTMLElement, file: string, owns: boolean
 }
 
 class Editor {
-  tool: Tool = "arrow";
+  tool: Tool = "select";
   colorIndex = 0;
   size: StrokeSize = 2;
   selectedId: string | null = null;
