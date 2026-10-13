@@ -17,6 +17,8 @@ public struct Settings: Equatable {
     public var updateChannel: String?
     /// Look for updates on GitHub once a day. Off means Shotate makes no network request at all.
     public var checkForUpdates = true
+    /// With two or more screenshots copied lately, ⌘V shows a menu to choose which one to paste.
+    public var choosePaste = false
 
     // Always a directory URL, so it compares equal whether or not the folder exists yet.
     public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
@@ -128,6 +130,7 @@ public struct Settings: Equatable {
         if let m = o["toolKeys"] as? [String: String] { s.toolKeys = m.mapValues { $0.lowercased() } }
         if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
         if let b = o["checkForUpdates"] as? Bool { s.checkForUpdates = b }
+        if let b = o["choosePaste"] as? Bool { s.choosePaste = b }
         return s
     }
 
@@ -147,6 +150,7 @@ public struct Settings: Equatable {
             "commands": commandHotkeys,
             "toolKeys": tools,
             "checkForUpdates": checkForUpdates,
+            "choosePaste": choosePaste,
         ]
         if let updateChannel { o["updateChannel"] = updateChannel }
         return (try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]))

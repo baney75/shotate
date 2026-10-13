@@ -16,7 +16,7 @@ import ShotateCore
 /// line, box or ellipse it was meant to be.
 final class CanvasView: NSView, NSTextViewDelegate {
     let doc: Document
-    var tool: Tool = .arrow {
+    var tool: Tool = .select {
         // A mark mid-drag belongs to the tool that started it; switching drops it.
         didSet { commitText(); resetTextPress(); endPenHold(); draft = nil; selectedID = nil; window?.invalidateCursorRects(for: self) }
     }

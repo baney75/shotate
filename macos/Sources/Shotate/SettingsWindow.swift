@@ -136,6 +136,8 @@ final class GeneralPane: SettingsPane {
     private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
     private let channelMenu = NSPopUpButton()
     private let autoUpdateBox = NSButton(checkboxWithTitle: "Check for updates automatically", target: nil, action: nil)
+    private let pasteBox = NSButton(checkboxWithTitle: "With several screenshots copied, ⌘V asks which to paste",
+                                    target: nil, action: nil)
     private let checkButton = NSButton(title: "Check Now", target: nil, action: nil)
     private let installButton = NSButton(title: "Install Update", target: nil, action: nil)
     private let updateStatus = NSTextField(wrappingLabelWithString: "")
@@ -163,8 +165,10 @@ final class GeneralPane: SettingsPane {
         let folderRow = NSStackView(views: [folderMenu, show])
         folderMenu.widthAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
 
-        for b in [copyBox, menuBox, loginBox, autoUpdateBox] { b.target = self; b.action = #selector(toggled(_:)) }
-        let options = NSStackView(views: [copyBox, menuBox, loginBox])
+        for b in [copyBox, menuBox, loginBox, autoUpdateBox, pasteBox] { b.target = self; b.action = #selector(toggled(_:)) }
+        pasteBox.toolTip = "Take two or more screenshots, then press ⌘V: a menu shows them so you pick one. "
+            + "Shotate types the paste for you, which needs Accessibility."
+        let options = NSStackView(views: [copyBox, pasteBox, menuBox, loginBox])
         options.orientation = .vertical
         options.alignment = .leading
         options.spacing = 8
@@ -208,6 +212,7 @@ final class GeneralPane: SettingsPane {
         permissionButton.isHidden = granted
         reloadFolderMenu(s.saveFolder)
         copyBox.state = s.copyOnCapture ? .on : .off
+        pasteBox.state = s.choosePaste ? .on : .off
         menuBox.state = s.showMenuBarIcon ? .on : .off
         loginBox.state = (app?.launchAtLogin ?? false) ? .on : .off
         if let updater = app?.updater {
@@ -253,6 +258,7 @@ final class GeneralPane: SettingsPane {
         case loginBox: app?.launchAtLogin = b.state == .on
         case copyBox: apply { $0.copyOnCapture = b.state == .on }
         case autoUpdateBox: apply { $0.checkForUpdates = b.state == .on }
+        case pasteBox: app?.setChoosePaste(b.state == .on)
         default: apply { $0.showMenuBarIcon = b.state == .on }
         }
         reload()

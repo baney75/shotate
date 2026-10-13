@@ -113,6 +113,8 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let settingsLink = NSButton(title: "Open System Settings", target: nil, action: nil)
     private let shortcutLabel = NSTextField(labelWithString: "")
     private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
+    private let pasteBox = NSButton(checkboxWithTitle: "Took several screenshots? ⌘V asks which one to paste",
+                                    target: nil, action: nil)
     private let primary = NSButton(title: "Try a Capture", target: nil, action: nil)
     private var timer: Timer?
     private var openedSettings = false
@@ -134,6 +136,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     func present() {
+        pasteBox.state = app?.settings.choosePaste == true ? .on : .off
         refresh()
         NSApp.activate(ignoringOtherApps: true)
         window?.center()
@@ -185,6 +188,9 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
 
         loginBox.target = self
         loginBox.action = #selector(toggleLogin)
+        pasteBox.target = self
+        pasteBox.action = #selector(togglePaste)
+        pasteBox.toolTip = "Off by default. Shotate types the paste for you, which needs Accessibility; you can change this in Settings."
 
         let done = NSButton(title: "Done", target: self, action: #selector(doneClicked))
         done.bezelStyle = .rounded
@@ -196,7 +202,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let footer = NSStackView(views: [loginBox, NSView(), done, primary])
         footer.spacing = 10
 
-        let card = NSStackView(views: [permission, settingsLink, separator(), shortcut, separator(), mark])
+        let card = NSStackView(views: [permission, settingsLink, separator(), shortcut, separator(), mark, separator(), pasteBox])
         card.orientation = .vertical
         card.alignment = .leading
         card.spacing = 14
@@ -289,6 +295,8 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     @objc private func doneClicked() { close() }
 
     @objc private func relaunch() { ScreenRecording.relaunch() }
+
+    @objc private func togglePaste() { app?.setChoosePaste(pasteBox.state == .on) }
 
     @objc private func toggleLogin() {
         app?.launchAtLogin = loginBox.state == .on

@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastShortcuts: [String: String] = [:]
     var settings = Settings()
     private(set) lazy var updater = Updater { [weak self] in self?.settings ?? Settings() }
+    private lazy var pastePicker = PastePicker(hotkeys: hotkeys) { [weak self] in self?.settings.choosePaste ?? false }
 
     func applicationDidFinishLaunching(_ n: Notification) {
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
@@ -37,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applySettings(save: !FileManager.default.fileExists(atPath: Settings.configURL.path))
         watchConfig()
         updater.onChange = { [weak self] in self?.settingsWindow?.reload() }
+        pastePicker.update()
         updater.start()
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--open"), i + 1 < args.count { open(URL(fileURLWithPath: args[i + 1])) }
@@ -171,6 +173,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // TextEdit, so it opens as text even where .json belongs to an app that can't edit it.
         NSWorkspace.shared.open([Settings.configURL], withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
                                 configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// "Choose which screenshot to paste", from Settings or setup. Pasting the chosen one types ⌘V
+    /// for you, which needs Accessibility, so turning it on asks for that.
+    func setChoosePaste(_ on: Bool) {
+        settings.choosePaste = on
+        applySettings()
+        if on, !AXIsProcessTrusted() {
+            AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        }
     }
 
     /// Applies settings to the running app; with `save`, also writes the config file.

@@ -17,9 +17,31 @@ final class Hotkeys {
             var id = EventHotKeyID()
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
-            DispatchQueue.main.async { Hotkeys.shared?.actions[id.id]?() }
+            DispatchQueue.main.async {
+                if id.id == Hotkeys.pasteID { Hotkeys.shared?.onPaste() } else { Hotkeys.shared?.actions[id.id]?() }
+            }
             return noErr
         }, 1, &spec, nil, &handler)
+    }
+
+    /// ⌘V, claimed only while a paste should ask which screenshot (see PastePicker). It is kept
+    /// apart from the configured shortcuts, so reloading settings doesn't drop it.
+    private static let pasteID: UInt32 = 0xFFFF
+    private var pasteRef: EventHotKeyRef?
+    var onPaste: () -> Void = {}
+
+    var pasteClaimed: Bool { pasteRef != nil }
+
+    func claimPaste(_ on: Bool) {
+        if on, pasteRef == nil {
+            var ref: EventHotKeyRef?
+            let status = RegisterEventHotKey(UInt32(kVK_ANSI_V), UInt32(cmdKey), EventHotKeyID(signature: OSType(0x534E4150), id: Hotkeys.pasteID),
+                                             GetApplicationEventTarget(), 0, &ref)
+            if status == noErr { pasteRef = ref } else { NSLog("Shotate: couldn't claim ⌘V (status %d)", status) }
+        } else if !on, let ref = pasteRef {
+            UnregisterEventHotKey(ref)
+            pasteRef = nil
+        }
     }
 
     func removeAll() {
