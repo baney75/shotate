@@ -14,6 +14,13 @@ calling it fixed. If the person is using the Mac, don't send keys to the front a
 can run a command in their terminal. Ask them to try it, and say "untested live" until then.
 `screencapture -C` doesn't reliably draw the pointer over Shotate's overlay; don't use it as proof.
 
+## Permissions
+
+Setup (Welcome.swift) states, for each macOS permission, what it's for, what Shotate never does
+with it, and its live status. Keep every sentence there true: before changing a claim, grep the
+sources (`AXUIElement`, event taps, `SCStream`, `URLSession`) to confirm it. A new permission or
+network call gets its own plain line in setup before it ships.
+
 ## Regressions
 
 - **2026-10-13, ⌘V paste chooser (PR #15).** Merged on green tests; Donovan found it didn't work.

@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Changed
+- **Setup explains every permission.** A Permissions section says what Screen Recording (required)
+  and Accessibility (optional, only for choosing what to paste) are used for, what Shotate never
+  does with them, and whether each is allowed right now, with a button to allow it. It also says
+  plainly that screenshots never leave your Mac and that the only automatic network request is the
+  daily update check.
 - The editor opens on Select instead of Arrow, so a click on a new screenshot never drops an
   arrow by accident. Press A for arrows.
 

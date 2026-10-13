@@ -113,8 +113,11 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let settingsLink = NSButton(title: "Open System Settings", target: nil, action: nil)
     private let shortcutLabel = NSTextField(labelWithString: "")
     private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
-    private let pasteBox = NSButton(checkboxWithTitle: "Took several screenshots? ⌘V asks which one to paste",
+    private let pasteBox = NSButton(checkboxWithTitle: "Turn on: ⌘V asks which screenshot to paste",
                                     target: nil, action: nil)
+    private let axLabel = NSTextField(wrappingLabelWithString: "")
+    private let axStatusIcon = NSImageView()
+    private let axAllowButton = NSButton(title: "Allow…", target: nil, action: nil)
     private let primary = NSButton(title: "Try a Capture", target: nil, action: nil)
     private var timer: Timer?
     private var openedSettings = false
@@ -136,7 +139,6 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     func present() {
-        pasteBox.state = app?.settings.choosePaste == true ? .on : .off
         refresh()
         NSApp.activate(ignoringOtherApps: true)
         window?.center()
@@ -175,10 +177,30 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         settingsLink.alignment = .right
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
-        statusLabel.maximumNumberOfLines = 2
-        statusLabel.preferredMaxLayoutWidth = 250
-        let permission = row(symbol: "rectangle.dashed.badge.record", title: "Screen Recording",
+        statusLabel.maximumNumberOfLines = 0
+        statusLabel.preferredMaxLayoutWidth = 300
+        let permissionsTitle = NSTextField(labelWithString: "Permissions")
+        permissionsTitle.font = .systemFont(ofSize: 13, weight: .bold)
+        let permissionsIntro = NSTextField(wrappingLabelWithString:
+            "macOS asks you to approve anything that can see your screen or press keys. Here is exactly "
+            + "what Shotate uses each permission for, and what it never does. Change them anytime in "
+            + "System Settings › Privacy & Security.")
+        permissionsIntro.font = .systemFont(ofSize: 12)
+        permissionsIntro.textColor = .secondaryLabelColor
+        permissionsIntro.preferredMaxLayoutWidth = 400
+        let permission = row(symbol: "rectangle.dashed.badge.record", title: "Screen Recording · Required",
                              detail: statusLabel, trailing: [statusIcon, allowButton, relaunchButton])
+
+        axLabel.maximumNumberOfLines = 0
+        axLabel.preferredMaxLayoutWidth = 300
+        axStatusIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Allowed")
+        axStatusIcon.contentTintColor = .systemGreen
+        axStatusIcon.symbolConfiguration = .init(pointSize: 18, weight: .regular)
+        axAllowButton.target = self
+        axAllowButton.action = #selector(allowAccessibility)
+        axAllowButton.bezelStyle = .rounded
+        let accessibility = row(symbol: "keyboard.badge.ellipsis", title: "Accessibility · Optional",
+                                detail: axLabel, trailing: [axStatusIcon, axAllowButton])
 
         shortcutLabel.textColor = .secondaryLabelColor
         let shortcut = row(symbol: "keyboard", title: "Capture from anywhere", detail: shortcutLabel, trailing: [])
@@ -190,7 +212,8 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         loginBox.action = #selector(toggleLogin)
         pasteBox.target = self
         pasteBox.action = #selector(togglePaste)
-        pasteBox.toolTip = "Off by default. Shotate types the paste for you, which needs Accessibility; you can change this in Settings."
+        pasteBox.toolTip = "Take screenshots within 3 seconds of each other and ⌘V lets you choose which one to paste. "
+            + "Off by default; turn it off anytime in the panel, Settings or the menu bar."
 
         let done = NSButton(title: "Done", target: self, action: #selector(doneClicked))
         done.bezelStyle = .rounded
@@ -202,7 +225,8 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let footer = NSStackView(views: [loginBox, NSView(), done, primary])
         footer.spacing = 10
 
-        let card = NSStackView(views: [permission, settingsLink, separator(), shortcut, separator(), mark, separator(), pasteBox])
+        let card = NSStackView(views: [permissionsTitle, permissionsIntro, permission, settingsLink, separator(),
+                                       accessibility, pasteBox, separator(), shortcut, separator(), mark])
         card.orientation = .vertical
         card.alignment = .leading
         card.spacing = 14
@@ -211,7 +235,14 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         card.layer?.cornerRadius = 10
         card.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.06).cgColor
 
-        let stack = NSStackView(views: [header, card, footer, Credits.label(centered: true)])
+        let privacy = NSTextField(wrappingLabelWithString:
+            "Your screenshots never leave your Mac. Shotate has no analytics and no account. The only thing it "
+            + "does online on its own is a once-a-day check for updates, which you can turn off in Settings.")
+        privacy.font = .systemFont(ofSize: 11)
+        privacy.textColor = .secondaryLabelColor
+        privacy.alignment = .center
+        privacy.preferredMaxLayoutWidth = 440
+        let stack = NSStackView(views: [header, card, privacy, footer, Credits.label(centered: true)])
         stack.orientation = .vertical
         stack.spacing = 22
         stack.edgeInsets = NSEdgeInsets(top: 36, left: 28, bottom: 22, right: 28)
@@ -229,6 +260,9 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         ])
         for v in card.arrangedSubviews { v.widthAnchor.constraint(equalTo: card.widthAnchor, constant: -32).isActive = true }
         window?.contentView = root
+        // As tall as the permissions need; the text wraps rather than clips.
+        root.layoutSubtreeIfNeeded()
+        window?.setContentSize(NSSize(width: 500, height: max(480, root.fittingSize.height)))
     }
 
     private func row(symbol: String, title: String, detail: NSTextField, trailing: [NSView]) -> NSView {
@@ -268,9 +302,11 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         relaunchButton.isHidden = granted || !openedSettings
         relaunchButton.bezelColor = .controlAccentColor
         settingsLink.isHidden = granted || !openedSettings
-        statusLabel.stringValue = granted ? "Allowed. Shotate can capture your screen."
-            : openedSettings ? "Turn Shotate on when macOS asks (or in System Settings), then click Relaunch."
-            : "Needed to capture your screen. Shotate never sends it anywhere."
+        let what = "Lets Shotate see your screen only at the moment you take a capture. It doesn't record "
+            + "video or watch in the background, and captures stay on your Mac."
+        statusLabel.stringValue = granted ? what + "\nAllowed."
+            : openedSettings ? what + "\nTurn Shotate on when macOS asks (or in System Settings), then click Relaunch."
+            : what + "\nNot allowed yet. Click Allow."
         let s = app?.settings
         if let keys = s?.captureShortcut?.displayString {
             shortcutLabel.stringValue = "Press \(keys) and drag. Space switches to a whole window."
@@ -278,6 +314,17 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
             shortcutLabel.stringValue = "Use the menu bar icon, or set a shortcut in Settings."
         }
         loginBox.state = (app?.launchAtLogin ?? false) ? .on : .off
+        let ax = AXIsProcessTrusted()
+        let pasteOn = app?.settings.choosePaste == true
+        pasteBox.state = pasteOn ? .on : .off
+        axStatusIcon.isHidden = !ax
+        axAllowButton.isHidden = ax
+        let axWhat = "Only for the option below. After you pick a screenshot, Shotate presses ⌘V for you in "
+            + "the app you were using, so it pastes into your field. It doesn't read what you type or "
+            + "what's in other apps."
+        axLabel.stringValue = axWhat + (ax ? "\nAllowed."
+            : pasteOn ? "\nNeeded for the option below. Click Allow, then turn Shotate on in System Settings."
+            : "\nNot allowed, and not needed unless you turn the option on.")
         primary.isEnabled = granted
     }
 
@@ -296,7 +343,16 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func relaunch() { ScreenRecording.relaunch() }
 
-    @objc private func togglePaste() { app?.setChoosePaste(pasteBox.state == .on) }
+    @objc private func togglePaste() {
+        app?.setChoosePaste(pasteBox.state == .on)
+        refresh()
+    }
+
+    /// Shows macOS's prompt (which also adds Shotate to the list), then the pane to turn it on.
+    @objc private func allowAccessibility() {
+        AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    }
 
     @objc private func toggleLogin() {
         app?.launchAtLogin = loginBox.state == .on
