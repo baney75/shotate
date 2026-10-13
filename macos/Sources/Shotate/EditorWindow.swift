@@ -465,7 +465,11 @@ final class DragOutButton: NSButton, NSDraggingSource {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// An open hand says the image can be picked up; it closes when pressed.
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+
     override func mouseDown(with e: NSEvent) {
+        NSCursor.closedHand.set()
         guard let c = controller, let url = c.saveEdits() else { return }
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         item.setDraggingFrame(bounds, contents: NSWorkspace.shared.icon(forFile: url.path))
