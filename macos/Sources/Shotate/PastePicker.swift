@@ -50,7 +50,13 @@ final class PastePicker {
            let w = p[kCGImagePropertyPixelWidth] as? Int, let h = p[kCGImagePropertyPixelHeight] as? Int {
             sizes[file] = CGSize(width: w, height: h)
         }
-        thumbnails[file] = source.flatMap(Self.thumbnail)
+        // Decoding a big screenshot takes a moment; the thumbnail is made off the main thread.
+        if let source {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let t = Self.thumbnail(source)
+                DispatchQueue.main.async { if self?.sizes[file] != nil { self?.thumbnails[file] = t } }
+            }
+        }
         update()
     }
 
@@ -146,11 +152,21 @@ final class PasteChooser {
     final class Model: ObservableObject {
         let items: [Item]
         let typesPaste: Bool
+        /// Cards per row: five, or fewer on a narrow screen.
+        let columns: Int
         @Published var selected = 0
         var choose: (Int) -> Void = { _ in }
-        init(items: [Item], typesPaste: Bool) {
+        /// Where the pointer was when the panel opened. It usually opens under the pointer, so
+        /// hover selects only once the mouse has really moved; a twitch never changes what pastes.
+        private let mouseAtOpen = NSEvent.mouseLocation
+        init(items: [Item], typesPaste: Bool, columns: Int) {
             self.items = items
             self.typesPaste = typesPaste
+            self.columns = columns
+        }
+        func hovered(_ i: Int) {
+            let m = NSEvent.mouseLocation
+            if hypot(m.x - mouseAtOpen.x, m.y - mouseAtOpen.y) > 6 { selected = i }
         }
     }
 
@@ -162,7 +178,11 @@ final class PasteChooser {
     private var done = false
 
     init(items: [Item], typesPaste: Bool) {
-        model = Model(items: items, typesPaste: typesPaste)
+        let mouse = NSEvent.mouseLocation
+        let width = (NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main)?.visibleFrame.width ?? 1440
+        // A card is 192 points plus 12 between; the panel adds 36 and keeps 40 clear of the edges.
+        let fit = max(1, Int((width - 76 + 12) / 204))
+        model = Model(items: items, typesPaste: typesPaste, columns: min(items.count, 5, fit))
         panel = ChooserPanel()
         model.choose = { [weak self] i in self?.choose(i) }
         panel.onKey = { [weak self] e in self?.key(e) ?? false }
@@ -220,8 +240,8 @@ final class PasteChooser {
         switch Int(e.keyCode) {
         case kVK_LeftArrow: model.selected = (model.selected + n - 1) % n
         case kVK_RightArrow: model.selected = (model.selected + 1) % n
-        case kVK_UpArrow: model.selected = max(model.selected - 5, 0)
-        case kVK_DownArrow: model.selected = min(model.selected + 5, n - 1)
+        case kVK_UpArrow: model.selected = max(model.selected - model.columns, 0)
+        case kVK_DownArrow: model.selected = min(model.selected + model.columns, n - 1)
         case kVK_Tab: model.selected = (model.selected + (e.modifierFlags.contains(.shift) ? n - 1 : 1)) % n
         case kVK_Return, kVK_ANSI_KeypadEnter, kVK_Space: chooseSelected()
         case kVK_Escape: cancel()
@@ -256,6 +276,13 @@ private final class ChooserPanel: NSPanel {
         if e.type == .keyDown, onKey(e) { return }
         super.sendEvent(e)
     }
+
+    /// Shotate's menu shortcuts (⌘Q, ⌘,) would reach the app ahead of `sendEvent`; while choosing,
+    /// the panel's keys are the only ones that act.
+    override func performKeyEquivalent(with e: NSEvent) -> Bool {
+        _ = onKey(e)
+        return true
+    }
 }
 
 private struct ChooserView: View {
@@ -271,12 +298,14 @@ private struct ChooserView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             // Five to a row, so nine still fit a laptop screen.
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(192), spacing: 12), count: min(model.items.count, 5)),
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(192), spacing: 12), count: model.columns),
                       alignment: .leading, spacing: 12) {
                 ForEach(Array(model.items.enumerated()), id: \.element.id) { i, item in
                     Card(item: item, selected: i == model.selected)
-                        .onHover { if $0 { model.selected = i } }
+                        .onHover { if $0 { model.hovered(i) } }
                         .onTapGesture { model.choose(i) }
+                        .accessibilityAction { model.choose(i) }
+                        .accessibilityAddTraits(i == model.selected ? .isSelected : [])
                 }
             }
         }
