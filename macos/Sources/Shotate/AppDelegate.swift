@@ -7,7 +7,7 @@ private let log = Logger(subsystem: "com.baney.snapmark", category: "config")
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var editors: [EditorWindowController] = []
-    /// The app that was in front when the first editor opened, to get focus back when the last closes.
+    /// The last other app you were in, to get focus back when the last editor closes.
     private var returnTo: NSRunningApplication?
     private var statusItem: NSStatusItem?
     private var hotkeys = Hotkeys()
@@ -29,6 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }()
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        returnTo = NSWorkspace.shared.frontmostApplication.flatMap { $0.processIdentifier == getpid() ? nil : $0 }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil, queue: .main) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier != getpid() else { return }
+            MainActor.assumeIsolated { self?.returnTo = app }
+        }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass),
                                                      andEventID: AEEventID(kAEGetURL))
@@ -286,10 +293,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Let the window finish closing before checking what else is still open.
             DispatchQueue.main.async { self?.returnFocusIfDone() }
         }
-        if editors.isEmpty, let front = NSWorkspace.shared.frontmostApplication,
-           front.processIdentifier != getpid() {
-            returnTo = front
-        }
         editors.append(editor)
         editor.present()
     }
@@ -299,7 +302,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func returnFocusIfDone() {
         guard editors.isEmpty else { return }
         let app = returnTo
-        returnTo = nil
         guard NSApp.isActive, !NSApp.windows.contains(where: { $0.isVisible && $0.styleMask.contains(.titled) })
         else { return }
         if let app, !app.isTerminated { app.activate() } else { NSApp.hide(nil) }
