@@ -672,6 +672,10 @@ export const Snap = {
  *  shares (the page behind a column of text) or, when no color is clear (a photo, a busy pattern),
  *  the strip's own tones blurred, so the new space continues its light and color softly. */
 export function removeThinRuns(px: Uint8ClampedArray, pixelsPerPoint = 1) {
+  // ImageData is straight alpha: colors are summed weighted by alpha, so clear pixels don't count
+  // as black, and `unweight` turns those sums back into one pixel.
+  const unweight = (sum: number[], count: number) =>
+    sum[3] === 0 ? [0, 0, 0, 0] : [sum[0] / sum[3], sum[1] / sum[3], sum[2] / sum[3], sum[3] / count].map(Math.round);
   const n = px.length / 4;
   if (n < 2) return;
   const similar = (a: number, b: number) => [0, 1, 2, 3].every((c) => Math.abs(px[a * 4 + c] - px[b * 4 + c]) <= 12);
@@ -694,22 +698,24 @@ export function removeThinRuns(px: Uint8ClampedArray, pixelsPerPoint = 1) {
       const k = [0, 1, 2, 3].reduce((k, c) => k * 32 + (src[i * 4 + c] >> 3), 0);
       const e = counts.get(k) ?? { n: 0, sum: [0, 0, 0, 0] };
       e.n++;
-      for (let c = 0; c < 4; c++) e.sum[c] += src[i * 4 + c];
+      for (let c = 0; c < 4; c++) e.sum[c] += c < 3 ? src[i * 4 + c] * src[i * 4 + 3] : src[i * 4 + 3];
       counts.set(k, e);
       total++;
     }
     const top = [...counts.values()].reduce((a, b) => (b.n > a.n ? b : a));
     if (top.n * 2 >= total) {
-      const fill = top.sum.map((v) => Math.floor(v / top.n));
+      const fill = unweight(top.sum, top.n);
       for (const [a, b] of detail) for (let i = a; i < b; i++) px.set(fill, i * 4);
     } else {
       // No clear color: a wide box blur of the whole strip, from running sums.
       const radius = Math.max(Math.round(16 * pixelsPerPoint), Math.floor(n / 8));
       const sums = new Float64Array((n + 1) * 4);
-      for (let i = 0; i < n; i++) for (let c = 0; c < 4; c++) sums[(i + 1) * 4 + c] = sums[i * 4 + c] + src[i * 4 + c];
+      for (let i = 0; i < n; i++) for (let c = 0; c < 4; c++) {
+        sums[(i + 1) * 4 + c] = sums[i * 4 + c] + (c < 3 ? src[i * 4 + c] * src[i * 4 + 3] : src[i * 4 + 3]);
+      }
       for (const [a, b] of detail) for (let i = a; i < b; i++) {
         const lo = Math.max(0, i - radius), hi = Math.min(n, i + radius + 1);
-        for (let c = 0; c < 4; c++) px[i * 4 + c] = Math.floor((sums[hi * 4 + c] - sums[lo * 4 + c]) / (hi - lo));
+        px.set(unweight([0, 1, 2, 3].map((c) => sums[hi * 4 + c] - sums[lo * 4 + c]), hi - lo), i * 4);
       }
     }
     return;

@@ -20,7 +20,8 @@ export async function startEditor(root: HTMLElement, file: string, owns: boolean
   const image = await createImageBitmap(new Blob([bytes]));
   const probe = new OffscreenCanvas(image.width, image.height).getContext("2d")!;
   probe.drawImage(image, 0, 0);
-  const border = edges(probe.getImageData(0, 0, image.width, image.height));
+  // Captures are taken at this screen's scale; it is the best guess for an opened image too.
+  const border = edges(probe.getImageData(0, 0, image.width, image.height), window.devicePixelRatio || 1);
   const measureCtx = new OffscreenCanvas(1, 1).getContext("2d")!;
   const measure = (t: string, s: number) => { measureCtx.font = FONT(s); return measureCtx.measureText(t).width; };
   const doc = new Doc(image.width, image.height, measure);

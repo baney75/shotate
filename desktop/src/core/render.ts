@@ -185,20 +185,22 @@ export interface Edges { color: RGBA; strips: CanvasImageSource[]; corners: RGBA
 
 /** The cleaned edge strips of an image as RGBA bytes: left and right top to bottom, top and bottom
  *  left to right. */
-export function edgeStrips(data: ImageData): Uint8ClampedArray[] {
+export function edgeStrips(data: ImageData, pixelsPerPoint = 1): Uint8ClampedArray[] {
   const { width: w, height: h, data: px } = data;
   const strip = (n: number, at: (i: number) => number) => {
     const out = new Uint8ClampedArray(n * 4);
     for (let i = 0; i < n; i++) out.set(px.subarray(at(i), at(i) + 4), i * 4);
-    removeThinRuns(out);
+    removeThinRuns(out, pixelsPerPoint);
     return out;
   };
   return [strip(h, (y) => y * w * 4), strip(h, (y) => (y * w + w - 1) * 4), strip(w, (x) => x * 4), strip(w, (x) => ((h - 1) * w + x) * 4)];
 }
 
-export function edges(data: ImageData): Edges {
+/** `pixelsPerPoint` is the screen scale the image was taken at, so "32 points" means the same on
+ *  every display (see `removeThinRuns`). */
+export function edges(data: ImageData, pixelsPerPoint = 1): Edges {
   const { width: w, height: h } = data;
-  const raw = edgeStrips(data);
+  const raw = edgeStrips(data, pixelsPerPoint);
   const strips = raw.map((px, i) => {
     const c = new OffscreenCanvas(i < 2 ? 1 : w, i < 2 ? h : 1);
     c.getContext("2d")!.putImageData(new ImageData(px, c.width, c.height), 0, 0);

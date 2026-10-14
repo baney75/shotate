@@ -318,6 +318,17 @@ describe("growing the canvas", () => {
     removeThinRuns(page, 2);
     expect(page[20 * 4]).toBe(120);
     expect([...Array(544).keys()].every((k) => page[(56 + k) * 4] === 250)).toBe(true);
+    // A 40-pixel bar is a 20-point line of text at 2x: content, not a band.
+    const bar = new Uint8ClampedArray(600 * 4);
+    for (let i = 0; i < 600; i++) bar.set(i >= 300 && i < 340 ? [187, 182, 186, 255] : [31, 25, 29, 255], i * 4);
+    removeThinRuns(bar, 2);
+    expect(bar[320 * 4]).toBe(31);
+    // Clear pixels don't darken a blur: the color stays near-white where it is partly transparent.
+    const clear = new Uint8ClampedArray(200 * 4);
+    for (let i = 0; i < 200; i++) clear.set(i % 5 < 2 ? [0, 0, 0, 0] : [240, 240, 240 - (i % 7) * 6, 255], i * 4);
+    removeThinRuns(clear);
+    expect(clear[100 * 4]).toBeGreaterThan(230);
+    expect(clear[100 * 4 + 3]).toBeLessThan(255);
     // Corners take the color where their strips meet.
     const s = (a: number, b: number) => new Uint8ClampedArray([a, a, a, 255, b, b, b, 255]);
     const c = cornerColors([s(128, 255), s(128, 255), s(128, 128), s(255, 255)]);
