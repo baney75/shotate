@@ -7,6 +7,8 @@ private let log = Logger(subsystem: "com.baney.snapmark", category: "config")
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var editors: [EditorWindowController] = []
+    /// The last other app you were in, to get focus back when the last editor closes.
+    private var returnTo: NSRunningApplication?
     private var statusItem: NSStatusItem?
     private var hotkeys = Hotkeys()
     private var settingsWindow: SettingsWindowController?
@@ -27,6 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }()
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        returnTo = NSWorkspace.shared.frontmostApplication.flatMap { $0.processIdentifier == getpid() ? nil : $0 }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil, queue: .main) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier != getpid() else { return }
+            MainActor.assumeIsolated { self?.returnTo = app }
+        }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass),
                                                      andEventID: AEEventID(kAEGetURL))
@@ -279,9 +288,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func edit(_ doc: Document, fileURL: URL, ownsFile: Bool, capturePNG: Data? = nil) {
         let editor = EditorWindowController(document: doc, fileURL: fileURL, ownsFile: ownsFile, capturePNG: capturePNG,
                                             settings: settings)
-        editor.onClose = { [weak self] e in self?.editors.removeAll { $0 === e } }
+        editor.onClose = { [weak self] e in
+            self?.editors.removeAll { $0 === e }
+            // Let the window finish closing before checking what else is still open.
+            DispatchQueue.main.async { self?.returnFocusIfDone() }
+        }
         editors.append(editor)
         editor.present()
+    }
+
+    /// Shotate has no Dock icon, so once the last editor closes nothing of it is left to use, yet
+    /// it stays the active app and keys go nowhere. Hand focus back to the app you came from.
+    private func returnFocusIfDone() {
+        guard editors.isEmpty else { return }
+        let app = returnTo
+        guard NSApp.isActive, !NSApp.windows.contains(where: { $0.isVisible && $0.styleMask.contains(.titled) })
+        else { return }
+        if let app, !app.isTerminated { app.activate() } else { NSApp.hide(nil) }
     }
 
     @objc func openImagePanel() {

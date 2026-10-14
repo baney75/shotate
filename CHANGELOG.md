@@ -6,6 +6,8 @@
 - Tool letters (V, A, P, R…) work right after a capture. macOS often left the app you were in
   active, so the letters went there instead of the editor.
 - A tool key changed in Settings works in editors that are already open.
+- Closing the last editor gives focus back to the app you were in. Shotate used to stay in
+  front with no window, so your next keys went nowhere.
 
 ### Changed
 - **Drawing past the edge looks like the screenshot goes on.** Text or a bar cut by the edge no
