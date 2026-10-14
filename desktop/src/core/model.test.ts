@@ -300,6 +300,11 @@ describe("growing the canvas", () => {
     for (let i = 0; i < 200; i++) busy.set(i % 8 < 5 ? [240, 240, 240, 255] : [20, 20, 20, 255], i * 4);
     removeThinRuns(busy);
     expect(busy.every((v, i) => (i % 4 === 3 ? v === 255 : v === 240))).toBe(true);
+    // 2026-10-14: a 14-pixel bar cut in the middle of an edge is content, not a band to stretch.
+    const cut = new Uint8ClampedArray(300 * 4);
+    for (let i = 0; i < 300; i++) cut.set(i >= 150 && i < 164 ? [187, 182, 186, 255] : [31, 25, 29, 255], i * 4);
+    removeThinRuns(cut);
+    expect(cut[157 * 4]).toBe(31);
     // Edge strips come off each side of the image.
     const data = new Uint8ClampedArray(4 * 4 * 4);
     for (let i = 0; i < 16; i++) data.set([i * 3, 0, 0, 255], i * 4);

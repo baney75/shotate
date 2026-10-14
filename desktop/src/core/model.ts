@@ -665,8 +665,11 @@ export const Snap = {
  *  the pixel beside them, so only wide bands and gradients are left. The canvas grows by stretching
  *  each edge's strip: this keeps a title bar or page background carrying on while a line, text or an
  *  icon touching the edge doesn't streak. A run is short below 2% of the strip (at least 6 pixels).
- *  A strip with no wide band at all becomes its most common color. */
-export function removeThinRuns(px: Uint8ClampedArray) {
+ *  A run in the middle of the strip must also be 32 points long: a title bar or footer sits at the
+ *  strip's end, while a band in the middle as short as a line of text is content the edge cut through
+ *  (a highlight, a bar, a word), and stretched it streaks across the new space. A strip with no wide
+ *  band at all becomes its most common color. */
+export function removeThinRuns(px: Uint8ClampedArray, pixelsPerPoint = 1) {
   const n = px.length / 4;
   if (n < 2) return;
   const similar = (a: number, b: number) => [0, 1, 2, 3].every((c) => Math.abs(px[a * 4 + c] - px[b * 4 + c]) <= 12);
@@ -674,7 +677,9 @@ export function removeThinRuns(px: Uint8ClampedArray) {
   let from = 0;
   for (let i = 1; i <= n; i++) if (i === n || !similar(i - 1, i)) { runs.push([from, i]); from = i; }
   const minRun = Math.min(n, Math.max(6, Math.floor(n / 50)));
-  const long = runs.filter(([a, b]) => b - a >= minRun);
+  const minInner = Math.max(minRun, Math.round(32 * pixelsPerPoint));
+  const isLong = ([a, b]: [number, number]) => b - a >= (a === 0 || b === n ? minRun : minInner);
+  const long = runs.filter(isLong);
   if (long.length === runs.length) return;
   if (!long.length) {
     // All detail, like an edge through a column of text: one plain color, the most common.
@@ -691,7 +696,7 @@ export function removeThinRuns(px: Uint8ClampedArray) {
   const src = px.slice();
   const copy = (from: number, to: number) => { for (let c = 0; c < 4; c++) px[to * 4 + c] = src[from * 4 + c]; };
   for (const [a, b] of runs) {
-    if (b - a >= minRun) continue;
+    if (isLong([a, b])) continue;
     // The last pixel of the long run before it, else the first of the one after.
     const before = long.filter(([, e]) => e <= a).pop(), after = long.find(([s]) => s >= b);
     const fill = before ? before[1] - 1 : after ? after[0] : -1;

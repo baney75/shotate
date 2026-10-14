@@ -193,7 +193,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Applies settings to the running app; with `save`, also writes the config file.
     func applySettings(save: Bool = true) {
-        defer { updater.settingsChanged() }
+        defer {
+            updater.settingsChanged()
+            for e in editors { e.settings = settings }
+        }
         if save, configBroken {
             Alerts.show("Fix the config file first",
                         "\((Settings.configURL.path as NSString).abbreviatingWithTildeInPath) has an error, so Shotate "

@@ -20,8 +20,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private var finished = false
     private let status = NSTextField(labelWithString: "")
 
-    /// For the editor's tool keys and the fallback save folder.
-    let settings: Settings
+    /// For the editor's tool keys and the fallback save folder. The app hands over every change, so
+    /// a tool key remapped in Settings works in editors that are already open.
+    var settings: Settings { didSet { showToolKeys() } }
 
     /// The capture's PNG as screencapture wrote it, for copying before any edit is saved.
     private let capturePNG: Data?
@@ -79,9 +80,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         toolControl = NSSegmentedControl(images: Tool.allCases.map {
             NSImage(systemSymbolName: $0.symbol, accessibilityDescription: $0.title)!
         }, trackingMode: .selectOne, target: self, action: #selector(toolChanged))
-        for (i, t) in Tool.allCases.enumerated() {
-            toolControl.setToolTip("\(t.title) (\(settings.key(for: t).uppercased()))", forSegment: i)
-        }
+        showToolKeys()
         bar.addArrangedSubview(toolControl)
 
         for (i, c) in RGBA.palette.enumerated() {
@@ -194,6 +193,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: State
+
+    private func showToolKeys() {
+        for (i, t) in Tool.allCases.enumerated() {
+            toolControl.setToolTip("\(t.title) (\(settings.key(for: t).uppercased()))", forSegment: i)
+        }
+    }
 
     func select(tool: Tool) {
         canvas.tool = tool

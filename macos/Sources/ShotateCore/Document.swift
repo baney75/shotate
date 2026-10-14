@@ -307,7 +307,7 @@ public final class Document {
     public init(image: CGImage, dpi: CGFloat = 72) {
         self.image = image
         self.dpi = dpi > 0 ? dpi : 72
-        (borderColor, edgeStrips) = Document.edges(of: image)
+        (borderColor, edgeStrips) = Document.edges(of: image, pixelsPerPoint: self.dpi / 72)
     }
 
     /// The image plus every mark that reaches past it, with a margin so nothing touches the edge.
@@ -327,7 +327,7 @@ public final class Document {
     }
 
     /// The most common color along the outermost ring of pixels, and each side's cleaned strip.
-    static func edges(of image: CGImage) -> (border: RGBA, strips: [CGImage?]) {
+    static func edges(of image: CGImage, pixelsPerPoint: CGFloat = 1) -> (border: RGBA, strips: [CGImage?]) {
         let w = image.width, h = image.height
         guard w > 0, h > 0 else { return (RGBA(1, 1, 1), [nil, nil, nil, nil]) }
         // Left, right, bottom, top. CGImage cropping uses a top-left origin; strips are one pixel thick.
@@ -338,7 +338,7 @@ public final class Document {
         for rect in rects {
             guard var px = pixels(of: image, in: rect) else { strips.append(nil); continue }
             for i in stride(from: 0, to: px.count, by: 4) { all.add((Int(px[i]), Int(px[i + 1]), Int(px[i + 2]), Int(px[i + 3]))) }
-            removeThinRuns(&px)
+            removeThinRuns(&px, pixelsPerPoint: pixelsPerPoint)
             strips.append(makeImage(px, width: Int(rect.width), height: Int(rect.height)))
         }
         return (all.top ?? RGBA(1, 1, 1), strips)
@@ -346,9 +346,12 @@ public final class Document {
 
     /// Splits a strip into runs of similar neighboring pixels and paints over the short ones with the
     /// pixel beside them, so only wide bands and gradients are left to stretch. A run is short when it
-    /// covers less than 2% of the strip (at least 6 pixels). A strip with no wide band at all becomes
-    /// its most common color.
-    static func removeThinRuns(_ px: inout [UInt8]) {
+    /// covers less than 2% of the strip (at least 6 pixels). A run in the middle of the strip must also
+    /// be 32 points long: a title bar or footer sits at the strip's end, while a band in the middle as
+    /// short as a line of text is content the edge cut through (a highlight, a bar, a word), and
+    /// stretched it streaks across the new space. A strip with no wide band at all becomes its most
+    /// common color.
+    static func removeThinRuns(_ px: inout [UInt8], pixelsPerPoint: CGFloat = 1) {
         let n = px.count / 4
         guard n > 1 else { return }
         func similar(_ a: Int, _ b: Int) -> Bool { (0..<4).allSatisfy { abs(Int(px[a * 4 + $0]) - Int(px[b * 4 + $0])) <= 12 } }
@@ -359,7 +362,9 @@ public final class Document {
             from = i
         }
         let minRun = min(n, max(6, n / 50))
-        let long = runs.filter { $0.count >= minRun }
+        let minInner = max(minRun, Int((32 * pixelsPerPoint).rounded()))
+        let long = runs.filter { $0.count >= ($0.lowerBound == 0 || $0.upperBound == n ? minRun : minInner) }
+        let longSet = Set(long)
         guard long.count < runs.count else { return }
         guard !long.isEmpty else {
             // All detail, like an edge through a column of text: one plain color, the most common.
@@ -373,7 +378,7 @@ public final class Document {
         }
         let src = px
         func copy(_ from: Int, to i: Int) { for c in 0..<4 { px[i * 4 + c] = src[from * 4 + c] } }
-        for r in runs where r.count < minRun {
+        for r in runs where !longSet.contains(r) {
             // The last pixel of the long run before it, else the first of the one after.
             if let before = long.last(where: { $0.upperBound <= r.lowerBound }) {
                 for i in r { copy(before.upperBound - 1, to: i) }

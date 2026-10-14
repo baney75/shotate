@@ -625,6 +625,26 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(arrow.parameter(atDistance: 5000, fromEnd: true), 0, "shorter than the head")
     }
 
+    /// 2026-10-14: a pen stroke past the left edge of a terminal capture smeared a 14-pixel gray bar
+    /// (a cut-off line of text) across the whole grown area. A band in the middle of an edge that is
+    /// shorter than a line of text is content, so the grown area keeps the background there.
+    func testCutContentInTheMiddleOfAnEdgeDoesNotStreak() throws {
+        let ctx = CGContext(data: nil, width: 400, height: 320, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(srgbRed: 0.12, green: 0.1, blue: 0.11, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 320))
+        ctx.setFillColor(CGColor(srgbRed: 0.73, green: 0.71, blue: 0.73, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 150, width: 60, height: 14))
+        let doc = Document(image: ctx.makeImage()!, dpi: 144)
+        doc.add(Mark.stroke([CGPoint(x: 100, y: 100), CGPoint(x: -150, y: 160)], color: RGBA.palette[0], size: .medium))
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        // The bar's middle row, in the grown area well clear of the stroke.
+        let row = Int(157 - doc.canvas.minY)
+        XCTAssertLessThan(Int(pixel(flat, 3, row).0), 60, "the bar doesn't streak into the new space")
+        XCTAssertGreaterThan(Int(pixel(flat, Int(-doc.canvas.minX) + 5, row).0), 150, "the bar is still in the image")
+    }
+
     /// An edge with no wide band (say, through a column of text) becomes one plain color.
     func testAllDetailEdgesBecomeOneColor() {
         var px: [UInt8] = []
