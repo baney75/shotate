@@ -625,6 +625,72 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(arrow.parameter(atDistance: 5000, fromEnd: true), 0, "shorter than the head")
     }
 
+    /// 2026-10-14: a pen stroke past the left edge of a terminal capture smeared a 14-pixel gray bar
+    /// (a cut-off line of text) across the whole grown area. A band in the middle of an edge that is
+    /// shorter than a line of text is content, so the grown area keeps the background there.
+    func testCutContentInTheMiddleOfAnEdgeDoesNotStreak() throws {
+        let ctx = CGContext(data: nil, width: 400, height: 320, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(srgbRed: 0.12, green: 0.1, blue: 0.11, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 320))
+        ctx.setFillColor(CGColor(srgbRed: 0.73, green: 0.71, blue: 0.73, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 150, width: 60, height: 14))
+        let doc = Document(image: ctx.makeImage()!, dpi: 144)
+        doc.add(Mark.stroke([CGPoint(x: 100, y: 100), CGPoint(x: -150, y: 160)], color: RGBA.palette[0], size: .medium))
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        // The bar's middle row, in the grown area well clear of the stroke.
+        let row = Int(157 - doc.canvas.minY)
+        XCTAssertLessThan(Int(pixel(flat, 3, row).0), 60, "the bar doesn't streak into the new space")
+        XCTAssertGreaterThan(Int(pixel(flat, Int(-doc.canvas.minX) + 5, row).0), 150, "the bar is still in the image")
+    }
+
+    /// An edge with no clear color (a photo, noise) continues its own tones, softened, instead of
+    /// whichever shade happened to be most common.
+    func testBusyEdgesWithNoClearColorBlur() {
+        var px: [UInt8] = []
+        // Light noise over the first half, dark noise over the second: no color covers half of it.
+        for i in 0..<400 {
+            let base = i < 200 ? 200 : 60
+            let v = UInt8(base + (i * 37 % 7) * 9 - 27)
+            px += [v, v, v, 255]
+        }
+        Document.removeThinRuns(&px)
+        XCTAssertEqual(Int(px[20 * 4]), 200, accuracy: 15, "the light part stays light")
+        XCTAssertEqual(Int(px[380 * 4]), 60, accuracy: 15, "the dark part stays dark")
+        XCTAssertLessThan(abs(Int(px[100 * 4]) - Int(px[101 * 4])), 6, "and smooth, not noisy")
+    }
+
+    /// Text down the middle of an edge with a title bar at its end: the title bar carries on and
+    /// the rest takes the page color, not the title bar's.
+    func testDetailedEdgesKeepEndBandsAndTakeThePageColor() {
+        var px: [UInt8] = []
+        for i in 0..<600 {
+            let v: UInt8 = i < 56 ? 120 : (i % 24 < 6 ? 10 : 250)
+            px += [v, v, v, 255]
+        }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual(px[20 * 4], 120, "title bar")
+        XCTAssertTrue((56..<600).allSatisfy { px[$0 * 4] == 250 }, "page color below it")
+    }
+
+    /// Corners continue the strips that meet there: a title bar's color, not the page's.
+    func testCornersTakeTheColorWhereTheirStripsMeet() throws {
+        let ctx = CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
+        ctx.setFillColor(CGColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 80, width: 200, height: 20))
+        let doc = Document(image: ctx.makeImage()!)
+        XCTAssertEqual(doc.cornerColors[2].r, 0.5, accuracy: 0.02, "top-left")
+        XCTAssertEqual(doc.cornerColors[0].r, 1, accuracy: 0.02, "bottom-left")
+        doc.add(Mark(tool: .box, color: RGBA.palette[0], start: CGPoint(x: -60, y: 120), end: CGPoint(x: -40, y: 140)))
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        XCTAssertEqual(Int(pixel(flat, 2, flat.height - 3).0), 128, accuracy: 3, "the grown top-left corner")
+    }
+
     /// An edge with no wide band (say, through a column of text) becomes one plain color.
     func testAllDetailEdgesBecomeOneColor() {
         var px: [UInt8] = []

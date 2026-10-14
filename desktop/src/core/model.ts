@@ -661,12 +661,21 @@ export const Snap = {
   },
 };
 
-/** Paints over the short runs of similar neighboring pixels in a one-pixel strip of RGBA bytes, with
- *  the pixel beside them, so only wide bands and gradients are left. The canvas grows by stretching
- *  each edge's strip: this keeps a title bar or page background carrying on while a line, text or an
- *  icon touching the edge doesn't streak. A run is short below 2% of the strip (at least 6 pixels).
- *  A strip with no wide band at all becomes its most common color. */
-export function removeThinRuns(px: Uint8ClampedArray) {
+/** Cleans a one-pixel strip of RGBA bytes so stretching it looks like the image carries on. Splits it
+ *  into runs of similar neighboring pixels; a run is a band worth keeping when it covers 2% of the
+ *  strip (at least 6 pixels), and a run in the middle must also be 32 points long: a title bar or
+ *  footer sits at the strip's end, while a band in the middle as short as a line of text is content
+ *  the edge cut through (a highlight, a bar, a word), and stretched it streaks.
+ *
+ *  When bands cover most of the strip, each short run takes the color of the band beside it.
+ *  Otherwise the edge is mostly detail: the bands stay and the rest becomes the color most of it
+ *  shares (the page behind a column of text) or, when no color is clear (a photo, a busy pattern),
+ *  the strip's own tones blurred, so the new space continues its light and color softly. */
+export function removeThinRuns(px: Uint8ClampedArray, pixelsPerPoint = 1) {
+  // ImageData is straight alpha: colors are summed weighted by alpha, so clear pixels don't count
+  // as black, and `unweight` turns those sums back into one pixel.
+  const unweight = (sum: number[], count: number) =>
+    sum[3] === 0 ? [0, 0, 0, 0] : [sum[0] / sum[3], sum[1] / sum[3], sum[2] / sum[3], sum[3] / count].map(Math.round);
   const n = px.length / 4;
   if (n < 2) return;
   const similar = (a: number, b: number) => [0, 1, 2, 3].every((c) => Math.abs(px[a * 4 + c] - px[b * 4 + c]) <= 12);
@@ -674,24 +683,45 @@ export function removeThinRuns(px: Uint8ClampedArray) {
   let from = 0;
   for (let i = 1; i <= n; i++) if (i === n || !similar(i - 1, i)) { runs.push([from, i]); from = i; }
   const minRun = Math.min(n, Math.max(6, Math.floor(n / 50)));
-  const long = runs.filter(([a, b]) => b - a >= minRun);
+  const minInner = Math.max(minRun, Math.round(32 * pixelsPerPoint));
+  const isLong = ([a, b]: [number, number]) => b - a >= (a === 0 || b === n ? minRun : minInner);
+  const long = runs.filter(isLong);
   if (long.length === runs.length) return;
-  if (!long.length) {
-    // All detail, like an edge through a column of text: one plain color, the most common.
-    const key = (i: number) => [0, 1, 2, 3].map((c) => px[i * 4 + c] >> 3).join();
-    const counts = new Map<string, number>();
-    for (let i = 0; i < n; i++) counts.set(key(i), (counts.get(key(i)) ?? 0) + 1);
-    const top = [...counts].reduce((a, b) => (b[1] > a[1] ? b : a))[0];
-    let at = 0;
-    while (key(at) !== top) at++;
-    const fill = px.slice(at * 4, at * 4 + 4);
-    for (let i = 0; i < n; i++) px.set(fill, i * 4);
+  const src = px.slice();
+  const detail = runs.filter((r) => !isLong(r));
+  const covered = long.reduce((t, [a, b]) => t + b - a, 0);
+  if (covered * 2 < n) {
+    // Mostly detail. The color most of the detail shares, in coarse buckets.
+    const counts = new Map<number, { n: number; sum: number[] }>();
+    let total = 0;
+    for (const [a, b] of detail) for (let i = a; i < b; i++) {
+      const k = [0, 1, 2, 3].reduce((k, c) => k * 32 + (src[i * 4 + c] >> 3), 0);
+      const e = counts.get(k) ?? { n: 0, sum: [0, 0, 0, 0] };
+      e.n++;
+      for (let c = 0; c < 4; c++) e.sum[c] += c < 3 ? src[i * 4 + c] * src[i * 4 + 3] : src[i * 4 + 3];
+      counts.set(k, e);
+      total++;
+    }
+    const top = [...counts.values()].reduce((a, b) => (b.n > a.n ? b : a));
+    if (top.n * 2 >= total) {
+      const fill = unweight(top.sum, top.n);
+      for (const [a, b] of detail) for (let i = a; i < b; i++) px.set(fill, i * 4);
+    } else {
+      // No clear color: a wide box blur of the whole strip, from running sums.
+      const radius = Math.max(Math.round(16 * pixelsPerPoint), Math.floor(n / 8));
+      const sums = new Float64Array((n + 1) * 4);
+      for (let i = 0; i < n; i++) for (let c = 0; c < 4; c++) {
+        sums[(i + 1) * 4 + c] = sums[i * 4 + c] + (c < 3 ? src[i * 4 + c] * src[i * 4 + 3] : src[i * 4 + 3]);
+      }
+      for (const [a, b] of detail) for (let i = a; i < b; i++) {
+        const lo = Math.max(0, i - radius), hi = Math.min(n, i + radius + 1);
+        px.set(unweight([0, 1, 2, 3].map((c) => sums[hi * 4 + c] - sums[lo * 4 + c]), hi - lo), i * 4);
+      }
+    }
     return;
   }
-  const src = px.slice();
   const copy = (from: number, to: number) => { for (let c = 0; c < 4; c++) px[to * 4 + c] = src[from * 4 + c]; };
-  for (const [a, b] of runs) {
-    if (b - a >= minRun) continue;
+  for (const [a, b] of detail) {
     // The last pixel of the long run before it, else the first of the one after.
     const before = long.filter(([, e]) => e <= a).pop(), after = long.find(([s]) => s >= b);
     const fill = before ? before[1] - 1 : after ? after[0] : -1;

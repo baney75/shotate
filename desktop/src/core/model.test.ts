@@ -1,7 +1,7 @@
 import { Doc, Geometry, LINE_HEIGHT, PALETTE, Snap, mark, markHandles, handles, moveHandle, moveMarkHandle, duplicate, markRect, markFontSize, offset, resizeText, rewrapped, styled, textLines, textOrStepRect } from "./model";
 import { resolveToolKeys, shortcutLabel } from "./settings";
 import { TOOLS, inkShape, penWidth, stroke, arrowLabel, calloutAnchor, curveBounds, endNear, midpoint, parameterAt, pinned, pointAt, removeThinRuns } from "./model";
-import { edgeStrips } from "./render";
+import { cornerColors, edgeStrips } from "./render";
 
 const measure = (text: string, size: number) => text.length * size * 0.6;
 const red = PALETTE[0].color;
@@ -300,6 +300,40 @@ describe("growing the canvas", () => {
     for (let i = 0; i < 200; i++) busy.set(i % 8 < 5 ? [240, 240, 240, 255] : [20, 20, 20, 255], i * 4);
     removeThinRuns(busy);
     expect(busy.every((v, i) => (i % 4 === 3 ? v === 255 : v === 240))).toBe(true);
+    // 2026-10-14: a 14-pixel bar cut in the middle of an edge is content, not a band to stretch.
+    const cut = new Uint8ClampedArray(300 * 4);
+    for (let i = 0; i < 300; i++) cut.set(i >= 150 && i < 164 ? [187, 182, 186, 255] : [31, 25, 29, 255], i * 4);
+    removeThinRuns(cut);
+    expect(cut[157 * 4]).toBe(31);
+    // No clear color (a photo, noise): its own tones, softened.
+    const noisy = new Uint8ClampedArray(400 * 4);
+    for (let i = 0; i < 400; i++) { const v = (i < 200 ? 200 : 60) + ((i * 37) % 7) * 9 - 27; noisy.set([v, v, v, 255], i * 4); }
+    removeThinRuns(noisy);
+    expect(Math.abs(noisy[20 * 4] - 200)).toBeLessThan(15);
+    expect(Math.abs(noisy[380 * 4] - 60)).toBeLessThan(15);
+    expect(Math.abs(noisy[100 * 4] - noisy[101 * 4])).toBeLessThan(6);
+    // Text below a title bar: the bar carries on, the rest takes the page color.
+    const page = new Uint8ClampedArray(600 * 4);
+    for (let i = 0; i < 600; i++) { const v = i < 56 ? 120 : i % 24 < 6 ? 10 : 250; page.set([v, v, v, 255], i * 4); }
+    removeThinRuns(page, 2);
+    expect(page[20 * 4]).toBe(120);
+    expect([...Array(544).keys()].every((k) => page[(56 + k) * 4] === 250)).toBe(true);
+    // A 40-pixel bar is a 20-point line of text at 2x: content, not a band.
+    const bar = new Uint8ClampedArray(600 * 4);
+    for (let i = 0; i < 600; i++) bar.set(i >= 300 && i < 340 ? [187, 182, 186, 255] : [31, 25, 29, 255], i * 4);
+    removeThinRuns(bar, 2);
+    expect(bar[320 * 4]).toBe(31);
+    // Clear pixels don't darken a blur: the color stays near-white where it is partly transparent.
+    const clear = new Uint8ClampedArray(200 * 4);
+    for (let i = 0; i < 200; i++) clear.set(i % 5 < 2 ? [0, 0, 0, 0] : [240, 240, 240 - (i % 7) * 6, 255], i * 4);
+    removeThinRuns(clear);
+    expect(clear[100 * 4]).toBeGreaterThan(230);
+    expect(clear[100 * 4 + 3]).toBeLessThan(255);
+    // Corners take the color where their strips meet.
+    const s = (a: number, b: number) => new Uint8ClampedArray([a, a, a, 255, b, b, b, 255]);
+    const c = cornerColors([s(128, 255), s(128, 255), s(128, 128), s(255, 255)]);
+    expect(Math.round(c[0].r * 255)).toBe(128);
+    expect(Math.round(c[3].r * 255)).toBe(255);
     // Edge strips come off each side of the image.
     const data = new Uint8ClampedArray(4 * 4 * 4);
     for (let i = 0; i < 16; i++) data.set([i * 3, 0, 0, 255], i * 4);

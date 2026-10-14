@@ -181,43 +181,66 @@ export function edgeColor(data: ImageData): RGBA {
 
 /** How the canvas grows past the image: the corner color, and each side's outermost column or row of
  *  pixels with thin detail taken out (see `removeThinRuns`), in the order left, right, top, bottom. */
-export interface Edges { color: RGBA; strips: CanvasImageSource[] }
+export interface Edges { color: RGBA; strips: CanvasImageSource[]; corners: RGBA[] }
 
 /** The cleaned edge strips of an image as RGBA bytes: left and right top to bottom, top and bottom
  *  left to right. */
-export function edgeStrips(data: ImageData): Uint8ClampedArray[] {
+export function edgeStrips(data: ImageData, pixelsPerPoint = 1): Uint8ClampedArray[] {
   const { width: w, height: h, data: px } = data;
   const strip = (n: number, at: (i: number) => number) => {
     const out = new Uint8ClampedArray(n * 4);
     for (let i = 0; i < n; i++) out.set(px.subarray(at(i), at(i) + 4), i * 4);
-    removeThinRuns(out);
+    removeThinRuns(out, pixelsPerPoint);
     return out;
   };
   return [strip(h, (y) => y * w * 4), strip(h, (y) => (y * w + w - 1) * 4), strip(w, (x) => x * 4), strip(w, (x) => ((h - 1) * w + x) * 4)];
 }
 
-export function edges(data: ImageData): Edges {
+/** `pixelsPerPoint` is the screen scale the image was taken at, so "32 points" means the same on
+ *  every display (see `removeThinRuns`). */
+export function edges(data: ImageData, pixelsPerPoint = 1): Edges {
   const { width: w, height: h } = data;
-  const strips = edgeStrips(data).map((px, i) => {
+  const raw = edgeStrips(data, pixelsPerPoint);
+  const strips = raw.map((px, i) => {
     const c = new OffscreenCanvas(i < 2 ? 1 : w, i < 2 ? h : 1);
     c.getContext("2d")!.putImageData(new ImageData(px, c.width, c.height), 0, 0);
     return c;
   });
-  return { color: edgeColor(data), strips };
+  return { color: edgeColor(data), strips, corners: cornerColors(raw) };
+}
+
+/** Each corner's color, where the cleaned strips beside it meet (the average of their end pixels),
+ *  in the order top-left, top-right, bottom-left, bottom-right. Strips are left, right, top, bottom;
+ *  left and right run top to bottom, top and bottom left to right. */
+export function cornerColors([l, r, t, b]: Uint8ClampedArray[]): RGBA[] {
+  const at = (s: Uint8ClampedArray, last: boolean) => { const i = last ? s.length - 4 : 0; return [...s.subarray(i, i + 4)]; };
+  const mix = (p: number[], q: number[]): RGBA => {
+    const a = p[3] + q[3];
+    // Average by alpha, so a transparent end doesn't darken the color.
+    return a === 0 ? { r: 0, g: 0, b: 0, a: 0 } : { r: (p[0] * p[3] + q[0] * q[3]) / a / 255, g: (p[1] * p[3] + q[1] * q[3]) / a / 255,
+      b: (p[2] * p[3] + q[2] * q[3]) / a / 255, a: a / 510 };
+  };
+  return [mix(at(l, false), at(t, false)), mix(at(r, false), at(t, true)), mix(at(l, true), at(b, false)), mix(at(r, true), at(b, true))];
 }
 
 /**
  * The image, plus the area a canvas grows into: each side stretches its cleaned edge strip, so a
- * title bar or a page background carries on without streaks, and the corners take the border color.
+ * title bar or a page background carries on without streaks, and each corner takes the color where
+ * the two strips beside it meet.
  */
 export function drawBackground(ctx: Ctx, image: CanvasImageSource, doc: Doc, canvas: Rect, edges: Edges) {
   const W = doc.width, H = doc.height;
   if (canvas.x < 0 || canvas.y < 0 || canvas.x + canvas.w > W || canvas.y + canvas.h > H) {
-    ctx.fillStyle = css(edges.color);
-    ctx.fillRect(canvas.x, canvas.y, canvas.w, canvas.h);
-    ctx.imageSmoothingEnabled = false;
     const [l, r, t, b] = edges.strips;
     const left = -canvas.x, right = canvas.x + canvas.w - W, top = -canvas.y, bottom = canvas.y + canvas.h - H;
+    const corners: [number, number, number, number][] = [[canvas.x, canvas.y, left, top], [W, canvas.y, right, top],
+      [canvas.x, H, left, bottom], [W, H, right, bottom]];
+    corners.forEach(([x, y, w, h], i) => {
+      if (w <= 0 || h <= 0) return;
+      ctx.fillStyle = css(edges.corners[i]);
+      ctx.fillRect(x, y, w, h);
+    });
+    ctx.imageSmoothingEnabled = false;
     if (left > 0) ctx.drawImage(l, canvas.x, 0, left, H);
     if (right > 0) ctx.drawImage(r, W, 0, right, H);
     if (top > 0) ctx.drawImage(t, 0, canvas.y, W, top);
