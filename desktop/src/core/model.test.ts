@@ -1,7 +1,7 @@
 import { Doc, Geometry, LINE_HEIGHT, PALETTE, Snap, mark, markHandles, handles, moveHandle, moveMarkHandle, duplicate, markRect, markFontSize, offset, resizeText, rewrapped, styled, textLines, textOrStepRect } from "./model";
 import { resolveToolKeys, shortcutLabel } from "./settings";
 import { TOOLS, inkShape, penWidth, stroke, arrowLabel, calloutAnchor, curveBounds, endNear, midpoint, parameterAt, pinned, pointAt, removeThinRuns } from "./model";
-import { edgeStrips } from "./render";
+import { cornerColors, edgeStrips } from "./render";
 
 const measure = (text: string, size: number) => text.length * size * 0.6;
 const red = PALETTE[0].color;
@@ -305,6 +305,24 @@ describe("growing the canvas", () => {
     for (let i = 0; i < 300; i++) cut.set(i >= 150 && i < 164 ? [187, 182, 186, 255] : [31, 25, 29, 255], i * 4);
     removeThinRuns(cut);
     expect(cut[157 * 4]).toBe(31);
+    // No clear color (a photo, noise): its own tones, softened.
+    const noisy = new Uint8ClampedArray(400 * 4);
+    for (let i = 0; i < 400; i++) { const v = (i < 200 ? 200 : 60) + ((i * 37) % 7) * 9 - 27; noisy.set([v, v, v, 255], i * 4); }
+    removeThinRuns(noisy);
+    expect(Math.abs(noisy[20 * 4] - 200)).toBeLessThan(15);
+    expect(Math.abs(noisy[380 * 4] - 60)).toBeLessThan(15);
+    expect(Math.abs(noisy[100 * 4] - noisy[101 * 4])).toBeLessThan(6);
+    // Text below a title bar: the bar carries on, the rest takes the page color.
+    const page = new Uint8ClampedArray(600 * 4);
+    for (let i = 0; i < 600; i++) { const v = i < 56 ? 120 : i % 24 < 6 ? 10 : 250; page.set([v, v, v, 255], i * 4); }
+    removeThinRuns(page, 2);
+    expect(page[20 * 4]).toBe(120);
+    expect([...Array(544).keys()].every((k) => page[(56 + k) * 4] === 250)).toBe(true);
+    // Corners take the color where their strips meet.
+    const s = (a: number, b: number) => new Uint8ClampedArray([a, a, a, 255, b, b, b, 255]);
+    const c = cornerColors([s(128, 255), s(128, 255), s(128, 128), s(255, 255)]);
+    expect(Math.round(c[0].r * 255)).toBe(128);
+    expect(Math.round(c[3].r * 255)).toBe(255);
     // Edge strips come off each side of the image.
     const data = new Uint8ClampedArray(4 * 4 * 4);
     for (let i = 0; i < 16; i++) data.set([i * 3, 0, 0, 255], i * 4);

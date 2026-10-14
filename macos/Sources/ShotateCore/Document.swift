@@ -303,11 +303,14 @@ public final class Document {
     /// with thin detail (a line, text, an icon) taken out. The canvas grows by stretching these, so a
     /// title bar, a page background or a gradient carries on, and nothing on the edge streaks.
     public let edgeStrips: [CGImage?]
+    /// The color for each corner the canvas grows into, from the cleaned strips that meet there, in
+    /// the order bottom-left, bottom-right, top-left, top-right.
+    public let cornerColors: [RGBA]
 
     public init(image: CGImage, dpi: CGFloat = 72) {
         self.image = image
         self.dpi = dpi > 0 ? dpi : 72
-        (borderColor, edgeStrips) = Document.edges(of: image, pixelsPerPoint: self.dpi / 72)
+        (borderColor, edgeStrips, cornerColors) = Document.edges(of: image, pixelsPerPoint: self.dpi / 72)
     }
 
     /// The image plus every mark that reaches past it, with a margin so nothing touches the edge.
@@ -326,31 +329,59 @@ public final class Document {
         return r.integral
     }
 
-    /// The most common color along the outermost ring of pixels, and each side's cleaned strip.
-    static func edges(of image: CGImage, pixelsPerPoint: CGFloat = 1) -> (border: RGBA, strips: [CGImage?]) {
+    /// The most common color along the outermost ring of pixels, each side's cleaned strip, and the
+    /// corner colors.
+    static func edges(of image: CGImage, pixelsPerPoint: CGFloat = 1) -> (border: RGBA, strips: [CGImage?], corners: [RGBA]) {
         let w = image.width, h = image.height
-        guard w > 0, h > 0 else { return (RGBA(1, 1, 1), [nil, nil, nil, nil]) }
+        let white = RGBA(1, 1, 1)
+        guard w > 0, h > 0 else { return (white, [nil, nil, nil, nil], [white, white, white, white]) }
         // Left, right, bottom, top. CGImage cropping uses a top-left origin; strips are one pixel thick.
         let rects = [CGRect(x: 0, y: 0, width: 1, height: h), CGRect(x: w - 1, y: 0, width: 1, height: h),
                      CGRect(x: 0, y: h - 1, width: w, height: 1), CGRect(x: 0, y: 0, width: w, height: 1)]
         var all = ColorTally()
         var strips: [CGImage?] = []
+        var cleaned: [[UInt8]] = []
         for rect in rects {
-            guard var px = pixels(of: image, in: rect) else { strips.append(nil); continue }
+            guard var px = pixels(of: image, in: rect) else { strips.append(nil); cleaned.append([]); continue }
             for i in stride(from: 0, to: px.count, by: 4) { all.add((Int(px[i]), Int(px[i + 1]), Int(px[i + 2]), Int(px[i + 3]))) }
             removeThinRuns(&px, pixelsPerPoint: pixelsPerPoint)
             strips.append(makeImage(px, width: Int(rect.width), height: Int(rect.height)))
+            cleaned.append(px)
         }
-        return (all.top ?? RGBA(1, 1, 1), strips)
+        let border = all.top ?? white
+        // A corner continues both strips that meet there: the average of their end pixels. Left and
+        // right strips run top to bottom; bottom and top strips run left to right.
+        func end(_ side: Int, last: Bool) -> [Int]? {
+            let px = cleaned[side]
+            guard px.count >= 4 else { return nil }
+            let i = last ? px.count - 4 : 0
+            return (0..<4).map { Int(px[i + $0]) }
+        }
+        func corner(_ a: [Int]?, _ b: [Int]?) -> RGBA {
+            let both = [a, b].compactMap { $0 }
+            guard !both.isEmpty else { return border }
+            let sum = (0..<4).map { c in both.reduce(0) { $0 + $1[c] } }
+            guard sum[3] > 0 else { return RGBA(0, 0, 0, 0) }
+            // Premultiplied bytes: dividing by alpha gives the straight color.
+            return RGBA(CGFloat(sum[0]) / CGFloat(sum[3]), CGFloat(sum[1]) / CGFloat(sum[3]), CGFloat(sum[2]) / CGFloat(sum[3]),
+                        CGFloat(sum[3]) / CGFloat(255 * both.count))
+        }
+        let corners = [corner(end(0, last: true), end(2, last: false)), corner(end(1, last: true), end(2, last: true)),
+                       corner(end(0, last: false), end(3, last: false)), corner(end(1, last: false), end(3, last: true))]
+        return (border, strips, corners)
     }
 
-    /// Splits a strip into runs of similar neighboring pixels and paints over the short ones with the
-    /// pixel beside them, so only wide bands and gradients are left to stretch. A run is short when it
-    /// covers less than 2% of the strip (at least 6 pixels). A run in the middle of the strip must also
-    /// be 32 points long: a title bar or footer sits at the strip's end, while a band in the middle as
-    /// short as a line of text is content the edge cut through (a highlight, a bar, a word), and
-    /// stretched it streaks across the new space. A strip with no wide band at all becomes its most
-    /// common color.
+    /// Cleans a strip so stretching it looks like the screenshot carries on. Splits it into runs of
+    /// similar neighboring pixels; a run is a band worth keeping when it covers 2% of the strip (at
+    /// least 6 pixels), and a run in the middle of the strip must also be 32 points long: a title bar
+    /// or footer sits at the strip's end, while a band in the middle as short as a line of text is
+    /// content the edge cut through (a highlight, a bar, a word), and stretched it streaks.
+    ///
+    /// When bands cover most of the strip, each short run takes the color of the band beside it.
+    /// Otherwise the edge is mostly detail, and the bands stay while the rest becomes the color most
+    /// of it shares (the page behind a column of text) or, when no color is clear (a photo, a busy
+    /// pattern), the strip's own tones blurred, so the new space continues its light and color
+    /// softly instead of in one arbitrary shade.
     static func removeThinRuns(_ px: inout [UInt8], pixelsPerPoint: CGFloat = 1) {
         let n = px.count / 4
         guard n > 1 else { return }
@@ -366,19 +397,43 @@ public final class Document {
         let long = runs.filter { $0.count >= ($0.lowerBound == 0 || $0.upperBound == n ? minRun : minInner) }
         let longSet = Set(long)
         guard long.count < runs.count else { return }
-        guard !long.isEmpty else {
-            // All detail, like an edge through a column of text: one plain color, the most common.
-            var counts: [UInt32: Int] = [:]
-            for i in 0..<n { counts[UInt32(px[i * 4] >> 3) << 15 | UInt32(px[i * 4 + 1] >> 3) << 10 | UInt32(px[i * 4 + 2] >> 3) << 5 | UInt32(px[i * 4 + 3] >> 3), default: 0] += 1 }
-            let top = counts.max { $0.value < $1.value }!.key
-            let at = (0..<n).first { UInt32(px[$0 * 4] >> 3) << 15 | UInt32(px[$0 * 4 + 1] >> 3) << 10 | UInt32(px[$0 * 4 + 2] >> 3) << 5 | UInt32(px[$0 * 4 + 3] >> 3) == top }!
-            let fill = Array(px[at * 4..<at * 4 + 4])
-            for i in 0..<n { for c in 0..<4 { px[i * 4 + c] = fill[c] } }
+        let src = px
+        let detail = runs.filter { !longSet.contains($0) }
+        let covered = long.reduce(0) { $0 + $1.count }
+        if covered * 2 < n {
+            // Mostly detail. The color most of the detail shares, in coarse buckets.
+            var counts: [UInt32: (n: Int, sum: [Int])] = [:]
+            var total = 0
+            for r in detail {
+                for i in r {
+                    let k = (0..<4).reduce(UInt32(0)) { $0 << 5 | UInt32(src[i * 4 + $1] >> 3) }
+                    var e = counts[k] ?? (0, [0, 0, 0, 0])
+                    e.n += 1
+                    for c in 0..<4 { e.sum[c] += Int(src[i * 4 + c]) }
+                    counts[k] = e
+                    total += 1
+                }
+            }
+            let top = counts.values.max { $0.n < $1.n }!
+            if top.n * 2 >= total {
+                let fill = top.sum.map { UInt8($0 / top.n) }
+                for r in detail { for i in r { for c in 0..<4 { px[i * 4 + c] = fill[c] } } }
+            } else {
+                // No clear color: a wide box blur of the whole strip, from running sums.
+                let radius = max(Int((16 * pixelsPerPoint).rounded()), n / 8)
+                var sums = [[Int]](repeating: [0, 0, 0, 0], count: n + 1)
+                for i in 0..<n { for c in 0..<4 { sums[i + 1][c] = sums[i][c] + Int(src[i * 4 + c]) } }
+                for r in detail {
+                    for i in r {
+                        let a = max(0, i - radius), b = min(n, i + radius + 1)
+                        for c in 0..<4 { px[i * 4 + c] = UInt8((sums[b][c] - sums[a][c]) / (b - a)) }
+                    }
+                }
+            }
             return
         }
-        let src = px
         func copy(_ from: Int, to i: Int) { for c in 0..<4 { px[i * 4 + c] = src[from * 4 + c] } }
-        for r in runs where !longSet.contains(r) {
+        for r in detail {
             // The last pixel of the long run before it, else the first of the one after.
             if let before = long.last(where: { $0.upperBound <= r.lowerBound }) {
                 for i in r { copy(before.upperBound - 1, to: i) }

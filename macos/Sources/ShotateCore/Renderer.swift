@@ -173,12 +173,20 @@ public enum Renderer {
 
     /// The image, plus the area a canvas grows into: each side continues the screenshot's outermost
     /// row or column of pixels with thin detail taken out (see `Document.edgeStrips`), so a title bar
-    /// or a page background carries on without streaks, and the corners take the border color.
+    /// or a page background carries on without streaks, and each corner takes the color where the two
+    /// strips beside it meet (see `Document.cornerColors`).
     public static func drawBackground(_ doc: Document, canvas: CGRect, in ctx: CGContext) {
         let img = doc.image, b = doc.bounds
         if canvas != b {
-            ctx.setFillColor(doc.borderColor.cgColor)
-            ctx.fill(canvas)
+            // Bottom-left, bottom-right, top-left, top-right, as `Document.cornerColors` orders them.
+            let corners = [CGRect(x: canvas.minX, y: canvas.minY, width: -canvas.minX, height: -canvas.minY),
+                           CGRect(x: b.maxX, y: canvas.minY, width: canvas.maxX - b.maxX, height: -canvas.minY),
+                           CGRect(x: canvas.minX, y: b.maxY, width: -canvas.minX, height: canvas.maxY - b.maxY),
+                           CGRect(x: b.maxX, y: b.maxY, width: canvas.maxX - b.maxX, height: canvas.maxY - b.maxY)]
+            for (color, rect) in zip(doc.cornerColors, corners) where rect.width > 0 && rect.height > 0 {
+                ctx.setFillColor(color.cgColor)
+                ctx.fill(rect)
+            }
             ctx.saveGState()
             ctx.interpolationQuality = .none
             // Left, right, bottom, top, as `Document.edgeStrips` orders them.

@@ -11,7 +11,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     let ownsFile: Bool
     let canvas: CanvasView
     var onClose: ((EditorWindowController) -> Void)?
-    private var toolControl = NSSegmentedControl()
+    private var toolControl = ToolControl()
+    /// The tool name and key under the tool the pointer is on.
+    private let toolTip = HoverLabel()
+    private var nameTimer: Timer?
     private var sizeControl = NSSegmentedControl()
     private var colorButtons: [NSButton] = []
     private var undoButton = NSButton()
@@ -42,8 +45,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         size = CGSize(width: max(size.width * fit, 720), height: max(size.height * fit, 240) + 76)
 
         let window = EditorWindow(contentRect: CGRect(origin: .zero, size: size),
-                                  styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                                  styleMask: [.titled, .closable, .resizable, .miniaturizable, .nonactivatingPanel],
                                   backing: .buffered, defer: false)
+        // macOS may decline to activate Shotate when a capture ends (the shortcut and the capture
+        // overlay leave the other app active), and keys would go to that app. A nonactivating panel
+        // takes keys as the key window either way, like the capture overlay and the paste chooser.
+        window.becomesKeyOnlyIfNeeded = false
+        window.hidesOnDeactivate = false
         window.title = fileURL.deletingPathExtension().lastPathComponent
         window.representedURL = fileURL
         window.minSize = CGSize(width: 720, height: 320)
@@ -77,9 +85,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         bar.spacing = 8
         bar.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
 
-        toolControl = NSSegmentedControl(images: Tool.allCases.map {
+        toolControl = ToolControl(images: Tool.allCases.map {
             NSImage(systemSymbolName: $0.symbol, accessibilityDescription: $0.title)!
         }, trackingMode: .selectOne, target: self, action: #selector(toolChanged))
+        // Equal segments, so the pointer's position says which tool it is on.
+        toolControl.segmentDistribution = .fillEqually
+        toolControl.widthAnchor.constraint(equalToConstant: CGFloat(Tool.allCases.count) * 31).isActive = true
+        toolControl.onHover = { [weak self] i in self?.showToolTip(i) }
         showToolKeys()
         bar.addArrangedSubview(toolControl)
 
@@ -181,7 +193,34 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             canvas.leadingAnchor.constraint(equalTo: canvasHolder.leadingAnchor, constant: 12),
             canvas.trailingAnchor.constraint(equalTo: canvasHolder.trailingAnchor, constant: -12),
         ])
+        toolTip.isHidden = true
+        root.addSubview(toolTip)
         window?.contentView = root
+    }
+
+    /// Shows the hovered tool's key under it, then after another second its name too. System tooltips
+    /// only appear while Shotate is the active app, which it may not be when an editor opens over
+    /// another app, so the editor draws its own.
+    private func showToolTip(_ i: Int?, named: Bool = false) {
+        nameTimer?.invalidate()
+        guard let i, Tool.allCases.indices.contains(i), let root = window?.contentView else {
+            toolTip.isHidden = true
+            return
+        }
+        let t = Tool.allCases[i]
+        toolTip.set(title: named ? t.title : nil, key: settings.key(for: t).uppercased())
+        if !named {
+            nameTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in
+                guard let self, self.toolControl.hovered == i else { return }
+                self.showToolTip(i, named: true)
+            }
+        }
+        let w = toolControl.bounds.width / CGFloat(Tool.allCases.count)
+        let below = toolControl.convert(CGPoint(x: w * (CGFloat(i) + 0.5), y: toolControl.isFlipped ? toolControl.bounds.maxY : 0), to: root)
+        let size = toolTip.fittingSize
+        let x = min(max(8, below.x - size.width / 2), root.bounds.width - size.width - 8)
+        toolTip.frame = CGRect(x: x, y: below.y - size.height - 10, width: size.width, height: size.height)
+        toolTip.isHidden = false
     }
 
     private func iconButton(_ symbol: String, _ tip: String, _ action: Selector) -> NSButton {
@@ -198,6 +237,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         for (i, t) in Tool.allCases.enumerated() {
             toolControl.setToolTip("\(t.title) (\(settings.key(for: t).uppercased()))", forSegment: i)
         }
+        if !toolTip.isHidden { showToolTip(toolControl.hovered, named: true) }
     }
 
     func select(tool: Tool) {
@@ -446,7 +486,73 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-final class EditorWindow: NSWindow {
+/// The tool picker, reporting which segment the pointer is on, even while another app is active.
+final class ToolControl: NSSegmentedControl {
+    var onHover: ((Int?) -> Void)?
+    private(set) var hovered: Int? { didSet { if hovered != oldValue { onHover?(hovered) } } }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.filter { $0.owner === self }.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+    override func mouseMoved(with e: NSEvent) { track(e) }
+    override func mouseEntered(with e: NSEvent) { track(e) }
+    override func mouseExited(with e: NSEvent) { hovered = nil }
+    override func mouseDown(with e: NSEvent) {
+        hovered = nil
+        super.mouseDown(with: e)
+    }
+    private func track(_ e: NSEvent) {
+        let x = convert(e.locationInWindow, from: nil).x
+        hovered = bounds.width > 0 && segmentCount > 0 ? min(segmentCount - 1, max(0, Int(x / (bounds.width / CGFloat(segmentCount))))) : nil
+    }
+}
+
+/// A small dark label: the tool's name and, in a key cap, its key.
+final class HoverLabel: NSView {
+    private let title = NSTextField(labelWithString: "")
+    private let key = NSTextField(labelWithString: "")
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.92).cgColor
+        layer?.cornerRadius = 6
+        title.font = .systemFont(ofSize: 12, weight: .medium)
+        title.textColor = .white
+        key.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        key.textColor = .white
+        key.alignment = .center
+        key.wantsLayer = true
+        key.layer?.borderColor = NSColor(white: 1, alpha: 0.5).cgColor
+        key.layer?.borderWidth = 1
+        key.layer?.cornerRadius = 4
+        let row = NSStackView(views: [title, key])
+        row.spacing = 8
+        row.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor), row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor), row.bottomAnchor.constraint(equalTo: bottomAnchor),
+            key.widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
+        ])
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// The key alone, or the name and the key.
+    func set(title t: String?, key k: String) {
+        title.stringValue = t ?? ""
+        title.isHidden = t == nil
+        key.stringValue = k
+        layoutSubtreeIfNeeded()
+    }
+}
+
+final class EditorWindow: NSPanel {
     weak var controller: EditorWindowController?
     override func keyDown(with e: NSEvent) {
         if controller?.handleKey(e) != true { super.keyDown(with: e) }
