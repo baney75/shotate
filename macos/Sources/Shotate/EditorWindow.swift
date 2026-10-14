@@ -233,9 +233,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: State
 
+    /// The hover label shows each tool's key; a system tooltip too would show a second popup. The
+    /// key goes in each tool's accessibility description for VoiceOver.
     private func showToolKeys() {
         for (i, t) in Tool.allCases.enumerated() {
-            toolControl.setToolTip("\(t.title) (\(settings.key(for: t).uppercased()))", forSegment: i)
+            toolControl.image(forSegment: i)?.accessibilityDescription = "\(t.title) (\(settings.key(for: t).uppercased()))"
         }
         if !toolTip.isHidden { showToolTip(toolControl.hovered, named: true) }
     }
