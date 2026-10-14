@@ -2,7 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+- Tool letters (V, A, P, R…) work right after a capture. macOS often left the app you were in
+  active, so the letters went there instead of the editor.
+- A tool key changed in Settings works in editors that are already open.
+
 ### Changed
+- **Drawing past the edge looks like the screenshot goes on.** Text or a bar cut by the edge no
+  longer smears across the new space. Where an edge has no clear background, such as a photo, the
+  new space continues its colors softly, and corners match the edges that meet there.
 - **Setup explains every permission.** A Permissions section says what Screen Recording (required)
   and Accessibility (optional, only for choosing what to paste) are used for, what Shotate never
   does with them, and whether each is allowed right now, with a button to allow it. It also says
@@ -12,6 +20,7 @@
   arrow by accident. Press A for arrows.
 
 ### Added
+- Point at a tool to see its key; keep pointing for a second to see its name too.
 - **Choose which screenshot to paste** (macOS, off by default). Turn it on in setup, Settings or
   the menu bar menu. Take screenshots within 3 seconds of each other and, for the next minute,
   ⌘V opens a panel of them, newest first and numbered; click one, press its number, or use the

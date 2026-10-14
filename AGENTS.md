@@ -33,3 +33,8 @@ network call gets its own plain line in setup before it ships.
   accepts the first click) into the field you were typing in (the paste goes to the app ⌘V was
   pressed in), it only applies to screenshots within 3 seconds of each other, the choice clears
   after a minute, and a switch in the panel and the menu bar turns it off.
+- **2026-10-14, tool letters after a capture.** After ⇧⌘S and a drag, macOS kept the previous app
+  active (`NSApp.activate` was declined), so editor letters went to that app. Opening an image from
+  Finder activates normally, so the bug hid there. The editor is now a nonactivating panel. Live
+  check: with another app in front, press the capture shortcut, drag a region, press A without
+  clicking, and the Arrow tool is selected.
