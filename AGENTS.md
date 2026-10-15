@@ -1,5 +1,9 @@
 # Shotate: notes for coding agents
 
+The product is Shotate (repo baney75/shotate). Snapmark is the retired name (renamed in 0.12.0); the
+local folder `~/Projects/snapmark` and bundle ID `com.baney.snapmark` keep it only as paths. Never call
+the app Snapmark in prose, PRs or commits.
+
 ## Checks
 
 - macOS: `cd macos && swift build && swift test`; `make install` puts the build in ~/Applications.
