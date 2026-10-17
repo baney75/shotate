@@ -708,6 +708,44 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(px[299 * 4], 149)
     }
 
+    /// A dark toolbar at the end of an edge, too close to the page's color to split from it and
+    /// shorter than half a line of text, still carries on.
+    func testShortFaintEndBandsCarryOn() {
+        var px: [UInt8] = []
+        for i in 0..<524 { let v: UInt8 = i < 24 ? 40 : 33; px += [v, v, v, 255] }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual(px[10 * 4], 40, "the toolbar")
+        XCTAssertEqual(px[300 * 4], 33, "the page")
+    }
+
+    /// An edge down a paragraph of dim text cuts every line; none of them streaks.
+    func testSeveralLinesOfDimTextInsideABandAllGo() {
+        var px: [UInt8] = []
+        for i in 0..<500 {
+            var v = 33
+            // Three lines 24 pixels tall, 12 apart, from 200: glyph tails 3 to 10 levels off the page.
+            if i >= 200, i < 308, (i - 200) % 36 < 24 { v += [3, 6, 10, 4, 0, 8][(i - 200) % 6] }
+            px += [UInt8(v), UInt8(v), UInt8(v), 255]
+        }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        let off = (0..<500).filter { abs(Int(px[$0 * 4]) - 33) > 2 }
+        XCTAssertEqual(off, [], "pixels still off the page color")
+    }
+
+    /// A header and footer of one color covering just under half an edge, around a photo: the photo
+    /// softens into its own tones instead of turning the header's color.
+    func testBandColorDoesNotPaintOverAPhotoBetweenThem() {
+        var px: [UInt8] = []
+        for i in 0..<1000 {
+            // The photo: wide swings, and 5% of it in the header's color.
+            let v = i < 245 || i >= 755 ? 40 : (i % 20 == 0 ? 41 : 90 + (i * 53 % 11) * 14)
+            px += [UInt8(v), UInt8(v), UInt8(v), 255]
+        }
+        Document.removeThinRuns(&px)
+        XCTAssertEqual(px[100 * 4], 40, "the header stays")
+        XCTAssertGreaterThan(Int(px[500 * 4]), 80, "the photo isn't painted the header's color")
+    }
+
     /// An edge with no clear color (a photo, noise) continues its own tones, softened, instead of
     /// whichever shade happened to be most common.
     func testBusyEdgesWithNoClearColorBlur() {

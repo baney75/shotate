@@ -378,15 +378,15 @@ public final class Document {
     /// content the edge cut through (a highlight, a bar, a word), and stretched it streaks.
     ///
     /// A band can still carry marks too faint to split it: dim text, or the anti-aliased edge of a
-    /// glyph beside it. Inside a band, anything that changes faster than a gradient and is no longer
-    /// than half a line of text takes the band's color.
+    /// glyph beside it. Inside a band, each stretch up to half a line of text long that strays from
+    /// the band's steady color takes it.
     ///
     /// When bands cover most of the strip, each short run takes the color of the band beside it.
     /// Otherwise the edge is mostly detail, and the bands stay while the rest becomes the color most
     /// of it shares (the page behind a column of text), else the color most of the whole strip shares
-    /// (a bold title on a page), or, when no color is clear (a photo, a busy pattern), the strip's own
-    /// tones blurred, so the new space continues its light and color softly instead of in one
-    /// arbitrary shade.
+    /// when the detail favors it too (a bold title on a page), or, when no color is clear (a photo, a
+    /// busy pattern), the strip's own tones blurred, so the new space continues its light and color
+    /// softly instead of in one arbitrary shade.
     static func removeThinRuns(_ px: inout [UInt8], pixelsPerPoint: CGFloat = 1) {
         let n = px.count / 4
         guard n > 1 else { return }
@@ -400,9 +400,11 @@ public final class Document {
         let minRun = min(n, max(6, n / 50))
         let minInner = max(minRun, Int((32 * pixelsPerPoint).rounded()))
         let long = runs.filter { $0.count >= ($0.lowerBound == 0 || $0.upperBound == n ? minRun : minInner) }
-        // Inside a band, a stretch up to half a line of text long that leaves the band and comes back
-        // (a faint glyph, a hairline) is a mark on it. It takes the band's color, blended from the
-        // pixels on either side so a gradient carries on through it.
+        // Inside a band, marks too faint to split it (dim text, a glyph's anti-aliased edge) still
+        // streak. The band's own color runs through its steady parts, at least half a line of text
+        // long; between two of them, or between one and the detail beside the band, each stretch up
+        // to `reach` long that strays from the line joining them takes that line's color, so a
+        // gradient carries on. The strip's own ends are left alone: a toolbar there is a band too.
         let reach = max(1, Int((16 * pixelsPerPoint).rounded()))
         let banded = px
         for r in long {
@@ -412,19 +414,27 @@ public final class Document {
                 if i - s >= reach { steady.append(s..<i) }
                 s = i
             }
+            guard !steady.isEmpty else { continue }
             var at = r.lowerBound
             for (k, part) in (steady + [r.upperBound..<r.upperBound]).enumerated() {
                 defer { at = part.upperBound }
                 let gap = at..<part.lowerBound
-                guard !gap.isEmpty, gap.count <= reach else { continue }
-                let left = k > 0 ? gap.lowerBound - 1 : nil, right = part.isEmpty ? nil : part.lowerBound
-                guard left != nil || right != nil else { continue }
-                for i in gap {
-                    let t = left == nil ? 1 : right == nil ? 0 : Double(i - gap.lowerBound + 1) / Double(gap.count + 1)
-                    for c in 0..<4 {
-                        let l = Double(banded[(left ?? right!) * 4 + c]), rt = Double(banded[(right ?? left!) * 4 + c])
-                        px[i * 4 + c] = UInt8((l + (rt - l) * t).rounded())
-                    }
+                guard !gap.isEmpty, gap.lowerBound > 0, gap.upperBound < n else { continue }
+                // The pixels on either side; on a band's end, the one steady side twice.
+                let left = k > 0 ? gap.lowerBound - 1 : part.lowerBound
+                let right = part.isEmpty ? gap.lowerBound - 1 : part.lowerBound
+                func line(_ i: Int, _ c: Int) -> Int {
+                    let l = Double(banded[left * 4 + c]), rt = Double(banded[right * 4 + c])
+                    return Int((right == left ? l : l + (rt - l) * Double(i - left) / Double(right - left)).rounded())
+                }
+                func strays(_ i: Int) -> Bool { (0..<4).contains { abs(Int(banded[i * 4 + $0]) - line(i, $0)) > 2 } }
+                var i = gap.lowerBound
+                while i < gap.upperBound {
+                    guard strays(i) else { i += 1; continue }
+                    var j = i
+                    while j < gap.upperBound, strays(j) { j += 1 }
+                    if j - i <= reach { for p in i..<j { for c in 0..<4 { px[p * 4 + c] = UInt8(line(p, c)) } } }
+                    i = j
                 }
             }
         }
@@ -434,9 +444,10 @@ public final class Document {
         let src = px
         let covered = long.reduce(0) { $0 + $1.count }
         if covered * 2 < n {
-            // Mostly detail. The color most of the detail shares, in coarse buckets, else the color
-            // most of the strip shares.
-            func dominant(_ ranges: [Range<Int>]) -> [UInt8]? {
+            // Mostly detail. The color most of the detail shares, in coarse buckets. Failing that, the
+            // color most of the strip shares, if it is also the detail's most common one: a bold title
+            // on a page, and not a header's color painted over a photo between it and a footer.
+            func dominant(_ ranges: [Range<Int>]) -> (key: UInt32, fill: [UInt8], half: Bool)? {
                 var counts: [UInt32: (n: Int, sum: [Int])] = [:]
                 var total = 0
                 for r in ranges {
@@ -449,10 +460,13 @@ public final class Document {
                         total += 1
                     }
                 }
-                guard let top = counts.values.max(by: { $0.n < $1.n }), top.n * 2 >= total else { return nil }
-                return top.sum.map { UInt8($0 / top.n) }
+                guard let top = counts.max(by: { $0.value.n < $1.value.n }) else { return nil }
+                return (top.key, top.value.sum.map { UInt8($0 / top.value.n) }, top.value.n * 2 >= total)
             }
-            if let fill = dominant(detail) ?? dominant([0..<n]) {
+            let inDetail = dominant(detail), inStrip = dominant([0..<n])
+            let fill = inDetail?.half == true ? inDetail?.fill
+                : inStrip.flatMap { $0.half && $0.key == inDetail?.key ? $0.fill : nil }
+            if let fill {
                 for r in detail { for i in r { for c in 0..<4 { px[i * 4 + c] = fill[c] } } }
             } else {
                 // No clear color: a wide box blur of the whole strip, from running sums.
