@@ -404,10 +404,11 @@ public final class Document {
         // streak. The band's own color runs through its steady parts, at least half a line of text
         // long; between two of them, or between one and the detail beside the band, each stretch up
         // to `reach` long that strays from the line joining them takes that line's color, so a
-        // gradient carries on. The strip's own ends are left alone: a toolbar there is a band too.
+        // gradient carries on. A stretch on the outer end of the first or last band is left alone:
+        // a toolbar at the strip's end is a band too.
         let reach = max(1, Int((16 * pixelsPerPoint).rounded()))
         let banded = px
-        for r in long {
+        for (b, r) in long.enumerated() {
             var steady: [Range<Int>] = []  // parts that change no faster than a gradient
             var s = r.lowerBound
             for i in (r.lowerBound + 1)...r.upperBound where i == r.upperBound || step(i - 1, i) > 2 {
@@ -419,7 +420,7 @@ public final class Document {
             for (k, part) in (steady + [r.upperBound..<r.upperBound]).enumerated() {
                 defer { at = part.upperBound }
                 let gap = at..<part.lowerBound
-                guard !gap.isEmpty, gap.lowerBound > 0, gap.upperBound < n else { continue }
+                guard !gap.isEmpty else { continue }
                 // The pixels on either side; on a band's end, the one steady side twice.
                 let left = k > 0 ? gap.lowerBound - 1 : part.lowerBound
                 let right = part.isEmpty ? gap.lowerBound - 1 : part.lowerBound
@@ -433,7 +434,8 @@ public final class Document {
                     guard strays(i) else { i += 1; continue }
                     var j = i
                     while j < gap.upperBound, strays(j) { j += 1 }
-                    if j - i <= reach { for p in i..<j { for c in 0..<4 { px[p * 4 + c] = UInt8(line(p, c)) } } }
+                    let outer = (b == 0 && i == r.lowerBound) || (b == long.count - 1 && j == r.upperBound)
+                    if j - i <= reach, !outer { for p in i..<j { for c in 0..<4 { px[p * 4 + c] = UInt8(line(p, c)) } } }
                     i = j
                 }
             }
@@ -445,11 +447,12 @@ public final class Document {
         let covered = long.reduce(0) { $0 + $1.count }
         if covered * 2 < n {
             // Mostly detail. The color most of the detail shares, in coarse buckets. Failing that, the
-            // color most of the strip shares, if it is also the detail's most common one: a bold title
-            // on a page, and not a header's color painted over a photo between it and a footer.
-            func dominant(_ ranges: [Range<Int>]) -> (key: UInt32, fill: [UInt8], half: Bool)? {
-                var counts: [UInt32: (n: Int, sum: [Int])] = [:]
-                var total = 0
+            // color most of the strip shares, if the detail has no color more often and has it in a
+            // third of its pixels: a bold title on a page, and not a header's color painted over a
+            // photo between it and a footer. Ties go to the lower bucket, so every run picks the same.
+            typealias Tally = [UInt32: (n: Int, sum: [Int])]
+            func tally(_ ranges: [Range<Int>]) -> Tally {
+                var counts: Tally = [:]
                 for r in ranges {
                     for i in r {
                         let k = (0..<4).reduce(UInt32(0)) { $0 << 5 | UInt32(src[i * 4 + $1] >> 3) }
@@ -457,15 +460,20 @@ public final class Document {
                         e.n += 1
                         for c in 0..<4 { e.sum[c] += Int(src[i * 4 + c]) }
                         counts[k] = e
-                        total += 1
                     }
                 }
-                guard let top = counts.max(by: { $0.value.n < $1.value.n }) else { return nil }
-                return (top.key, top.value.sum.map { UInt8($0 / top.value.n) }, top.value.n * 2 >= total)
+                return counts
             }
-            let inDetail = dominant(detail), inStrip = dominant([0..<n])
-            let fill = inDetail?.half == true ? inDetail?.fill
-                : inStrip.flatMap { $0.half && $0.key == inDetail?.key ? $0.fill : nil }
+            func top(_ t: Tally) -> (key: UInt32, n: Int, fill: [UInt8]) {
+                let e = t.min { $0.value.n != $1.value.n ? $0.value.n > $1.value.n : $0.key < $1.key }!
+                return (e.key, e.value.n, e.value.sum.map { UInt8($0 / e.value.n) })
+            }
+            let inDetail = tally(detail), inStrip = tally([0..<n])
+            let detailTotal = detail.reduce(0) { $0 + $1.count }
+            let d = top(inDetail), all = top(inStrip)
+            let shared = inDetail[all.key]?.n ?? 0
+            let fill = d.n * 2 >= detailTotal ? d.fill
+                : all.n * 2 >= n && shared == d.n && shared * 3 >= detailTotal ? all.fill : nil
             if let fill {
                 for r in detail { for i in r { for c in 0..<4 { px[i * 4 + c] = fill[c] } } }
             } else {

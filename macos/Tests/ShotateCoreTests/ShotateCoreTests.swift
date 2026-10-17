@@ -718,6 +718,28 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(px[300 * 4], 33, "the page")
     }
 
+    /// The same toolbar behind a 1-pixel window border still carries on, and the border takes its color.
+    func testShortFaintEndBandsCarryOnPastABorder() {
+        var px: [UInt8] = []
+        for i in 0..<524 { let v: UInt8 = i == 0 ? 255 : i < 24 ? 40 : 33; px += [v, v, v, 255] }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual(px[0], 40, "the border")
+        XCTAssertEqual(px[10 * 4], 40, "the toolbar")
+        XCTAssertEqual(px[300 * 4], 33, "the page")
+    }
+
+    /// Dim text cut less than half a line from either end of the edge goes too.
+    func testDimTextNearTheEndsOfAnEdgeGoes() {
+        var px: [UInt8] = []
+        for i in 0..<500 {
+            let tail = [3, 6, 10, 4, 0, 8]
+            let v = 33 + ((24..<40).contains(i) ? tail[(i - 24) % 6] : (460..<476).contains(i) ? tail[(i - 460) % 6] : 0)
+            px += [UInt8(v), UInt8(v), UInt8(v), 255]
+        }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual((0..<500).filter { abs(Int(px[$0 * 4]) - 33) > 2 }, [])
+    }
+
     /// An edge down a paragraph of dim text cuts every line; none of them streaks.
     func testSeveralLinesOfDimTextInsideABandAllGo() {
         var px: [UInt8] = []
@@ -744,6 +766,23 @@ final class ShotateCoreTests: XCTestCase {
         Document.removeThinRuns(&px)
         XCTAssertEqual(px[100 * 4], 40, "the header stays")
         XCTAssertGreaterThan(Int(px[500 * 4]), 80, "the photo isn't painted the header's color")
+        // The same, with the header's color the photo's most common one, at 12% of it.
+        px = []
+        for i in 0..<1000 {
+            let v = i < 245 || i >= 755 ? 40 : (i % 8 == 0 ? 41 : 90 + (i * 53 % 11) * 14)
+            px += [UInt8(v), UInt8(v), UInt8(v), 255]
+        }
+        Document.removeThinRuns(&px)
+        XCTAssertGreaterThan(Int(px[501 * 4]), 80, "still blurred, not the header's color")
+    }
+
+    /// When two colors tie for the most common in the detail, the result doesn't depend on which one
+    /// a dictionary happens to list first, so the same screenshot grows the same way every time.
+    func testTiedDetailColorsGrowTheSameEveryTime() {
+        var px: [UInt8] = []
+        for i in 0..<200 { let v: UInt8 = i < 90 ? 33 : i >= 196 ? 120 : (i % 2 == 0 ? 200 : 33); px += [v, v, v, 255] }
+        Document.removeThinRuns(&px)
+        XCTAssertTrue((90..<200).allSatisfy { px[$0 * 4] == 33 }, "the page color, which most of the strip shares")
     }
 
     /// An edge with no clear color (a photo, noise) continues its own tones, softened, instead of
