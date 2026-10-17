@@ -404,11 +404,13 @@ public final class Document {
         // streak. The band's own color runs through its steady parts, at least half a line of text
         // long; between two of them, or between one and the detail beside the band, each stretch up
         // to `reach` long that strays from the line joining them takes that line's color, so a
-        // gradient carries on. A stretch on the outer end of the first or last band is left alone:
-        // a toolbar at the strip's end is a band too.
+        // gradient carries on. Two steady parts that disagree are two bands (a title bar, then a
+        // toolbar, then the page), so what lies between them stays; and a stretch at the strip's
+        // own end, or behind a border there, is a toolbar, so it stays too.
         let reach = max(1, Int((16 * pixelsPerPoint).rounded()))
         let banded = px
-        for (b, r) in long.enumerated() {
+        let border = max(1, Int(pixelsPerPoint.rounded()))
+        for r in long {
             var steady: [Range<Int>] = []  // parts that change no faster than a gradient
             var s = r.lowerBound
             for i in (r.lowerBound + 1)...r.upperBound where i == r.upperBound || step(i - 1, i) > 2 {
@@ -424,6 +426,7 @@ public final class Document {
                 // The pixels on either side; on a band's end, the one steady side twice.
                 let left = k > 0 ? gap.lowerBound - 1 : part.lowerBound
                 let right = part.isEmpty ? gap.lowerBound - 1 : part.lowerBound
+                guard (0..<4).allSatisfy({ abs(Int(banded[left * 4 + $0]) - Int(banded[right * 4 + $0])) <= 2 }) else { continue }
                 func line(_ i: Int, _ c: Int) -> Int {
                     let l = Double(banded[left * 4 + c]), rt = Double(banded[right * 4 + c])
                     return Int((right == left ? l : l + (rt - l) * Double(i - left) / Double(right - left)).rounded())
@@ -434,7 +437,7 @@ public final class Document {
                     guard strays(i) else { i += 1; continue }
                     var j = i
                     while j < gap.upperBound, strays(j) { j += 1 }
-                    let outer = (b == 0 && i == r.lowerBound) || (b == long.count - 1 && j == r.upperBound)
+                    let outer = (i == r.lowerBound && r.lowerBound <= border) || (j == r.upperBound && n - r.upperBound <= border)
                     if j - i <= reach, !outer { for p in i..<j { for c in 0..<4 { px[p * 4 + c] = UInt8(line(p, c)) } } }
                     i = j
                 }

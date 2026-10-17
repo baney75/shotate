@@ -646,7 +646,10 @@ final class ShotateCoreTests: XCTestCase {
     }
 
     /// The edges of a 144 dpi dark T3 Code capture, from the screenshot Donovan sent on 2026-10-16:
-    /// row 0 is the top edge (1288 pixels), row 1 starts with the right edge (387 pixels).
+    /// row 0 is the top edge (1288 pixels), row 1 starts with the right edge (387 pixels). His red
+    /// stroke crossed them; those pixels are set to the page color (33, 25, 29): top 253..<279 (page
+    /// either side) and 566..<571 (in the title), right 339..<344 (page either side). Counting the 5
+    /// title pixels as ink, the page is still 48% of the top edge's detail and 72% of the strip.
     func edgeFixture() throws -> (top: [UInt8], right: [UInt8]) {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Fixtures/edge-strips.png")
@@ -726,6 +729,23 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(px[0], 40, "the border")
         XCTAssertEqual(px[10 * 4], 40, "the toolbar")
         XCTAssertEqual(px[300 * 4], 33, "the page")
+    }
+
+    /// A toolbar under a title bar, each close to the next in color, carries on between them.
+    func testAFaintToolbarBetweenTwoBandsCarriesOn() {
+        var px: [UInt8] = []
+        for i in 0..<524 { let v: UInt8 = i < 56 ? 40 : i < 80 ? 44 : 33; px += [v, v, v, 255] }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual(px[20 * 4], 40, "the title bar")
+        XCTAssertTrue((56..<80).allSatisfy { px[$0 * 4] == 44 }, "the toolbar")
+    }
+
+    /// A glyph cut at the very start of an edge doesn't leave its faint edge streaking there.
+    func testAGlyphAtTheStartOfAnEdgeLeavesNoFaintTail() {
+        var px: [UInt8] = []
+        for i in 0..<500 { let v: UInt8 = i < 4 ? 200 : i < 8 ? 40 : 33; px += [v, v, v, 255] }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertTrue((0..<500).allSatisfy { px[$0 * 4] == 33 })
     }
 
     /// Dim text cut less than half a line from either end of the edge goes too.
