@@ -645,6 +645,166 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertGreaterThan(Int(pixel(flat, Int(-doc.canvas.minX) + 5, row).0), 150, "the bar is still in the image")
     }
 
+    /// The edges of a 144 dpi dark T3 Code capture, from the screenshot Donovan sent on 2026-10-16:
+    /// row 0 is the top edge (1288 pixels), row 1 starts with the right edge (387 pixels). His red
+    /// stroke crossed them; those pixels are set to the page color (33, 25, 29): top 253..<279 (page
+    /// either side) and 566..<571 (in the title), right 339..<344 (page either side). Counting the 5
+    /// title pixels as ink, the page is still 48% of the top edge's detail and 72% of the strip.
+    func edgeFixture() throws -> (top: [UInt8], right: [UInt8]) {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Fixtures/edge-strips.png")
+        let img = try XCTUnwrap(Renderer.loadImage(at: url))
+        var px = [UInt8](repeating: 0, count: img.width * img.height * 4)
+        let ctx = try XCTUnwrap(CGContext(data: &px, width: img.width, height: img.height, bitsPerComponent: 8,
+                                          bytesPerRow: img.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+        return (Array(px[0..<(1288 * 4)]), Array(px[(1288 * 4)..<((1288 + 387) * 4)]))
+    }
+
+    /// 2026-10-16: a pen stroke past the top and right of that capture. The top edge cut through a
+    /// bold title, and the grown area above it became a smeared gray band; the right edge cut through
+    /// dim text, and its anti-aliased tails streaked faint lines across the grown area. Both edges are
+    /// text on one page color, so both must grow as that color.
+    func testEdgesCutThroughTextGrowAsThePageColor() throws {
+        let (top, right) = try edgeFixture()
+        let page: [Int] = [33, 25, 29]
+        for (name, strip) in [("top", top), ("right", right)] {
+            var px = strip
+            Document.removeThinRuns(&px, pixelsPerPoint: 2)
+            let off = stride(from: 0, to: px.count, by: 4).filter { i in (0..<3).contains { abs(Int(px[i + $0]) - page[$0]) > 3 } }
+            XCTAssertEqual(off.count, 0, "\(name) edge: \(off.count) pixels aren't the page color, first at \(off.first.map { $0 / 4 } ?? -1)")
+        }
+        // The whole path: a capture with those edges, and a stroke past its top and right.
+        let w = 1288, h = 387
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        for i in 0..<(w * h) { px[i * 4] = 33; px[i * 4 + 1] = 25; px[i * 4 + 2] = 29; px[i * 4 + 3] = 255 }
+        for x in 0..<w { for c in 0..<4 { px[x * 4 + c] = top[x * 4 + c] } }
+        for y in 0..<h { for c in 0..<4 { px[(y * w + w - 1) * 4 + c] = right[y * 4 + c] } }
+        let ctx = try XCTUnwrap(CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let doc = Document(image: try XCTUnwrap(ctx.makeImage()), dpi: 144)
+        doc.add(Mark.stroke([CGPoint(x: 100, y: 200), CGPoint(x: 100, y: 900), CGPoint(x: 1900, y: 900),
+                             CGPoint(x: 1900, y: 100)], color: RGBA.palette[0], size: .medium))
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        let dx = Int(-doc.canvas.minX), dy = Int(-doc.canvas.minY)
+        func isPage(_ x: Int, _ y: Int) -> Bool {
+            let p = pixel(flat, x + dx, y + dy)
+            return abs(Int(p.0) - 33) <= 3 && abs(Int(p.1) - 25) <= 3 && abs(Int(p.2) - 29) <= 3
+        }
+        for x in stride(from: 300, to: 1200, by: 7) { XCTAssertTrue(isPage(x, h + 200), "above the title, x \(x)") }
+        // Image rows 44 to 59 from the top hold the dim text's tails.
+        for y in (h - 60)...(h - 44) { XCTAssertTrue(isPage(w + 200, y), "right of the dim text, row \(h - 1 - y)") }
+    }
+
+    /// A faint mark inside a band takes the band's color, and a gradient carries on through it.
+    func testFaintMarksInsideABandBlendIntoIt() {
+        var px: [UInt8] = []
+        for i in 0..<300 {
+            let v = UInt8(100 + i / 6 + ((150..<153).contains(i) ? 9 : 0))
+            px += [v, v, v, 255]
+        }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        for i in 140..<165 { XCTAssertEqual(Int(px[i * 4]), 100 + i / 6, accuracy: 1, "pixel \(i)") }
+        XCTAssertEqual(px[0], 100, "the gradient's ends are untouched")
+        XCTAssertEqual(px[299 * 4], 149)
+    }
+
+    /// A dark toolbar at the end of an edge, too close to the page's color to split from it and
+    /// shorter than half a line of text, still carries on.
+    func testShortFaintEndBandsCarryOn() {
+        var px: [UInt8] = []
+        for i in 0..<524 { let v: UInt8 = i < 24 ? 40 : 33; px += [v, v, v, 255] }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual(px[10 * 4], 40, "the toolbar")
+        XCTAssertEqual(px[300 * 4], 33, "the page")
+    }
+
+    /// The same toolbar behind a 1-pixel window border still carries on, and the border takes its color.
+    func testShortFaintEndBandsCarryOnPastABorder() {
+        var px: [UInt8] = []
+        for i in 0..<524 { let v: UInt8 = i == 0 ? 255 : i < 24 ? 40 : 33; px += [v, v, v, 255] }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual(px[0], 40, "the border")
+        XCTAssertEqual(px[10 * 4], 40, "the toolbar")
+        XCTAssertEqual(px[300 * 4], 33, "the page")
+    }
+
+    /// A toolbar under a title bar, each close to the next in color, carries on between them.
+    func testAFaintToolbarBetweenTwoBandsCarriesOn() {
+        var px: [UInt8] = []
+        for i in 0..<524 { let v: UInt8 = i < 56 ? 40 : i < 80 ? 44 : 33; px += [v, v, v, 255] }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual(px[20 * 4], 40, "the title bar")
+        XCTAssertTrue((56..<80).allSatisfy { px[$0 * 4] == 44 }, "the toolbar")
+    }
+
+    /// A glyph cut at the very start of an edge doesn't leave its faint edge streaking there.
+    func testAGlyphAtTheStartOfAnEdgeLeavesNoFaintTail() {
+        var px: [UInt8] = []
+        for i in 0..<500 { let v: UInt8 = i < 4 ? 200 : i < 8 ? 40 : 33; px += [v, v, v, 255] }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertTrue((0..<500).allSatisfy { px[$0 * 4] == 33 })
+    }
+
+    /// Dim text cut less than half a line from either end of the edge goes too.
+    func testDimTextNearTheEndsOfAnEdgeGoes() {
+        var px: [UInt8] = []
+        for i in 0..<500 {
+            let tail = [3, 6, 10, 4, 0, 8]
+            let v = 33 + ((24..<40).contains(i) ? tail[(i - 24) % 6] : (460..<476).contains(i) ? tail[(i - 460) % 6] : 0)
+            px += [UInt8(v), UInt8(v), UInt8(v), 255]
+        }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        XCTAssertEqual((0..<500).filter { abs(Int(px[$0 * 4]) - 33) > 2 }, [])
+    }
+
+    /// An edge down a paragraph of dim text cuts every line; none of them streaks.
+    func testSeveralLinesOfDimTextInsideABandAllGo() {
+        var px: [UInt8] = []
+        for i in 0..<500 {
+            var v = 33
+            // Three lines 24 pixels tall, 12 apart, from 200: glyph tails 3 to 10 levels off the page.
+            if i >= 200, i < 308, (i - 200) % 36 < 24 { v += [3, 6, 10, 4, 0, 8][(i - 200) % 6] }
+            px += [UInt8(v), UInt8(v), UInt8(v), 255]
+        }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        let off = (0..<500).filter { abs(Int(px[$0 * 4]) - 33) > 2 }
+        XCTAssertEqual(off, [], "pixels still off the page color")
+    }
+
+    /// A header and footer of one color covering just under half an edge, around a photo: the photo
+    /// softens into its own tones instead of turning the header's color.
+    func testBandColorDoesNotPaintOverAPhotoBetweenThem() {
+        var px: [UInt8] = []
+        for i in 0..<1000 {
+            // The photo: wide swings, and 5% of it in the header's color.
+            let v = i < 245 || i >= 755 ? 40 : (i % 20 == 0 ? 41 : 90 + (i * 53 % 11) * 14)
+            px += [UInt8(v), UInt8(v), UInt8(v), 255]
+        }
+        Document.removeThinRuns(&px)
+        XCTAssertEqual(px[100 * 4], 40, "the header stays")
+        XCTAssertGreaterThan(Int(px[500 * 4]), 80, "the photo isn't painted the header's color")
+        // The same, with the header's color the photo's most common one, at 12% of it.
+        px = []
+        for i in 0..<1000 {
+            let v = i < 245 || i >= 755 ? 40 : (i % 8 == 0 ? 41 : 90 + (i * 53 % 11) * 14)
+            px += [UInt8(v), UInt8(v), UInt8(v), 255]
+        }
+        Document.removeThinRuns(&px)
+        XCTAssertGreaterThan(Int(px[501 * 4]), 80, "still blurred, not the header's color")
+    }
+
+    /// When two colors tie for the most common in the detail, the result doesn't depend on which one
+    /// a dictionary happens to list first, so the same screenshot grows the same way every time.
+    func testTiedDetailColorsGrowTheSameEveryTime() {
+        var px: [UInt8] = []
+        for i in 0..<200 { let v: UInt8 = i < 90 ? 33 : i >= 196 ? 120 : (i % 2 == 0 ? 200 : 33); px += [v, v, v, 255] }
+        Document.removeThinRuns(&px)
+        XCTAssertTrue((90..<200).allSatisfy { px[$0 * 4] == 33 }, "the page color, which most of the strip shares")
+    }
+
     /// An edge with no clear color (a photo, noise) continues its own tones, softened, instead of
     /// whichever shade happened to be most common.
     func testBusyEdgesWithNoClearColorBlur() {

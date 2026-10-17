@@ -377,46 +377,107 @@ public final class Document {
     /// or footer sits at the strip's end, while a band in the middle as short as a line of text is
     /// content the edge cut through (a highlight, a bar, a word), and stretched it streaks.
     ///
+    /// A band can still carry marks too faint to split it: dim text, or the anti-aliased edge of a
+    /// glyph beside it. Inside a band, each stretch up to half a line of text long that strays from
+    /// the band's steady color takes it.
+    ///
     /// When bands cover most of the strip, each short run takes the color of the band beside it.
     /// Otherwise the edge is mostly detail, and the bands stay while the rest becomes the color most
-    /// of it shares (the page behind a column of text) or, when no color is clear (a photo, a busy
-    /// pattern), the strip's own tones blurred, so the new space continues its light and color
+    /// of it shares (the page behind a column of text), else the color most of the whole strip shares
+    /// when the detail favors it too (a bold title on a page), or, when no color is clear (a photo, a
+    /// busy pattern), the strip's own tones blurred, so the new space continues its light and color
     /// softly instead of in one arbitrary shade.
     static func removeThinRuns(_ px: inout [UInt8], pixelsPerPoint: CGFloat = 1) {
         let n = px.count / 4
         guard n > 1 else { return }
-        func similar(_ a: Int, _ b: Int) -> Bool { (0..<4).allSatisfy { abs(Int(px[a * 4 + $0]) - Int(px[b * 4 + $0])) <= 12 } }
+        func step(_ a: Int, _ b: Int) -> Int { (0..<4).map { abs(Int(px[a * 4 + $0]) - Int(px[b * 4 + $0])) }.max()! }
         var runs: [Range<Int>] = []
         var from = 0
-        for i in 1...n where i == n || !similar(i - 1, i) {
+        for i in 1...n where i == n || step(i - 1, i) > 12 {
             runs.append(from..<i)
             from = i
         }
         let minRun = min(n, max(6, n / 50))
         let minInner = max(minRun, Int((32 * pixelsPerPoint).rounded()))
         let long = runs.filter { $0.count >= ($0.lowerBound == 0 || $0.upperBound == n ? minRun : minInner) }
-        let longSet = Set(long)
-        guard long.count < runs.count else { return }
-        let src = px
-        let detail = runs.filter { !longSet.contains($0) }
-        let covered = long.reduce(0) { $0 + $1.count }
-        if covered * 2 < n {
-            // Mostly detail. The color most of the detail shares, in coarse buckets.
-            var counts: [UInt32: (n: Int, sum: [Int])] = [:]
-            var total = 0
-            for r in detail {
-                for i in r {
-                    let k = (0..<4).reduce(UInt32(0)) { $0 << 5 | UInt32(src[i * 4 + $1] >> 3) }
-                    var e = counts[k] ?? (0, [0, 0, 0, 0])
-                    e.n += 1
-                    for c in 0..<4 { e.sum[c] += Int(src[i * 4 + c]) }
-                    counts[k] = e
-                    total += 1
+        // Inside a band, marks too faint to split it (dim text, a glyph's anti-aliased edge) still
+        // streak. The band's own color runs through its steady parts, at least half a line of text
+        // long; between two of them, or between one and the detail beside the band, each stretch up
+        // to `reach` long that strays from the line joining them takes that line's color, so a
+        // gradient carries on. Two steady parts that disagree are two bands (a title bar, then a
+        // toolbar, then the page), so what lies between them stays; and a stretch at the strip's
+        // own end, or behind a border there, is a toolbar, so it stays too.
+        let reach = max(1, Int((16 * pixelsPerPoint).rounded()))
+        let banded = px
+        let border = max(1, Int(pixelsPerPoint.rounded()))
+        for r in long {
+            var steady: [Range<Int>] = []  // parts that change no faster than a gradient
+            var s = r.lowerBound
+            for i in (r.lowerBound + 1)...r.upperBound where i == r.upperBound || step(i - 1, i) > 2 {
+                if i - s >= reach { steady.append(s..<i) }
+                s = i
+            }
+            guard !steady.isEmpty else { continue }
+            var at = r.lowerBound
+            for (k, part) in (steady + [r.upperBound..<r.upperBound]).enumerated() {
+                defer { at = part.upperBound }
+                let gap = at..<part.lowerBound
+                guard !gap.isEmpty else { continue }
+                // The pixels on either side; on a band's end, the one steady side twice.
+                let left = k > 0 ? gap.lowerBound - 1 : part.lowerBound
+                let right = part.isEmpty ? gap.lowerBound - 1 : part.lowerBound
+                guard (0..<4).allSatisfy({ abs(Int(banded[left * 4 + $0]) - Int(banded[right * 4 + $0])) <= 2 }) else { continue }
+                func line(_ i: Int, _ c: Int) -> Int {
+                    let l = Double(banded[left * 4 + c]), rt = Double(banded[right * 4 + c])
+                    return Int((right == left ? l : l + (rt - l) * Double(i - left) / Double(right - left)).rounded())
+                }
+                func strays(_ i: Int) -> Bool { (0..<4).contains { abs(Int(banded[i * 4 + $0]) - line(i, $0)) > 2 } }
+                var i = gap.lowerBound
+                while i < gap.upperBound {
+                    guard strays(i) else { i += 1; continue }
+                    var j = i
+                    while j < gap.upperBound, strays(j) { j += 1 }
+                    let outer = (i == r.lowerBound && r.lowerBound <= border) || (j == r.upperBound && n - r.upperBound <= border)
+                    if j - i <= reach, !outer { for p in i..<j { for c in 0..<4 { px[p * 4 + c] = UInt8(line(p, c)) } } }
+                    i = j
                 }
             }
-            let top = counts.values.max { $0.n < $1.n }!
-            if top.n * 2 >= total {
-                let fill = top.sum.map { UInt8($0 / top.n) }
+        }
+        let longSet = Set(long)
+        let detail = runs.filter { !longSet.contains($0) }
+        guard !detail.isEmpty else { return }
+        let src = px
+        let covered = long.reduce(0) { $0 + $1.count }
+        if covered * 2 < n {
+            // Mostly detail. The color most of the detail shares, in coarse buckets. Failing that, the
+            // color most of the strip shares, if the detail has no color more often and has it in a
+            // third of its pixels: a bold title on a page, and not a header's color painted over a
+            // photo between it and a footer. Ties go to the lower bucket, so every run picks the same.
+            typealias Tally = [UInt32: (n: Int, sum: [Int])]
+            func tally(_ ranges: [Range<Int>]) -> Tally {
+                var counts: Tally = [:]
+                for r in ranges {
+                    for i in r {
+                        let k = (0..<4).reduce(UInt32(0)) { $0 << 5 | UInt32(src[i * 4 + $1] >> 3) }
+                        var e = counts[k] ?? (0, [0, 0, 0, 0])
+                        e.n += 1
+                        for c in 0..<4 { e.sum[c] += Int(src[i * 4 + c]) }
+                        counts[k] = e
+                    }
+                }
+                return counts
+            }
+            func top(_ t: Tally) -> (key: UInt32, n: Int, fill: [UInt8]) {
+                let e = t.min { $0.value.n != $1.value.n ? $0.value.n > $1.value.n : $0.key < $1.key }!
+                return (e.key, e.value.n, e.value.sum.map { UInt8($0 / e.value.n) })
+            }
+            let inDetail = tally(detail), inStrip = tally([0..<n])
+            let detailTotal = detail.reduce(0) { $0 + $1.count }
+            let d = top(inDetail), all = top(inStrip)
+            let shared = inDetail[all.key]?.n ?? 0
+            let fill = d.n * 2 >= detailTotal ? d.fill
+                : all.n * 2 >= n && shared == d.n && shared * 3 >= detailTotal ? all.fill : nil
+            if let fill {
                 for r in detail { for i in r { for c in 0..<4 { px[i * 4 + c] = fill[c] } } }
             } else {
                 // No clear color: a wide box blur of the whole strip, from running sums.
