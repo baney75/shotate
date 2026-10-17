@@ -377,46 +377,82 @@ public final class Document {
     /// or footer sits at the strip's end, while a band in the middle as short as a line of text is
     /// content the edge cut through (a highlight, a bar, a word), and stretched it streaks.
     ///
+    /// A band can still carry marks too faint to split it: dim text, or the anti-aliased edge of a
+    /// glyph beside it. Inside a band, anything that changes faster than a gradient and is no longer
+    /// than half a line of text takes the band's color.
+    ///
     /// When bands cover most of the strip, each short run takes the color of the band beside it.
     /// Otherwise the edge is mostly detail, and the bands stay while the rest becomes the color most
-    /// of it shares (the page behind a column of text) or, when no color is clear (a photo, a busy
-    /// pattern), the strip's own tones blurred, so the new space continues its light and color
-    /// softly instead of in one arbitrary shade.
+    /// of it shares (the page behind a column of text), else the color most of the whole strip shares
+    /// (a bold title on a page), or, when no color is clear (a photo, a busy pattern), the strip's own
+    /// tones blurred, so the new space continues its light and color softly instead of in one
+    /// arbitrary shade.
     static func removeThinRuns(_ px: inout [UInt8], pixelsPerPoint: CGFloat = 1) {
         let n = px.count / 4
         guard n > 1 else { return }
-        func similar(_ a: Int, _ b: Int) -> Bool { (0..<4).allSatisfy { abs(Int(px[a * 4 + $0]) - Int(px[b * 4 + $0])) <= 12 } }
+        func step(_ a: Int, _ b: Int) -> Int { (0..<4).map { abs(Int(px[a * 4 + $0]) - Int(px[b * 4 + $0])) }.max()! }
         var runs: [Range<Int>] = []
         var from = 0
-        for i in 1...n where i == n || !similar(i - 1, i) {
+        for i in 1...n where i == n || step(i - 1, i) > 12 {
             runs.append(from..<i)
             from = i
         }
         let minRun = min(n, max(6, n / 50))
         let minInner = max(minRun, Int((32 * pixelsPerPoint).rounded()))
         let long = runs.filter { $0.count >= ($0.lowerBound == 0 || $0.upperBound == n ? minRun : minInner) }
-        let longSet = Set(long)
-        guard long.count < runs.count else { return }
-        let src = px
-        let detail = runs.filter { !longSet.contains($0) }
-        let covered = long.reduce(0) { $0 + $1.count }
-        if covered * 2 < n {
-            // Mostly detail. The color most of the detail shares, in coarse buckets.
-            var counts: [UInt32: (n: Int, sum: [Int])] = [:]
-            var total = 0
-            for r in detail {
-                for i in r {
-                    let k = (0..<4).reduce(UInt32(0)) { $0 << 5 | UInt32(src[i * 4 + $1] >> 3) }
-                    var e = counts[k] ?? (0, [0, 0, 0, 0])
-                    e.n += 1
-                    for c in 0..<4 { e.sum[c] += Int(src[i * 4 + c]) }
-                    counts[k] = e
-                    total += 1
+        // Inside a band, a stretch up to half a line of text long that leaves the band and comes back
+        // (a faint glyph, a hairline) is a mark on it. It takes the band's color, blended from the
+        // pixels on either side so a gradient carries on through it.
+        let reach = max(1, Int((16 * pixelsPerPoint).rounded()))
+        let banded = px
+        for r in long {
+            var steady: [Range<Int>] = []  // parts that change no faster than a gradient
+            var s = r.lowerBound
+            for i in (r.lowerBound + 1)...r.upperBound where i == r.upperBound || step(i - 1, i) > 2 {
+                if i - s >= reach { steady.append(s..<i) }
+                s = i
+            }
+            var at = r.lowerBound
+            for (k, part) in (steady + [r.upperBound..<r.upperBound]).enumerated() {
+                defer { at = part.upperBound }
+                let gap = at..<part.lowerBound
+                guard !gap.isEmpty, gap.count <= reach else { continue }
+                let left = k > 0 ? gap.lowerBound - 1 : nil, right = part.isEmpty ? nil : part.lowerBound
+                guard left != nil || right != nil else { continue }
+                for i in gap {
+                    let t = left == nil ? 1 : right == nil ? 0 : Double(i - gap.lowerBound + 1) / Double(gap.count + 1)
+                    for c in 0..<4 {
+                        let l = Double(banded[(left ?? right!) * 4 + c]), rt = Double(banded[(right ?? left!) * 4 + c])
+                        px[i * 4 + c] = UInt8((l + (rt - l) * t).rounded())
+                    }
                 }
             }
-            let top = counts.values.max { $0.n < $1.n }!
-            if top.n * 2 >= total {
-                let fill = top.sum.map { UInt8($0 / top.n) }
+        }
+        let longSet = Set(long)
+        let detail = runs.filter { !longSet.contains($0) }
+        guard !detail.isEmpty else { return }
+        let src = px
+        let covered = long.reduce(0) { $0 + $1.count }
+        if covered * 2 < n {
+            // Mostly detail. The color most of the detail shares, in coarse buckets, else the color
+            // most of the strip shares.
+            func dominant(_ ranges: [Range<Int>]) -> [UInt8]? {
+                var counts: [UInt32: (n: Int, sum: [Int])] = [:]
+                var total = 0
+                for r in ranges {
+                    for i in r {
+                        let k = (0..<4).reduce(UInt32(0)) { $0 << 5 | UInt32(src[i * 4 + $1] >> 3) }
+                        var e = counts[k] ?? (0, [0, 0, 0, 0])
+                        e.n += 1
+                        for c in 0..<4 { e.sum[c] += Int(src[i * 4 + c]) }
+                        counts[k] = e
+                        total += 1
+                    }
+                }
+                guard let top = counts.values.max(by: { $0.n < $1.n }), top.n * 2 >= total else { return nil }
+                return top.sum.map { UInt8($0 / top.n) }
+            }
+            if let fill = dominant(detail) ?? dominant([0..<n]) {
                 for r in detail { for i in r { for c in 0..<4 { px[i * 4 + c] = fill[c] } } }
             } else {
                 // No clear color: a wide box blur of the whole strip, from running sums.

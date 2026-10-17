@@ -645,6 +645,69 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertGreaterThan(Int(pixel(flat, Int(-doc.canvas.minX) + 5, row).0), 150, "the bar is still in the image")
     }
 
+    /// The edges of a 144 dpi dark T3 Code capture, from the screenshot Donovan sent on 2026-10-16:
+    /// row 0 is the top edge (1288 pixels), row 1 starts with the right edge (387 pixels).
+    func edgeFixture() throws -> (top: [UInt8], right: [UInt8]) {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Fixtures/edge-strips.png")
+        let img = try XCTUnwrap(Renderer.loadImage(at: url))
+        var px = [UInt8](repeating: 0, count: img.width * img.height * 4)
+        let ctx = try XCTUnwrap(CGContext(data: &px, width: img.width, height: img.height, bitsPerComponent: 8,
+                                          bytesPerRow: img.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+        return (Array(px[0..<(1288 * 4)]), Array(px[(1288 * 4)..<((1288 + 387) * 4)]))
+    }
+
+    /// 2026-10-16: a pen stroke past the top and right of that capture. The top edge cut through a
+    /// bold title, and the grown area above it became a smeared gray band; the right edge cut through
+    /// dim text, and its anti-aliased tails streaked faint lines across the grown area. Both edges are
+    /// text on one page color, so both must grow as that color.
+    func testEdgesCutThroughTextGrowAsThePageColor() throws {
+        let (top, right) = try edgeFixture()
+        let page: [Int] = [33, 25, 29]
+        for (name, strip) in [("top", top), ("right", right)] {
+            var px = strip
+            Document.removeThinRuns(&px, pixelsPerPoint: 2)
+            let off = stride(from: 0, to: px.count, by: 4).filter { i in (0..<3).contains { abs(Int(px[i + $0]) - page[$0]) > 3 } }
+            XCTAssertEqual(off.count, 0, "\(name) edge: \(off.count) pixels aren't the page color, first at \(off.first.map { $0 / 4 } ?? -1)")
+        }
+        // The whole path: a capture with those edges, and a stroke past its top and right.
+        let w = 1288, h = 387
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        for i in 0..<(w * h) { px[i * 4] = 33; px[i * 4 + 1] = 25; px[i * 4 + 2] = 29; px[i * 4 + 3] = 255 }
+        for x in 0..<w { for c in 0..<4 { px[x * 4 + c] = top[x * 4 + c] } }
+        for y in 0..<h { for c in 0..<4 { px[(y * w + w - 1) * 4 + c] = right[y * 4 + c] } }
+        let ctx = try XCTUnwrap(CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let doc = Document(image: try XCTUnwrap(ctx.makeImage()), dpi: 144)
+        doc.add(Mark.stroke([CGPoint(x: 100, y: 200), CGPoint(x: 100, y: 900), CGPoint(x: 1900, y: 900),
+                             CGPoint(x: 1900, y: 100)], color: RGBA.palette[0], size: .medium))
+        let flat = try XCTUnwrap(Renderer.flatten(doc))
+        let dx = Int(-doc.canvas.minX), dy = Int(-doc.canvas.minY)
+        func isPage(_ x: Int, _ y: Int) -> Bool {
+            let p = pixel(flat, x + dx, y + dy)
+            return abs(Int(p.0) - 33) <= 3 && abs(Int(p.1) - 25) <= 3 && abs(Int(p.2) - 29) <= 3
+        }
+        for x in stride(from: 300, to: 1200, by: 7) { XCTAssertTrue(isPage(x, h + 200), "above the title, x \(x)") }
+        // Image rows 44 to 59 from the top hold the dim text's tails.
+        for y in (h - 60)...(h - 44) { XCTAssertTrue(isPage(w + 200, y), "right of the dim text, row \(h - 1 - y)") }
+    }
+
+    /// A faint mark inside a band takes the band's color, and a gradient carries on through it.
+    func testFaintMarksInsideABandBlendIntoIt() {
+        var px: [UInt8] = []
+        for i in 0..<300 {
+            let v = UInt8(100 + i / 6 + ((150..<153).contains(i) ? 9 : 0))
+            px += [v, v, v, 255]
+        }
+        Document.removeThinRuns(&px, pixelsPerPoint: 2)
+        for i in 140..<165 { XCTAssertEqual(Int(px[i * 4]), 100 + i / 6, accuracy: 1, "pixel \(i)") }
+        XCTAssertEqual(px[0], 100, "the gradient's ends are untouched")
+        XCTAssertEqual(px[299 * 4], 149)
+    }
+
     /// An edge with no clear color (a photo, noise) continues its own tones, softened, instead of
     /// whichever shade happened to be most common.
     func testBusyEdgesWithNoClearColorBlur() {
