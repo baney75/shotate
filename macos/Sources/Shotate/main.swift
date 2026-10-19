@@ -45,15 +45,16 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
 // top-left for two seconds with the recorder ⇧⌘R uses, and exits 0 once the video is written. It
 // needs Screen Recording, so it runs as the app, not from a terminal.
 if let i = args.firstIndex(of: "--record-selftest"), i + 1 < args.count {
-    guard #available(macOS 15.0, *), let screen = NSScreen.screens.first else { exit(2) }
+    guard let screen = NSScreen.screens.first else { exit(2) }
     NSApplication.shared.setActivationPolicy(.accessory)
     let f = screen.frame
-    Recorder.start(CGRect(x: f.minX + 100, y: f.maxY - 300, width: 301, height: 201), on: screen,
-                   to: URL(fileURLWithPath: args[i + 1])) { _, error in
+    let started = Recording.start(CGRect(x: f.minX + 100, y: f.maxY - 300, width: 301, height: 201), on: screen,
+                                  to: URL(fileURLWithPath: args[i + 1])) { _, error in
         if let error { NSLog("Shotate: record selftest: %@", error.localizedDescription) }
         exit(error == nil ? 0 : 1)
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Recorder.current?.stop() }
+    guard started else { exit(2) }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Recording.stop() }
     NSApplication.shared.run()
 }
 

@@ -3,6 +3,43 @@ import AVFoundation
 import ScreenCaptureKit
 import ShotateCore
 
+/// The app's way into recording. Recording needs macOS 15 and the macOS 15 SDK (Swift 6 / Xcode 16);
+/// Shotate updates by building on your Mac, so an older toolchain still builds, just without it.
+enum Recording {
+    static var isSupported: Bool {
+        #if compiler(>=6.0)
+        if #available(macOS 15.0, *) { return true }
+        #endif
+        return false
+    }
+
+    static var isActive: Bool {
+        #if compiler(>=6.0)
+        if #available(macOS 15.0, *) { return Recorder.current != nil }
+        #endif
+        return false
+    }
+
+    /// See `Recorder.start`. Returns false when this build or macOS can't record.
+    @discardableResult
+    static func start(_ rect: CGRect, on screen: NSScreen, to file: URL, done: @escaping (URL, Error?) -> Void) -> Bool {
+        #if compiler(>=6.0)
+        if #available(macOS 15.0, *) {
+            Recorder.start(rect, on: screen, to: file, done: done)
+            return true
+        }
+        #endif
+        return false
+    }
+
+    static func stop() {
+        #if compiler(>=6.0)
+        if #available(macOS 15.0, *) { Recorder.current?.stop() }
+        #endif
+    }
+}
+
+#if compiler(>=6.0)
 /// Records one area of one screen to an MP4 with ScreenCaptureKit, from `start` until `stop()`. A red
 /// outline marks the area and a small bar under it shows the time and a Stop button; neither is in
 /// the video. No sound: Shotate never asks for the microphone.
@@ -68,11 +105,12 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         guard !stopping else { return }
         stopping = true
         indicator?.close()
+        finishSoon()
+        // Still starting: `begin` stops the stream as soon as it is running.
         guard let stream else { return }
         Task { @MainActor in
             do { try await stream.stopCapture() } catch { finish(error) }
         }
-        finishSoon()
     }
 
     /// The recording output reports when the file is complete. If it never does, don't leave
@@ -119,6 +157,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         }
     }
 }
+
+#endif
 
 /// The outline around the area being recorded and the bar with the time and Stop. Neither takes
 /// focus from the app you are recording.

@@ -280,17 +280,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Record
 
-    var isRecording: Bool {
-        if #available(macOS 15.0, *) { return Recorder.current != nil }
-        return false
-    }
+    var isRecording: Bool { Recording.isActive }
 
     /// The record shortcut: pick an area and record it; pressed again, stop and save.
     func toggleRecording() {
         if isRecording { return stopRecording() }
         guard !capturing else { return }
-        guard #available(macOS 15.0, *) else {
-            return Alerts.show("Recording needs macOS 15 or later", "Screenshots work as before on this Mac.")
+        guard #available(macOS 14.0, *), Recording.isSupported else {
+            return Alerts.show("Recording needs macOS 15 or later", "Screenshots work as before on this Mac. "
+                               + "On macOS 15, updating Shotate with Xcode 16 or later installed turns recording on.")
         }
         guard ScreenRecording.isGranted else { showWelcome(); return }
         capturing = true
@@ -301,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .cancelled: break
             case .failed: Alerts.show("Shotate couldn't start recording", "macOS didn't let it see the screen. Try again.")
             case let .area(screen, rect):
-                Recorder.start(rect, on: screen, to: self.settings.newRecordingURL()) { [weak self] url, error in
+                Recording.start(rect, on: screen, to: self.settings.newRecordingURL()) { [weak self] url, error in
                     self?.recordingFinished(url, error: error)
                 }
                 self.updateStatusIcon()
@@ -309,9 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc func stopRecording() {
-        if #available(macOS 15.0, *) { Recorder.current?.stop() }
-    }
+    @objc func stopRecording() { Recording.stop() }
 
     /// Saved: copy the video like a capture (it pastes as a file in Finder, Mail, Slack and the
     /// like) and show it in Finder.
