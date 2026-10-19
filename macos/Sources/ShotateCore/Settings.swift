@@ -7,8 +7,7 @@ public struct Settings: Equatable {
     public var saveFolder: URL
     public var copyOnCapture: Bool
     public var showMenuBarIcon: Bool
-    /// Global shortcuts by action ("captureArea", "captureWindow", "captureScreen", "recordArea").
-    /// Empty means off.
+    /// Global shortcuts by action (see `actions`). Empty means off.
     public var shortcuts: [String: String]
     /// Extra global shortcuts that run a shell command, e.g. ["cmd+shift+a": "~/bin/open-terminal"].
     public var commandHotkeys: [String: String]
@@ -25,10 +24,12 @@ public struct Settings: Equatable {
     public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
                                           isDirectory: true)
     public static let defaultShortcut = "cmd+shift+s"
-    public static let defaultRecordShortcut = "cmd+shift+r"
-    public static let actions = ["captureArea", "captureWindow", "captureScreen", "recordArea"]
-    public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "", "captureScreen": "",
-                                          "recordArea": defaultRecordShortcut]
+    public static let actions = ["captureArea", "captureWindow", "captureScreen", "recordArea", "recordScreen", "recordApp"]
+    /// The record actions: pressed again while recording, any of them stops it.
+    public static let recordActions: Set<String> = ["recordArea", "recordScreen", "recordApp"]
+    public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "",
+                                          "captureScreen": "cmd+ctrl+shift+s", "recordArea": "cmd+shift+r",
+                                          "recordScreen": "cmd+ctrl+shift+r", "recordApp": "cmd+shift+d"]
     public static let channels = ["stable", "nightly"]
     public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/shotate/config.json")
     /// Where the app kept its config when it was called Snapmark.
@@ -63,8 +64,7 @@ public struct Settings: Equatable {
     /// The area-capture shortcut, or nil when it is turned off.
     public var captureShortcut: Shortcut? { shortcuts["captureArea"].flatMap(Shortcut.init) }
 
-    /// The shortcut that starts and stops recording an area, or nil when it is turned off.
-    public var recordShortcut: Shortcut? { shortcuts["recordArea"].flatMap(Shortcut.init) }
+    public func shortcut(_ action: String) -> Shortcut? { shortcuts[action].flatMap(Shortcut.init) }
 
     // MARK: Tool keys
 
@@ -133,6 +133,15 @@ public struct Settings: Equatable {
             for a in actions { if let v = m[a] { s.shortcuts[a] = Shortcut(v) != nil ? v.lowercased() : "" } }
         }
         if let m = o["commands"] as? [String: String] { s.commandHotkeys = m.filter { Shortcut($0.key) != nil } }
+        // An action newer than the file gets its default keys only if the file doesn't already use
+        // them for something else, so an upgrade never takes over someone's own shortcut.
+        let written = Set((o["shortcuts"] as? [String: Any] ?? [:]).keys)
+        for a in actions where !written.contains(a) {
+            guard let mine = s.shortcut(a) else { continue }
+            let taken = actions.contains { $0 != a && written.contains($0) && s.shortcut($0) == mine }
+                || s.commandHotkeys.keys.contains { Shortcut($0) == mine }
+            if taken { s.shortcuts[a] = "" }
+        }
         if let m = o["toolKeys"] as? [String: String] { s.toolKeys = m.mapValues { $0.lowercased() } }
         if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
         if let b = o["checkForUpdates"] as? Bool { s.checkForUpdates = b }

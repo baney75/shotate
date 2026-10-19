@@ -3,6 +3,22 @@ import AVFoundation
 import ScreenCaptureKit
 import ShotateCore
 
+/// What a recording shows.
+enum RecordTarget {
+    /// In AppKit global coordinates, within the screen.
+    case area(CGRect, NSScreen)
+    case screen(NSScreen)
+    /// Every window of one app on the screen that showed the window you clicked, and that app's log.
+    case app(pid_t, NSScreen)
+}
+
+/// A saved recording. Recording an app also saves what the app logged meanwhile, beside the video.
+struct SavedRecording {
+    let video: URL
+    let log: URL?
+    let logText: String?
+}
+
 /// The app's way into recording. Recording needs macOS 15 and the macOS 15 SDK (Swift 6 / Xcode 16);
 /// Shotate updates by building on your Mac, so an older toolchain still builds, just without it.
 enum Recording {
@@ -22,10 +38,10 @@ enum Recording {
 
     /// See `Recorder.start`. Returns false when this build or macOS can't record.
     @discardableResult
-    static func start(_ rect: CGRect, on screen: NSScreen, to file: URL, done: @escaping (URL, Error?) -> Void) -> Bool {
+    static func start(_ target: RecordTarget, to file: URL, done: @escaping (SavedRecording?, Error?) -> Void) -> Bool {
         #if compiler(>=6.0)
         if #available(macOS 15.0, *) {
-            Recorder.start(rect, on: screen, to: file, done: done)
+            Recorder.start(target, to: file, done: done)
             return true
         }
         #endif
@@ -40,50 +56,83 @@ enum Recording {
 }
 
 #if compiler(>=6.0)
-/// Records one area of one screen to an MP4 with ScreenCaptureKit, from `start` until `stop()`. A red
-/// outline marks the area and a small bar under it shows the time and a Stop button; neither is in
-/// the video. No sound: Shotate never asks for the microphone.
+/// Records an area, a screen or an app to an MP4 with ScreenCaptureKit, from `start` until `stop()`.
+/// A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is
+/// in the video. No sound: Shotate never asks for the microphone.
 @available(macOS 15.0, *)
 final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private(set) static var current: Recorder?
 
     let file: URL
+    private let target: RecordTarget
     private var stream: SCStream?
+    private var log: AppLog?
     private var indicator: RecordingIndicator?
     private var stopping = false
-    private let done: (URL, Error?) -> Void
+    /// The first frame is in the file.
+    private var started = false
+    private let done: (SavedRecording?, Error?) -> Void
 
-    /// Starts recording `rect` (AppKit global coordinates, within `screen`) into `file`. `done` runs on
-    /// main once the file is finished, or with the error that stopped it.
-    static func start(_ rect: CGRect, on screen: NSScreen, to file: URL, done: @escaping (URL, Error?) -> Void) {
-        let r = Recorder(file: file, done: done)
+    /// Starts recording `target` into `file`. `done` runs on main once the file is finished, or with
+    /// the error that stopped it.
+    static func start(_ target: RecordTarget, to file: URL, done: @escaping (SavedRecording?, Error?) -> Void) {
+        let r = Recorder(target: target, file: file, done: done)
         current = r
-        r.indicator = RecordingIndicator(area: rect, screen: screen) { [weak r] in r?.stop() }
+        let stop: () -> Void = { [weak r] in r?.stop() }
+        switch target {
+        case let .area(rect, screen):
+            r.indicator = RecordingIndicator(area: rect, outlined: true, screen: screen, title: nil, stop: stop)
+        case let .screen(screen):
+            r.indicator = RecordingIndicator(area: screen.frame, outlined: false, screen: screen, title: nil, stop: stop)
+        case let .app(pid, screen):
+            let name = NSRunningApplication(processIdentifier: pid)?.localizedName
+            r.indicator = RecordingIndicator(area: screen.frame, outlined: false, screen: screen, title: name, stop: stop)
+        }
         Task { @MainActor in
-            do { try await r.begin(rect, on: screen) } catch { r.finish(error) }
+            do { try await r.begin() } catch { r.finish(error) }
         }
     }
 
-    private init(file: URL, done: @escaping (URL, Error?) -> Void) {
+    private init(target: RecordTarget, file: URL, done: @escaping (SavedRecording?, Error?) -> Void) {
+        self.target = target
         self.file = file
         self.done = done
     }
 
     @MainActor
-    private func begin(_ rect: CGRect, on screen: NSScreen) async throws {
+    private func begin() async throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         // The indicator's windows are already up, so they can be named and kept out of the video.
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        let screen: NSScreen
+        switch target {
+        case let .area(_, s), let .screen(s), let .app(_, s): screen = s
+        }
         guard let display = NativeCapture.display(for: screen, in: content) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "That screen isn't available to record."])
+            throw Self.error("That screen isn't available to record.")
         }
         let ours = Set(indicator?.windowIDs ?? [])
-        let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { ours.contains($0.windowID) })
+        let notOurs = content.windows.filter { ours.contains($0.windowID) }
         let config = SCStreamConfiguration()
-        let size = CaptureGeometry.videoSize(of: rect.size, scale: screen.backingScaleFactor)
-        config.sourceRect = CaptureGeometry.displayRect(of: rect, screenFrame: screen.frame)
-        config.width = size.width
-        config.height = size.height
+        let filter: SCContentFilter
+        var size = screen.frame.size
+        switch target {
+        case let .area(rect, _):
+            filter = SCContentFilter(display: display, excludingWindows: notOurs)
+            config.sourceRect = CaptureGeometry.displayRect(of: rect, screenFrame: screen.frame)
+            size = rect.size
+        case .screen:
+            filter = SCContentFilter(display: display, excludingWindows: notOurs)
+        case let .app(pid, _):
+            guard let app = content.applications.first(where: { $0.processID == pid }) else {
+                throw Self.error("That app quit before recording started.")
+            }
+            filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
+            log = try AppLog(pid: pid, file: file.deletingPathExtension().appendingPathExtension("log"))
+        }
+        let pixels = CaptureGeometry.videoSize(of: size, scale: screen.backingScaleFactor)
+        config.width = pixels.width
+        config.height = pixels.height
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         config.showsCursor = true
         config.showMouseClicks = true
@@ -94,9 +143,9 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         recording.videoCodecType = .h264
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addRecordingOutput(SCRecordingOutput(configuration: recording, delegate: self))
-        self.stream = stream
         try await stream.startCapture()
-        // Stopped (or failed) while starting up.
+        // Only a running stream can be stopped; a stop that came while starting is handled here.
+        self.stream = stream
         if stopping { try? await stream.stopCapture() }
     }
 
@@ -114,28 +163,51 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     }
 
     /// The recording output reports when the file is complete. If it never does, don't leave
-    /// Shotate stuck "recording".
+    /// Shotate stuck recording. A file that started can take a while to finish; one that never got
+    /// a frame has nothing to wait for.
     private func finishSoon() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.finish(nil) }
+        let wait: Double = started ? 60 : 5
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+            guard let self else { return }
+            if self.started {
+                self.finish(Self.error("The video didn't finish saving. It may be incomplete."), keepFile: true)
+            } else {
+                self.finish(nil)
+            }
+        }
     }
 
-    private func finish(_ error: Error?) {
+    /// `keepFile` keeps what was written despite the error, so nothing is thrown away unasked.
+    private func finish(_ error: Error?, keepFile: Bool = false) {
         guard Recorder.current === self else { return }
         Recorder.current = nil
         stopping = true
         indicator?.close()
         indicator = nil
         let written = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { $0 > 0 } ?? false
-        if error != nil || !written { try? FileManager.default.removeItem(at: file) }
-        let failure = error ?? (written ? nil : CocoaError(.fileWriteUnknown, userInfo: [
-            NSLocalizedDescriptionKey: "Nothing was recorded. Try recording for a little longer."]))
-        done(file, failure)
+        let failure = error ?? (written ? nil : Self.error("Nothing was recorded. Try recording for a little longer."))
+        let keep = written && (failure == nil || keepFile)
+        if !keep { try? FileManager.default.removeItem(at: file) }
+        guard let log else {
+            return done(keep ? SavedRecording(video: file, log: nil, logText: nil) : nil, failure)
+        }
+        log.stop { [file, done] text in
+            if !keep { try? FileManager.default.removeItem(at: log.file) }
+            done(keep ? SavedRecording(video: file, log: log.file, logText: text) : nil, failure)
+        }
+    }
+
+    private static func error(_ message: String) -> Error {
+        CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     // MARK: SCRecordingOutputDelegate, SCStreamDelegate (called off main)
 
     func recordingOutputDidStartRecording(_ output: SCRecordingOutput) {
-        DispatchQueue.main.async { self.indicator?.startClock() }
+        DispatchQueue.main.async {
+            self.started = true
+            self.indicator?.startClock()
+        }
     }
 
     func recordingOutputDidFinishRecording(_ output: SCRecordingOutput) {
@@ -151,36 +223,89 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         NSLog("Shotate: recording stream stopped: %@", error.localizedDescription)
         DispatchQueue.main.async {
+            guard !self.stopping else { return }
             self.stopping = true
             self.indicator?.close()
             self.finishSoon()
         }
     }
 }
-
 #endif
 
-/// The outline around the area being recorded and the bar with the time and Stop. Neither takes
-/// focus from the app you are recording.
+/// What one app writes to the system log while it is recorded, debug messages included, through
+/// `log stream`. Its helper processes count too: anything run from inside its app bundle.
+final class AppLog {
+    let file: URL
+    private let process = Process()
+
+    init(pid: pid_t, file: URL) throws {
+        self.file = file
+        let app = NSRunningApplication(processIdentifier: pid)
+        let predicate: String
+        if let bundle = app?.bundleURL?.path {
+            let quoted = bundle.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            predicate = "processImagePath BEGINSWITH \"\(quoted)/\""
+        } else {
+            predicate = "processIdentifier == \(pid)"
+        }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        f.timeZone = .current
+        let header = "# Log of \(app?.localizedName ?? "process \(pid)") (\(app?.bundleIdentifier ?? "no bundle ID"), "
+            + "pid \(pid)) while Shotate recorded it, from \(f.string(from: Date())).\n"
+            + "# log stream --level debug --predicate '\(predicate)'\n"
+        try Data(header.utf8).write(to: file)
+        let out = try FileHandle(forWritingTo: file)
+        out.seekToEndOfFile()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
+        process.arguments = ["stream", "--level", "debug", "--style", "compact", "--predicate", predicate]
+        process.standardOutput = out
+        process.standardError = out
+        try process.run()
+    }
+
+    /// Ends the stream (as Ctrl-C would, so its last lines are written) and calls back on main with
+    /// the whole log.
+    func stop(_ completion: @escaping (String) -> Void) {
+        let deliver = { [file] in
+            let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+            DispatchQueue.main.async { completion(text) }
+        }
+        guard process.isRunning else { return deliver() }
+        process.terminationHandler = { _ in deliver() }
+        process.interrupt()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [process] in
+            if process.isRunning { process.terminate() }
+        }
+    }
+}
+
+/// The bar with the time and Stop, and around a recorded area a red outline. Neither takes focus
+/// from the app you are recording.
 final class RecordingIndicator {
-    private let outline: NSPanel
+    private let outline: NSPanel?
     private let bar: NSPanel
     private let clock = NSTextField(labelWithString: "0:00")
     private var timer: Timer?
 
-    var windowIDs: [CGWindowID] { [outline, bar].map { CGWindowID($0.windowNumber) } }
+    var windowIDs: [CGWindowID] { ([outline, bar].compactMap { $0 }).map { CGWindowID($0.windowNumber) } }
 
-    init(area: CGRect, screen: NSScreen, stop: @escaping () -> Void) {
-        // Drawn just outside the area, so it would stay out of the video even if it were captured.
-        let pad: CGFloat = 3
-        outline = Self.panel(area.insetBy(dx: -pad, dy: -pad))
-        outline.ignoresMouseEvents = true
-        let border = NSView()
-        border.wantsLayer = true
-        border.layer?.borderColor = NSColor.systemRed.cgColor
-        border.layer?.borderWidth = 2
-        border.layer?.cornerRadius = 2
-        outline.contentView = border
+    init(area: CGRect, outlined: Bool, screen: NSScreen, title: String?, stop: @escaping () -> Void) {
+        if outlined {
+            // Drawn just outside the area, so it would stay out of the video even if it were captured.
+            let pad: CGFloat = 3
+            let outline = Self.panel(area.insetBy(dx: -pad, dy: -pad))
+            outline.ignoresMouseEvents = true
+            let border = NSView()
+            border.wantsLayer = true
+            border.layer?.borderColor = NSColor.systemRed.cgColor
+            border.layer?.borderWidth = 2
+            border.layer?.cornerRadius = 2
+            outline.contentView = border
+            self.outline = outline
+        } else {
+            outline = nil
+        }
 
         let dot = NSImageView(image: NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Recording")!)
         dot.contentTintColor = .systemRed
@@ -194,7 +319,15 @@ final class RecordingIndicator {
         button.action = #selector(FirstClickButton.clicked)
         button.onClick = stop
         button.toolTip = "Stop recording and save the video"
-        let row = NSStackView(views: [dot, clock, button])
+        var views: [NSView] = [dot]
+        if let title {
+            let name = NSTextField(labelWithString: title)
+            name.font = .systemFont(ofSize: 12, weight: .semibold)
+            name.lineBreakMode = .byTruncatingTail
+            name.widthAnchor.constraint(lessThanOrEqualToConstant: 180).isActive = true
+            views.append(name)
+        }
+        let row = NSStackView(views: views + [clock, button])
         row.spacing = 8
         row.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 6)
         let size = row.fittingSize
@@ -210,7 +343,7 @@ final class RecordingIndicator {
         bar.contentView = background
         bar.hasShadow = true
 
-        outline.orderFrontRegardless()
+        outline?.orderFrontRegardless()
         bar.orderFrontRegardless()
     }
 
@@ -250,7 +383,7 @@ final class RecordingIndicator {
     func close() {
         timer?.invalidate()
         timer = nil
-        outline.orderOut(nil)
+        outline?.orderOut(nil)
         bar.orderOut(nil)
     }
 }

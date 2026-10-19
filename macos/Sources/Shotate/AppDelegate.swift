@@ -14,12 +14,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsWindow: SettingsWindowController?
     private var welcomeWindow: WelcomeWindowController?
     private var capturing = false
+    /// Quitting waits for the recording to be saved.
+    private var quitAfterRecording = false
     private var configSource: DispatchSourceFileSystemObject?
     /// True while the config file has a JSON error. Shotate then never writes it, so a typo
     /// can't cost someone their settings.
     private(set) var configBroken = false
     /// Shortcuts that registered (or failed) last time, so a conflict is reported once, not on every change.
     private var lastShortcuts: [String: String] = [:]
+    private var lastCommands: [String: String] = [:]
+    static let actionTitles = ["captureArea": "Capture Area", "captureWindow": "Capture Window",
+                               "captureScreen": "Capture Full Screen", "recordArea": "Record Area",
+                               "recordScreen": "Record Full Screen", "recordApp": "Record App"]
     var settings = Settings()
     private(set) lazy var updater = Updater { [weak self] in self?.settings ?? Settings() }
     private lazy var pastePicker: PastePicker = {
@@ -62,10 +68,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !UserDefaults.standard.bool(forKey: "onboarded") { showWelcome() }
     }
 
-    /// ⌘Q, logout and restarts: save what is open before quitting.
+    /// ⌘Q, logout and restarts: save what is open before quitting. A recording is stopped and its
+    /// file finished first; cut off, the video wouldn't play.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         editors.forEach { $0.saveEdits() }
-        return .terminateNow
+        guard isRecording else { return .terminateNow }
+        quitAfterRecording = true
+        stopRecording()
+        return .terminateLater
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -79,7 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// shotate://capture, shotate://capture/window, shotate://capture/screen, shotate://record (pick an
-    /// area and record it, or stop the recording), shotate://record/stop, shotate://open?path=/x.png,
+    /// area and record it, or stop the recording), shotate://record/screen, shotate://record/app,
+    /// shotate://record/stop, shotate://open?path=/x.png,
     /// shotate://settings, shotate://config (open the config file), shotate://reload, shotate://welcome,
     /// shotate://update (check for updates now)
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
@@ -89,7 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "capture", "capture/area": capture(.area)
         case "capture/window": capture(.window)
         case "capture/screen": capture(.screen)
-        case "record", "record/area": toggleRecording()
+        case "record", "record/area": toggleRecording(.area)
+        case "record/screen": toggleRecording(.screen)
+        case "record/app": toggleRecording(.app)
         case "record/stop": stopRecording()
         case "open":
             if let p = url.queryItems?.first(where: { $0.name == "path" })?.value {
@@ -224,21 +237,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "captureArea": { [weak self] in self?.capture(.area) },
             "captureWindow": { [weak self] in self?.capture(.window) },
             "captureScreen": { [weak self] in self?.capture(.screen) },
-            "recordArea": { [weak self] in self?.toggleRecording() },
+            "recordArea": { [weak self] in self?.toggleRecording(.area) },
+            "recordScreen": { [weak self] in self?.toggleRecording(.screen) },
+            "recordApp": { [weak self] in self?.toggleRecording(.app) },
         ]
-        var taken: [String] = []
+        var taken: [String] = [], clashes: [String] = []
+        // Which Shotate action or command already has each shortcut, to name it when two share one.
+        var mine: [Shortcut: String] = [:]
         for name in Settings.actions {
             guard let keys = settings.shortcuts[name], let s = Shortcut(keys), let action = actions[name] else { continue }
-            if !hotkeys.register(s, action), lastShortcuts[name] != keys { taken.append(s.displayString) }
+            // Recording shortcuts stay free for other apps where Shotate can't record.
+            if Settings.recordActions.contains(name), !canRecord { continue }
+            let changed = lastShortcuts[name] != keys
+            if let other = mine[s] {
+                if changed { clashes.append("\(s.displayString) is set for both \(other) and \(Self.actionTitles[name] ?? name)") }
+            } else if hotkeys.register(s, action) {
+                mine[s] = Self.actionTitles[name] ?? name
+            } else if changed {
+                taken.append(s.displayString)
+            }
         }
         lastShortcuts = settings.shortcuts
+        for (keys, command) in settings.commandHotkeys.sorted(by: { $0.key < $1.key }) {
+            guard let s = Shortcut(keys) else { NSLog("Shotate: bad shortcut %@", keys); continue }
+            let changed = lastCommands[keys] != command
+            if let other = mine[s] {
+                if changed { clashes.append("\(s.displayString) is set for both \(other) and the command “\(command)”") }
+            } else if hotkeys.register(s, { Self.run(command) }) {
+                mine[s] = "the command “\(command)”"
+            } else if changed {
+                taken.append(s.displayString)
+            }
+        }
+        lastCommands = settings.commandHotkeys
         if !taken.isEmpty {
             Alerts.show("\(taken.joined(separator: ", ")) \(taken.count == 1 ? "is" : "are") already in use",
                         "Another app owns that shortcut. Pick a different one in Shotate Settings.")
         }
-        for (keys, command) in settings.commandHotkeys {
-            guard let s = Shortcut(keys) else { NSLog("Shotate: bad shortcut %@", keys); continue }
-            hotkeys.register(s) { Self.run(command) }
+        if !clashes.isEmpty {
+            Alerts.show("Two Shotate shortcuts use the same keys",
+                        clashes.joined(separator: ".\n") + ". Only the first works. Change one in Shotate Settings.")
         }
         if settings.showMenuBarIcon { installStatusItem() } else if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
@@ -258,6 +296,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func capture(_ mode: CaptureMode) {
         guard !capturing else { return }
+        // The picker would cover the screen being recorded, and be in the video.
+        if isRecording, mode != .screen { return NSSound.beep() }
         guard ScreenRecording.isGranted else { showWelcome(); return }
         capturing = true
         Capture.run(mode) { [weak self] shot in
@@ -280,47 +320,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Record
 
+    enum RecordKind { case area, screen, app }
+
     var isRecording: Bool { Recording.isActive }
 
-    /// The record shortcut: pick an area and record it; pressed again, stop and save.
-    func toggleRecording() {
+    /// macOS 15 and a build with recording in it.
+    var canRecord: Bool {
+        if #available(macOS 14.0, *) { return Recording.isSupported }
+        return false
+    }
+
+    /// A record shortcut: start recording; pressed again (any record shortcut), stop and save.
+    /// Area: drag over part of the screen. Full screen: the screen with the pointer. App: click one of
+    /// its windows; its log is saved too, and copied instead of the video.
+    func toggleRecording(_ kind: RecordKind) {
         if isRecording { return stopRecording() }
         guard !capturing else { return }
-        guard #available(macOS 14.0, *), Recording.isSupported else {
+        guard #available(macOS 14.0, *), canRecord else {
             return Alerts.show("Recording needs macOS 15 or later", "Screenshots work as before on this Mac. "
                                + "On macOS 15, updating Shotate with Xcode 16 or later installed turns recording on.")
         }
         guard ScreenRecording.isGranted else { showWelcome(); return }
+        if kind == .screen {
+            let mouse = NSEvent.mouseLocation
+            guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main
+            else { return }
+            return startRecording(.screen(screen))
+        }
         capturing = true
-        NativeCapture.pickRegion { [weak self] region in
+        NativeCapture.pickToRecord(app: kind == .app) { [weak self] pick in
             guard let self else { return }
             self.capturing = false
-            switch region {
+            switch pick {
             case .cancelled: break
             case .failed: Alerts.show("Shotate couldn't start recording", "macOS didn't let it see the screen. Try again.")
-            case let .area(screen, rect):
-                Recording.start(rect, on: screen, to: self.settings.newRecordingURL()) { [weak self] url, error in
-                    self?.recordingFinished(url, error: error)
-                }
-                self.updateStatusIcon()
+            case let .chosen(target): self.startRecording(target)
             }
         }
     }
 
+    private func startRecording(_ target: RecordTarget) {
+        Recording.start(target, to: settings.newRecordingURL()) { [weak self] saved, error in
+            self?.recordingFinished(saved, error: error)
+        }
+        updateStatusIcon()
+    }
+
     @objc func stopRecording() { Recording.stop() }
 
-    /// Saved: copy the video like a capture (it pastes as a file in Finder, Mail, Slack and the
-    /// like) and show it in Finder.
-    private func recordingFinished(_ url: URL, error: Error?) {
+    /// Saved: copy it like a capture and show it in Finder. A recorded app's log is what's copied
+    /// (it pastes as text into a chat, an issue or a coding agent); otherwise the video, as a file.
+    private func recordingFinished(_ saved: SavedRecording?, error: Error?) {
         updateStatusIcon()
-        if let error {
-            return Alerts.show("Shotate couldn't save the recording", error: error)
-        }
-        if settings.copyOnCapture {
+        if settings.copyOnCapture, let saved {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.writeObjects([url as NSURL])
+            if let text = saved.logText {
+                NSPasteboard.general.setString(text, forType: .string)
+            } else {
+                NSPasteboard.general.writeObjects([saved.video as NSURL])
+            }
         }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        if quitAfterRecording { return NSApp.reply(toApplicationShouldTerminate: true) }
+        if let error {
+            Alerts.show("Shotate couldn't save the recording", error: error)
+        }
+        if let saved { NSWorkspace.shared.activateFileViewerSelecting([saved.video] + [saved.log].compactMap { $0 }) }
     }
 
     func open(_ url: URL) {
@@ -429,10 +493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let stop = NSMenuItem(title: "Stop Recording", action: #selector(stopRecording), keyEquivalent: "")
             stop.target = self
             stop.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: nil)
-            if let s = settings.recordShortcut, s.key.count == 1 {
-                stop.keyEquivalent = s.key
-                stop.keyEquivalentModifierMask = s.modifierFlags
-            }
+            stop.toolTip = "Or press any record shortcut again"
             menu.addItem(stop)
             menu.addItem(.separator())
         }
@@ -452,10 +513,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return i
         }
+        // While recording, Stop Recording at the top replaces the record items.
+        let record = canRecord && !isRecording
+            ? [.separator(), item("Record Area", #selector(recordArea), shortcut: "recordArea"),
+               item("Record Full Screen", #selector(recordScreen), shortcut: "recordScreen"),
+               item("Record App and Its Log…", #selector(recordApp), shortcut: "recordApp")]
+            : [NSMenuItem]()
         for i in [item("Capture Area", #selector(captureArea), shortcut: "captureArea"),
                   item("Capture Window", #selector(captureWindow), shortcut: "captureWindow"),
-                  item("Capture Full Screen", #selector(captureScreen), shortcut: "captureScreen"),
-                  item("Record Area", #selector(recordArea), shortcut: "recordArea"),
+                  item("Capture Full Screen", #selector(captureScreen), shortcut: "captureScreen")]
+                  + record + [
                   .separator(),
                   NSMenuItem(title: "Open Image…", action: #selector(openImagePanel), keyEquivalent: ""),
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
@@ -484,7 +551,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func captureArea() { capture(.area) }
     @objc func captureWindow() { capture(.window) }
     @objc func captureScreen() { capture(.screen) }
-    @objc func recordArea() { toggleRecording() }
+    @objc func recordArea() { toggleRecording(.area) }
+    @objc func recordScreen() { toggleRecording(.screen) }
+    @objc func recordApp() { toggleRecording(.app) }
     @objc func openFolder() {
         try? FileManager.default.createDirectory(at: settings.saveFolder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(settings.saveFolder)

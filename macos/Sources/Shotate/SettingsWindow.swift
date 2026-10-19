@@ -306,8 +306,11 @@ final class ShortcutsPane: SettingsPane {
     required init?(coder: NSCoder) { fatalError() }
 
     override func build() -> [NSView] {
-        let global = form([("captureArea", "Capture area:"), ("captureWindow", "Capture window:"),
-                           ("captureScreen", "Capture full screen:"), ("recordArea", "Record area:")].map { name, title in
+        let record = app?.canRecord == true
+            ? [("recordArea", "Record area:"), ("recordScreen", "Record full screen:"), ("recordApp", "Record app and log:")]
+            : []
+        let global = form(([("captureArea", "Capture area:"), ("captureWindow", "Capture window:"),
+                            ("captureScreen", "Capture full screen:")] + record).map { name, title in
             let r = ShortcutRecorder(value: app?.settings.shortcuts[name] ?? "")
             r.onChange = { [weak self] v in self?.apply { $0.shortcuts[name] = v } }
             recorders[name] = r
@@ -342,8 +345,9 @@ final class ShortcutsPane: SettingsPane {
         return [
             heading("Global shortcuts"),
             global,
-            note("Click a shortcut, then press the keys. Delete or the ✕ turns it off. These work from any app. "
-                 + "Press Record area again to stop and save the video."),
+            note("Click a shortcut, then press the keys. Delete or the ✕ turns it off. These work from any app."
+                 + (record.isEmpty ? "" : " Press any record shortcut again to stop and save. Recording an app "
+                    + "copies what it logged while recording, ready to paste; the video and the log are saved together.")),
             separator(),
             heading("Editor tool keys"),
             tools,

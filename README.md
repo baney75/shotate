@@ -77,7 +77,8 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | | |
 | --- | --- |
 | **Capture** | Area, window or full screen from a global shortcut, the menu bar, or `shotate://` URLs |
-| **Record an area** | On a Mac with macOS 15 or later, press ⇧⌘R and drag over the part of the screen to record (Space picks a window). A red outline marks it and a small bar under it shows the time. Press ⇧⌘R again, or click Stop, and the MP4 is saved to your screenshots folder, copied as a file and shown in Finder. Video only: Shotate never asks for the microphone |
+| **Record the screen** | On a Mac with macOS 15 or later: ⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder, copied as a file and shown in Finder. Video only: Shotate never asks for the microphone |
+| **Record an app and its log** | ⇧⌘D, then click a window: Shotate records every window of that app (nothing else on screen) and streams what the app writes to the system log meanwhile, debug messages included. When you stop, the log is copied as text, ready to paste into an issue or a coding agent, and saved beside the video as a `.log` file |
 | **Annotate** | Arrow, pen, box, ellipse, highlight, text label, numbered step, crop |
 | **Redact for real** | Redaction draws a solid bar. Blur and pixelation can sometimes be reversed; this can't |
 | **Draw past the edge** | Drag a mark outside the screenshot and the canvas grows to fit. The view zooms out as you drag, and the new space continues the screenshot's own edges (a title bar or page background carries on, while lines and text touching the edge don't streak), so callouts never get cramped |
@@ -173,8 +174,10 @@ carry over the first time Shotate starts.
   "shortcuts": {
     "captureArea": "cmd+shift+s",
     "captureWindow": "ctrl+shift+2",
-    "captureScreen": "",
-    "recordArea": "cmd+shift+r"
+    "captureScreen": "cmd+ctrl+shift+s",
+    "recordArea": "cmd+shift+r",
+    "recordScreen": "cmd+ctrl+shift+r",
+    "recordApp": "cmd+shift+d"
   },
   "commands": {
     "cmd+shift+a": "open -a Terminal"
@@ -191,7 +194,7 @@ carry over the first time Shotate starts.
 | `saveFolder` | Where captures are saved. `~` works. Settings offers Pictures › Screenshots, Desktop, Downloads or any folder. |
 | `copyOnCapture` | Put every capture on the clipboard as soon as it's taken. |
 | `showMenuBarIcon` | Show the menu bar icon. URLs and shortcuts work either way. |
-| `shortcuts` | Global shortcuts for `captureArea`, `captureWindow`, `captureScreen` and `recordArea` (macOS: press it again to stop recording). An empty string turns one off. |
+| `shortcuts` | Global shortcuts for `captureArea`, `captureWindow`, `captureScreen`, and on macOS 15 `recordArea`, `recordScreen` and `recordApp` (any record shortcut again stops recording). An empty string turns one off. A shortcut added in a new version starts off if your file already uses its keys. |
 | `commands` | Extra global shortcuts that run a shell command in your login shell. |
 | `updateChannel` | macOS: `stable` or `nightly`. Leave it out to follow the build you installed. Windows and Linux always follow `nightly`. |
 | `checkForUpdates` | Check GitHub for updates once a day. `false` means Shotate makes no network request at all. |
@@ -211,6 +214,8 @@ open shotate://capture            # area
 open shotate://capture/window
 open shotate://capture/screen
 open shotate://record             # pick an area and record it; again to stop (macOS 15+)
+open shotate://record/screen
+open shotate://record/app         # click a window: record that app and its log
 open shotate://record/stop
 open "shotate://open?path=$HOME/Desktop/shot.png"
 open shotate://settings

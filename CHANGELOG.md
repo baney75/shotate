@@ -22,11 +22,17 @@
   arrow by accident. Press A for arrows.
 
 ### Added
-- **Record an area** (macOS 15 and later). Press ⇧⌘R, drag over part of the screen (or press
-  Space and click a window), and Shotate records it. A red outline marks the area and a small
-  bar shows the time and a Stop button; neither shows up in the video. Press ⇧⌘R again or click
-  Stop, and the MP4 is saved next to your screenshots, copied as a file, and shown in Finder.
-  Change or turn off the shortcut in Settings › Shortcuts. Video only, no sound.
+- **Record the screen** (macOS 15 and later). ⇧⌘R records an area you drag (or press Space and
+  click a window); ⌃⇧⌘R records the whole screen the pointer is on. A small bar shows the time and
+  a Stop button, and a red outline marks a recorded area; neither shows up in the video. Press any
+  record shortcut again or click Stop, and the MP4 is saved next to your screenshots, copied as a
+  file, and shown in Finder. Quitting mid-recording saves it first. Video only, no sound.
+- **Record an app and its log.** ⇧⌘D, then click a window: Shotate records only that app's windows
+  and streams what it writes to the system log, debug messages included. When you stop, the log
+  is on your clipboard as text and saved beside the video.
+- **⌃⇧⌘S captures the full screen** in new setups.
+- Two Shotate shortcuts set to the same keys now say so, instead of one silently not working, and a
+  shortcut new in this version starts off if your config already uses its keys.
 - Point at a tool to see its key; keep pointing for a second to see its name too.
 - **Choose which screenshot to paste** (macOS, off by default). Turn it on in setup, Settings or
   the menu bar menu. Take screenshots within 3 seconds of each other and, for the next minute,

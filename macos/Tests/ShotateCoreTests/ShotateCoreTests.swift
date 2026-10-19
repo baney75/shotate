@@ -184,15 +184,35 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertTrue(s.newRecordingURL(date: date).lastPathComponent.hasSuffix(" 2.mp4"))
     }
 
-    /// ⇧⌘R records an area out of the box, including for config files written before recording
-    /// existed, and an empty string turns it off.
-    func testRecordShortcutDefaultsOnForOldConfigs() throws {
+    /// The record shortcuts work out of the box, including for config files written before they
+    /// existed, and an empty string turns one off.
+    func testRecordShortcutsDefaultOnForOldConfigs() throws {
         let url = tempConfig()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"shortcuts": {"captureArea": "shift+cmd+s", "captureScreen": "", "captureWindow": ""}}"#.utf8).write(to: url)
-        XCTAssertEqual(try Settings.load(from: url).recordShortcut, Shortcut("cmd+shift+r"))
+        let s = try Settings.load(from: url)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(s.shortcut("recordScreen"), Shortcut("cmd+ctrl+shift+r"))
+        XCTAssertEqual(s.shortcut("recordApp"), Shortcut("cmd+shift+d"))
+        XCTAssertNil(s.shortcut("captureScreen"), "a shortcut the file turned off stays off")
         try Data(#"{"shortcuts": {"recordArea": ""}}"#.utf8).write(to: url)
-        XCTAssertNil(try Settings.load(from: url).recordShortcut)
+        XCTAssertNil(try Settings.load(from: url).shortcut("recordArea"))
+        XCTAssertEqual(Settings().shortcut("captureScreen"), Shortcut("cmd+ctrl+shift+s"))
+    }
+
+    /// An upgrade never takes keys the file already uses: a new action whose default clashes with
+    /// one of the person's shortcuts or commands starts off instead.
+    func testNewDefaultsYieldToShortcutsInUse() throws {
+        let url = tempConfig()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"shortcuts": {"captureWindow": "shift+cmd+r"}, "commands": {"cmd+shift+d": "/usr/bin/true"}}"#.utf8)
+            .write(to: url)
+        let s = try Settings.load(from: url)
+        XCTAssertEqual(s.shortcut("captureWindow"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(s.shortcut("recordArea"))
+        XCTAssertNil(s.shortcut("recordApp"))
+        XCTAssertEqual(s.shortcut("recordScreen"), Shortcut("cmd+ctrl+shift+r"))
+        XCTAssertEqual(s.commandHotkeys["cmd+shift+d"], "/usr/bin/true")
     }
 
     func tempConfig() -> URL {
