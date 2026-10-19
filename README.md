@@ -77,7 +77,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | | |
 | --- | --- |
 | **Capture** | Area, window or full screen from a global shortcut, the menu bar, or `shotate://` URLs |
-| **Record the screen** | On a Mac with macOS 15 or later: ⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder, copied as a file and shown in Finder. Video only: Shotate never asks for the microphone |
+| **Record the screen** | On a Mac with macOS 15 or later: ⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder and copied as a file. No Finder window opens. Video only: Shotate never asks for the microphone |
 | **Record an app and its log** | ⇧⌘D, then click a window: Shotate records every window of that app (nothing else on screen) and streams what the app writes to the system log meanwhile, debug messages included. When you stop, the log is copied as text, ready to paste into an issue or a coding agent, and saved beside the video as a `.log` file |
 | **Annotate** | Arrow, pen, box, ellipse, highlight, text label, numbered step, crop |
 | **Redact for real** | Redaction draws a solid bar. Blur and pixelation can sometimes be reversed; this can't |

@@ -26,7 +26,7 @@
   click a window); ⌃⇧⌘R records the whole screen the pointer is on. A small bar shows the time and
   a Stop button, and a red outline marks a recorded area; neither shows up in the video. Press any
   record shortcut again or click Stop, and the MP4 is saved next to your screenshots, copied as a
-  file, and shown in Finder. Quitting mid-recording saves it first. Video only, no sound.
+  file. No Finder window opens. Quitting mid-recording saves it first. Video only, no sound.
 - **Record an app and its log.** ⇧⌘D, then click a window: Shotate records only that app's windows
   and streams what it writes to the system log, debug messages included. When you stop, the log
   is on your clipboard as text and saved beside the video.
