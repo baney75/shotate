@@ -16,7 +16,10 @@ enum RecordTarget {
 struct SavedRecording {
     let video: URL
     let log: URL?
+    /// The log as it goes on the clipboard (a long one is cut to its newest lines).
     let logText: String?
+    /// Why the app's log couldn't be read, in `log`'s words.
+    let logError: String?
 }
 
 /// The app's way into recording. Recording needs macOS 15 and the macOS 15 SDK (Swift 6 / Xcode 16);
@@ -71,6 +74,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private var stopping = false
     /// The first frame is in the file.
     private var started = false
+    /// Why macOS stopped the stream, when it wasn't us.
+    private var stopError: Error?
     private let done: (SavedRecording?, Error?) -> Void
 
     /// Starts recording `target` into `file`. `done` runs on main once the file is finished, or with
@@ -108,6 +113,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         switch target {
         case let .area(_, s), let .screen(s), let .app(_, s): screen = s
         }
+        // Stopped while macOS was answering: start nothing (`finish` has run or will).
+        guard Recorder.current === self, !stopping else { throw Self.nothingRecorded }
         guard let display = NativeCapture.display(for: screen, in: content) else {
             throw Self.error("That screen isn't available to record.")
         }
@@ -127,7 +134,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             guard let app = content.applications.first(where: { $0.processID == pid }) else {
                 throw Self.error("That app quit before recording started.")
             }
-            filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
+            // If the app is Shotate itself, its recording bar still stays out.
+            filter = SCContentFilter(display: display, including: [app], exceptingWindows: notOurs)
             log = try AppLog(pid: pid, file: file.deletingPathExtension().appendingPathExtension("log"))
         }
         let pixels = CaptureGeometry.videoSize(of: size, scale: screen.backingScaleFactor)
@@ -147,6 +155,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         // Only a running stream can be stopped; a stop that came while starting is handled here.
         self.stream = stream
         if stopping { try? await stream.stopCapture() }
+        // Already given up on (the fallback ran out while this started): nobody will report the file.
+        if Recorder.current !== self { try? FileManager.default.removeItem(at: file) }
     }
 
     /// Ends the recording; `done` runs once the file is written.
@@ -184,18 +194,22 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         stopping = true
         indicator?.close()
         indicator = nil
+        // Ending on a failure or a timeout: make sure nothing keeps capturing.
+        if let stream { Task { try? await stream.stopCapture() } }
         let written = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { $0 > 0 } ?? false
-        let failure = error ?? (written ? nil : Self.error("Nothing was recorded. Try recording for a little longer."))
+        let failure = error ?? (written ? nil : stopError ?? Self.nothingRecorded)
         let keep = written && (failure == nil || keepFile)
         if !keep { try? FileManager.default.removeItem(at: file) }
         guard let log else {
-            return done(keep ? SavedRecording(video: file, log: nil, logText: nil) : nil, failure)
+            return done(keep ? SavedRecording(video: file, log: nil, logText: nil, logError: nil) : nil, failure)
         }
-        log.stop { [file, done] text in
+        log.stop { [file, done] text, logError in
             if !keep { try? FileManager.default.removeItem(at: log.file) }
-            done(keep ? SavedRecording(video: file, log: log.file, logText: text) : nil, failure)
+            done(keep ? SavedRecording(video: file, log: log.file, logText: text, logError: logError) : nil, failure)
         }
     }
+
+    private static let nothingRecorded = error("Nothing was recorded. Try recording for a little longer.")
 
     private static func error(_ message: String) -> Error {
         CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: message])
@@ -223,6 +237,7 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         NSLog("Shotate: recording stream stopped: %@", error.localizedDescription)
         DispatchQueue.main.async {
+            self.stopError = error
             guard !self.stopping else { return }
             self.stopping = true
             self.indicator?.close()
@@ -237,6 +252,10 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
 final class AppLog {
     let file: URL
     private let process = Process()
+    private let errors = Pipe()
+    private var exited = false
+    private var interrupted = false
+    private var onExit: (() -> Void)?
 
     init(pid: pid_t, file: URL) throws {
         self.file = file
@@ -260,23 +279,55 @@ final class AppLog {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
         process.arguments = ["stream", "--level", "debug", "--style", "compact", "--predicate", predicate]
         process.standardOutput = out
-        process.standardError = out
+        process.standardError = errors
+        // Set before it runs, so an early exit is never missed.
+        process.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.exited = true
+                let f = self?.onExit
+                self?.onExit = nil
+                f?()
+            }
+        }
         try process.run()
+        // Only the child writes errors; closing this end lets the read below see their end.
+        try? errors.fileHandleForWriting.close()
     }
 
-    /// Ends the stream (as Ctrl-C would, so its last lines are written) and calls back on main with
-    /// the whole log.
-    func stop(_ completion: @escaping (String) -> Void) {
-        let deliver = { [file] in
-            let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-            DispatchQueue.main.async { completion(text) }
+    /// Ends the stream (as Ctrl-C would, so its last lines are written) and calls back on main,
+    /// once, with what goes on the clipboard, or with the error `log` gave if it quit by itself.
+    func stop(_ completion: @escaping (String?, String?) -> Void) {
+        var called = false
+        let deliver = { [weak self] in
+            guard !called, let self else { return }
+            called = true
+            completion(self.clipboardText(), self.failure())
         }
-        guard process.isRunning else { return deliver() }
-        process.terminationHandler = { _ in deliver() }
+        guard !exited, process.isRunning else { return deliver() }
+        interrupted = true
+        onExit = deliver
         process.interrupt()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [process] in
             if process.isRunning { process.terminate() }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { deliver() }
+    }
+
+    /// `log`'s own message when it quit on its own with an error, as when the account may not read the log.
+    private func failure() -> String? {
+        guard !interrupted, !process.isRunning, process.terminationStatus != 0 else { return nil }
+        let text = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "log stream exited with status \(process.terminationStatus)." : text
+    }
+
+    /// The newest part of the log, read from the end of the file so a huge log isn't loaded whole.
+    private func clipboardText() -> String? {
+        guard let h = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? h.close() }
+        let size = Int((try? h.seekToEnd()) ?? 0)
+        try? h.seek(toOffset: UInt64(max(0, size - LogClip.limit - 4096)))
+        return LogClip.text(tail: h.readDataToEndOfFile(), size: size, path: file.path)
     }
 }
 

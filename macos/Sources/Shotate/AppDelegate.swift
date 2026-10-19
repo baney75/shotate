@@ -101,7 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "capture/window": capture(.window)
         case "capture/screen": capture(.screen)
         case "record", "record/area": toggleRecording(.area)
-        case "record/screen": toggleRecording(.screen)
+        case "record/screen":
+            // Any web page can open these links, and this one would start recording with no picker:
+            // ask first. (Area and app recording wait for a drag or a click.)
+            if isRecording { stopRecording() } else if confirmLinkRecording() { toggleRecording(.screen) }
         case "record/app": toggleRecording(.app)
         case "record/stop": stopRecording()
         case "open":
@@ -359,6 +362,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private func confirmLinkRecording() -> Bool {
+        let a = NSAlert()
+        a.messageText = "Record your whole screen?"
+        a.informativeText = "A link asked Shotate to start recording the screen. Only allow it if you opened that link."
+        a.addButton(withTitle: "Record")
+        a.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        return a.runModal() == .alertFirstButtonReturn
+    }
+
     private func startRecording(_ target: RecordTarget) {
         Recording.start(target, to: settings.newRecordingURL()) { [weak self] saved, error in
             self?.recordingFinished(saved, error: error)
@@ -374,7 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateStatusIcon()
         if settings.copyOnCapture, let saved {
             NSPasteboard.general.clearContents()
-            if let text = saved.logText {
+            if saved.logError == nil, let text = saved.logText {
                 NSPasteboard.general.setString(text, forType: .string)
             } else {
                 NSPasteboard.general.writeObjects([saved.video as NSURL])
@@ -383,6 +396,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if quitAfterRecording { return NSApp.reply(toApplicationShouldTerminate: true) }
         if let error {
             Alerts.show("Shotate couldn't save the recording", error: error)
+        } else if let why = saved?.logError {
+            Alerts.show("Shotate couldn't read the app's log",
+                        "The video is saved\(settings.copyOnCapture ? " and copied" : ""). macOS said: \(why)")
         }
         if let saved { NSWorkspace.shared.activateFileViewerSelecting([saved.video] + [saved.log].compactMap { $0 }) }
     }

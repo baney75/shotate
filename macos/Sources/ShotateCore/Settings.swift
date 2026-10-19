@@ -133,15 +133,7 @@ public struct Settings: Equatable {
             for a in actions { if let v = m[a] { s.shortcuts[a] = Shortcut(v) != nil ? v.lowercased() : "" } }
         }
         if let m = o["commands"] as? [String: String] { s.commandHotkeys = m.filter { Shortcut($0.key) != nil } }
-        // An action newer than the file gets its default keys only if the file doesn't already use
-        // them for something else, so an upgrade never takes over someone's own shortcut.
-        let written = Set((o["shortcuts"] as? [String: Any] ?? [:]).keys)
-        for a in actions where !written.contains(a) {
-            guard let mine = s.shortcut(a) else { continue }
-            let taken = actions.contains { $0 != a && written.contains($0) && s.shortcut($0) == mine }
-                || s.commandHotkeys.keys.contains { Shortcut($0) == mine }
-            if taken { s.shortcuts[a] = "" }
-        }
+        s.yieldNewDefaults(written: Set((o["shortcuts"] as? [String: Any] ?? [:]).keys))
         if let m = o["toolKeys"] as? [String: String] { s.toolKeys = m.mapValues { $0.lowercased() } }
         if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
         if let b = o["checkForUpdates"] as? Bool { s.checkForUpdates = b }
@@ -190,7 +182,20 @@ public struct Settings: Equatable {
             s.shortcuts["captureArea"] = ""
         }
         s.commandHotkeys = d.dictionary(forKey: "commandHotkeys") as? [String: String] ?? [:]
+        s.yieldNewDefaults(written: ["captureArea"])
         return s
+    }
+
+    /// An action the saved settings don't mention (`written` lists those they do) gets its default
+    /// keys only if they aren't already used for something else, so an upgrade never takes over
+    /// someone's own shortcut.
+    mutating func yieldNewDefaults(written: Set<String>) {
+        for a in Settings.actions where !written.contains(a) {
+            guard let mine = shortcut(a) else { continue }
+            let taken = Settings.actions.contains { $0 != a && written.contains($0) && shortcut($0) == mine }
+                || commandHotkeys.keys.contains { Shortcut($0) == mine }
+            if taken { shortcuts[a] = "" }
+        }
     }
 
     /// "Shotate 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
