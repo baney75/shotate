@@ -24,7 +24,7 @@ enum NativeCapture {
                     guard let screen = NSScreen.screens.first, let display = display(for: screen, in: content) else {
                         return completion(.failed)
                     }
-                    let image = try await capture(display)
+                    let image = try await capture(display, in: content)
                     return completion(.image(image, dpi: 72 * screen.backingScaleFactor))
                 }
                 guard let (choice, shots, windows) = try await pick(content, windowMode: mode == .window) else {
@@ -107,7 +107,7 @@ enum NativeCapture {
         let frozen = try await withThrowingTaskGroup(of: (Int, CGImage).self) { group in
             for (i, screen) in NSScreen.screens.enumerated() {
                 guard let display = display(for: screen, in: content) else { continue }
-                group.addTask { (i, try await capture(display)) }
+                group.addTask { (i, try await capture(display, in: content)) }
             }
             var images: [Int: CGImage] = [:]
             for try await (i, image) in group { images[i] = image }
@@ -129,9 +129,11 @@ enum NativeCapture {
         return content.displays.first { $0.displayID == id }
     }
 
-    /// The whole display at full resolution, without the cursor.
-    private static func capture(_ display: SCDisplay) async throws -> CGImage {
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+    /// The whole display at full resolution, without the cursor, and without the bar and outline of
+    /// a recording in progress.
+    private static func capture(_ display: SCDisplay, in content: SCShareableContent) async throws -> CGImage {
+        let overlay = Recording.overlayWindowIDs
+        let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { overlay.contains($0.windowID) })
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration(for: filter))
     }
 

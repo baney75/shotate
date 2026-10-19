@@ -155,5 +155,17 @@ final class CaptureGeometryTests: XCTestCase {
         XCTAssertTrue(CaptureGeometry.videoSize(of: CGSize(width: 300, height: 200), scale: 2) == (600, 400))
         XCTAssertTrue(CaptureGeometry.videoSize(of: CGSize(width: 301, height: 151), scale: 1) == (300, 150))
         XCTAssertTrue(CaptureGeometry.videoSize(of: CGSize(width: 100.5, height: 0.5), scale: 2) == (200, 2))
+        XCTAssertTrue(CaptureGeometry.videoSize(of: CGSize(width: 1512, height: 982), scale: 2) == (3024, 1964))
+    }
+
+    /// A 5K or 6K screen records smaller, keeping its shape, so the H.264 encoder takes it.
+    func testVideoSizeFitsTheEncoder() {
+        XCTAssertTrue(CaptureGeometry.videoSize(of: CGSize(width: 2560, height: 1440), scale: 2) == (4096, 2304))
+        let xdr = CaptureGeometry.videoSize(of: CGSize(width: 3008, height: 1692), scale: 2)
+        XCTAssertLessThanOrEqual(xdr.width, 4096)
+        XCTAssertLessThanOrEqual(xdr.height, 2304)
+        XCTAssertEqual(Double(xdr.width) / Double(xdr.height), 3008.0 / 1692, accuracy: 0.01)
+        let portrait = CaptureGeometry.videoSize(of: CGSize(width: 1440, height: 2560), scale: 2)
+        XCTAssertTrue(portrait == (2304, 4096))
     }
 }

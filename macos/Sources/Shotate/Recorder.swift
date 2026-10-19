@@ -56,6 +56,14 @@ enum Recording {
         if #available(macOS 15.0, *) { Recorder.current?.stop() }
         #endif
     }
+
+    /// The bar and outline of the recording in progress, which a screenshot leaves out.
+    static var overlayWindowIDs: Set<CGWindowID> {
+        #if compiler(>=6.0)
+        if #available(macOS 15.0, *) { return Set(Recorder.current?.overlayWindowIDs ?? []) }
+        #endif
+        return []
+    }
 }
 
 #if compiler(>=6.0)
@@ -158,6 +166,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         // Already given up on (the fallback ran out while this started): nobody will report the file.
         if Recorder.current !== self { try? FileManager.default.removeItem(at: file) }
     }
+
+    var overlayWindowIDs: [CGWindowID] { indicator?.windowIDs ?? [] }
 
     /// Ends the recording; `done` runs once the file is written.
     func stop() {
@@ -278,10 +288,22 @@ final class AppLog {
         out.seekToEndOfFile()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
         process.arguments = ["stream", "--level", "debug", "--style", "compact", "--predicate", predicate]
-        process.standardOutput = out
+        // Through a pipe Shotate copies into the file, not straight into the file: if Shotate is
+        // force-quit or crashes, the pipe closes and `log` exits instead of writing forever.
+        let lines = Pipe()
+        process.standardOutput = lines
         process.standardError = errors
-        // Set before it runs, so an early exit is never missed.
-        process.terminationHandler = { [weak self] _ in
+        try process.run()
+        // Only the child writes to these; closing this side lets the reads see their end.
+        try? lines.fileHandleForWriting.close()
+        try? errors.fileHandleForWriting.close()
+        let process = process
+        Thread.detachNewThread { [weak self] in
+            let input = lines.fileHandleForReading
+            while case let data = input.availableData, !data.isEmpty { out.write(data) }
+            try? out.close()
+            // The pipe ends when `log` does; everything it wrote is in the file now.
+            process.waitUntilExit()
             DispatchQueue.main.async {
                 self?.exited = true
                 let f = self?.onExit
@@ -289,9 +311,6 @@ final class AppLog {
                 f?()
             }
         }
-        try process.run()
-        // Only the child writes errors; closing this end lets the read below see their end.
-        try? errors.fileHandleForWriting.close()
     }
 
     /// Ends the stream (as Ctrl-C would, so its last lines are written) and calls back on main,
@@ -303,7 +322,7 @@ final class AppLog {
             called = true
             completion(self.clipboardText(), self.failure())
         }
-        guard !exited, process.isRunning else { return deliver() }
+        guard !exited else { return deliver() }
         interrupted = true
         onExit = deliver
         process.interrupt()

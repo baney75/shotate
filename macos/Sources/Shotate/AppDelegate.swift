@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "record/screen":
             // Any web page can open these links, and this one would start recording with no picker:
             // ask first. (Area and app recording wait for a drag or a click.)
-            if isRecording { stopRecording() } else if confirmLinkRecording() { toggleRecording(.screen) }
+            if isRecording || !canRecord || confirmLinkRecording() { toggleRecording(.screen) }
         case "record/app": toggleRecording(.app)
         case "record/stop": stopRecording()
         case "open":
@@ -245,6 +245,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "recordApp": { [weak self] in self?.toggleRecording(.app) },
         ]
         var taken: [String] = [], clashes: [String] = []
+        // Another app's shortcut is reported once, not at every launch: the person may never have
+        // chosen those keys (a new default), and the alert would only nag.
+        var reported = Set(UserDefaults.standard.stringArray(forKey: "reportedTakenShortcuts") ?? [])
+        func report(_ id: String, _ s: Shortcut) {
+            if reported.insert(id).inserted { taken.append(s.displayString) }
+        }
         // Which Shotate action or command already has each shortcut, to name it when two share one.
         var mine: [Shortcut: String] = [:]
         for name in Settings.actions {
@@ -257,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else if hotkeys.register(s, action) {
                 mine[s] = Self.actionTitles[name] ?? name
             } else if changed {
-                taken.append(s.displayString)
+                report("\(name)=\(keys)", s)
             }
         }
         lastShortcuts = settings.shortcuts
@@ -269,10 +275,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else if hotkeys.register(s, { Self.run(command) }) {
                 mine[s] = "the command “\(command)”"
             } else if changed {
-                taken.append(s.displayString)
+                report("command:\(keys)=\(command)", s)
             }
         }
         lastCommands = settings.commandHotkeys
+        UserDefaults.standard.set(reported.sorted(), forKey: "reportedTakenShortcuts")
         if !taken.isEmpty {
             Alerts.show("\(taken.joined(separator: ", ")) \(taken.count == 1 ? "is" : "are") already in use",
                         "Another app owns that shortcut. Pick a different one in Shotate Settings.")
