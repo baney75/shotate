@@ -27,38 +27,27 @@ enum NativeCapture {
                     let image = try await capture(display)
                     return completion(.image(image, dpi: 72 * screen.backingScaleFactor))
                 }
-                let frozen = try await withThrowingTaskGroup(of: (Int, CGImage).self) { group in
-                    for (i, screen) in NSScreen.screens.enumerated() {
-                        guard let display = display(for: screen, in: content) else { continue }
-                        group.addTask { (i, try await capture(display)) }
-                    }
-                    var images: [Int: CGImage] = [:]
-                    for try await (i, image) in group { images[i] = image }
-                    return images
+                guard let (choice, shots, windows) = try await pick(content, windowMode: mode == .window) else {
+                    return completion(.failed)
                 }
-                let shots = NSScreen.screens.enumerated().compactMap { i, s in frozen[i].map { (s, $0) } }
-                guard !shots.isEmpty else { return completion(.failed) }
-                let windows = pickableWindows(content)
-                Picker.show(shots: shots, windows: windows.map { ($0.id, $0.frame) }, windowMode: mode == .window) { choice in
-                    switch choice {
-                    case nil:
-                        completion(.cancelled)
-                    case let .area(screen, rect)?:
-                        guard let (s, image) = shots.first(where: { $0.0 === screen }) else { return completion(.cancelled) }
-                        let scale = s.backingScaleFactor
-                        let pixels = CaptureGeometry.pixelRect(of: rect, screenFrame: s.frame, scale: scale)
-                        guard let crop = image.cropping(to: pixels) else { return completion(.cancelled) }
-                        completion(.image(crop, dpi: 72 * scale))
-                    case let .window(id)?:
-                        guard let w = windows.first(where: { $0.id == id }) else { return completion(.cancelled) }
-                        Task { @MainActor in
-                            do {
-                                let (image, scale) = try await capture(w.window)
-                                completion(.image(image, dpi: 72 * scale))
-                            } catch {
-                                NSLog("Shotate: window capture: %@", error.localizedDescription)
-                                completion(.cancelled)
-                            }
+                switch choice {
+                case nil:
+                    completion(.cancelled)
+                case let .area(screen, rect)?:
+                    guard let (s, image) = shots.first(where: { $0.0 === screen }) else { return completion(.cancelled) }
+                    let scale = s.backingScaleFactor
+                    let pixels = CaptureGeometry.pixelRect(of: rect, screenFrame: s.frame, scale: scale)
+                    guard let crop = image.cropping(to: pixels) else { return completion(.cancelled) }
+                    completion(.image(crop, dpi: 72 * scale))
+                case let .window(id)?:
+                    guard let w = windows.first(where: { $0.id == id }) else { return completion(.cancelled) }
+                    Task { @MainActor in
+                        do {
+                            let (image, scale) = try await capture(w.window)
+                            completion(.image(image, dpi: 72 * scale))
+                        } catch {
+                            NSLog("Shotate: window capture: %@", error.localizedDescription)
+                            completion(.cancelled)
                         }
                     }
                 }
@@ -69,7 +58,69 @@ enum NativeCapture {
         }
     }
 
-    private static func display(for screen: NSScreen, in content: SCShareableContent) -> SCDisplay? {
+    enum Region {
+        /// In AppKit global coordinates, within `screen`.
+        case area(NSScreen, CGRect)
+        case cancelled
+        case failed
+    }
+
+    /// For recording: the same picker, but it answers with a place on screen instead of an image. A
+    /// picked window gives the part of its frame on the screen that shows most of it. Calls back on main.
+    static func pickRegion(completion: @escaping (Region) -> Void) {
+        Task { @MainActor in
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                guard let (choice, shots, windows) = try await pick(content, windowMode: false) else {
+                    return completion(.failed)
+                }
+                switch choice {
+                case nil:
+                    completion(.cancelled)
+                case let .area(screen, rect)?:
+                    completion(.area(screen, rect))
+                case let .window(id)?:
+                    guard let frame = windows.first(where: { $0.id == id })?.frame,
+                          let screen = shots.map(\.0).max(by: { area(frame.intersection($0.frame)) < area(frame.intersection($1.frame)) })
+                    else { return completion(.cancelled) }
+                    let rect = frame.intersection(screen.frame)
+                    completion(rect.width >= 2 && rect.height >= 2 ? .area(screen, rect) : .cancelled)
+                }
+            } catch {
+                NSLog("Shotate: ScreenCaptureKit: %@", error.localizedDescription)
+                completion(.failed)
+            }
+        }
+    }
+
+    private static func area(_ r: CGRect) -> CGFloat { r.isNull ? 0 : r.width * r.height }
+
+    /// Freezes every screen and shows the picker over them until something is chosen or it is
+    /// cancelled. Nil when ScreenCaptureKit returned no screens.
+    @MainActor
+    private static func pick(_ content: SCShareableContent, windowMode: Bool) async throws
+        -> (choice: Picker.Choice?, shots: [(NSScreen, CGImage)], windows: [PickableWindow])? {
+        let frozen = try await withThrowingTaskGroup(of: (Int, CGImage).self) { group in
+            for (i, screen) in NSScreen.screens.enumerated() {
+                guard let display = display(for: screen, in: content) else { continue }
+                group.addTask { (i, try await capture(display)) }
+            }
+            var images: [Int: CGImage] = [:]
+            for try await (i, image) in group { images[i] = image }
+            return images
+        }
+        let shots = NSScreen.screens.enumerated().compactMap { i, s in frozen[i].map { (s, $0) } }
+        guard !shots.isEmpty else { return nil }
+        let windows = pickableWindows(content)
+        let choice = await withCheckedContinuation { (done: CheckedContinuation<Picker.Choice?, Never>) in
+            Picker.show(shots: shots, windows: windows.map { ($0.id, $0.frame) }, windowMode: windowMode) {
+                done.resume(returning: $0)
+            }
+        }
+        return (choice, shots, windows)
+    }
+
+    static func display(for screen: NSScreen, in content: SCShareableContent) -> SCDisplay? {
         let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
         return content.displays.first { $0.displayID == id }
     }

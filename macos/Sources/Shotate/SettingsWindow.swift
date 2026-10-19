@@ -307,7 +307,7 @@ final class ShortcutsPane: SettingsPane {
 
     override func build() -> [NSView] {
         let global = form([("captureArea", "Capture area:"), ("captureWindow", "Capture window:"),
-                           ("captureScreen", "Capture full screen:")].map { name, title in
+                           ("captureScreen", "Capture full screen:"), ("recordArea", "Record area:")].map { name, title in
             let r = ShortcutRecorder(value: app?.settings.shortcuts[name] ?? "")
             r.onChange = { [weak self] v in self?.apply { $0.shortcuts[name] = v } }
             recorders[name] = r
@@ -342,7 +342,8 @@ final class ShortcutsPane: SettingsPane {
         return [
             heading("Global shortcuts"),
             global,
-            note("Click a shortcut, then press the keys. Delete or the ✕ turns it off. These work from any app."),
+            note("Click a shortcut, then press the keys. Delete or the ✕ turns it off. These work from any app. "
+                 + "Press Record area again to stop and save the video."),
             separator(),
             heading("Editor tool keys"),
             tools,

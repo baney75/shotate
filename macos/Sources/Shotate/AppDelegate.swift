@@ -78,7 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         urls.filter(\.isFileURL).forEach(open)
     }
 
-    /// shotate://capture, shotate://capture/window, shotate://capture/screen, shotate://open?path=/x.png,
+    /// shotate://capture, shotate://capture/window, shotate://capture/screen, shotate://record (pick an
+    /// area and record it, or stop the recording), shotate://record/stop, shotate://open?path=/x.png,
     /// shotate://settings, shotate://config (open the config file), shotate://reload, shotate://welcome,
     /// shotate://update (check for updates now)
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
@@ -88,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "capture", "capture/area": capture(.area)
         case "capture/window": capture(.window)
         case "capture/screen": capture(.screen)
+        case "record", "record/area": toggleRecording()
+        case "record/stop": stopRecording()
         case "open":
             if let p = url.queryItems?.first(where: { $0.name == "path" })?.value {
                 open(URL(fileURLWithPath: (p as NSString).expandingTildeInPath))
@@ -221,6 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "captureArea": { [weak self] in self?.capture(.area) },
             "captureWindow": { [weak self] in self?.capture(.window) },
             "captureScreen": { [weak self] in self?.capture(.screen) },
+            "recordArea": { [weak self] in self?.toggleRecording() },
         ]
         var taken: [String] = []
         for name in Settings.actions {
@@ -272,6 +276,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             self.edit(shot.doc, fileURL: url, ownsFile: true, capturePNG: shot.png)
         }
+    }
+
+    // MARK: Record
+
+    var isRecording: Bool {
+        if #available(macOS 15.0, *) { return Recorder.current != nil }
+        return false
+    }
+
+    /// The record shortcut: pick an area and record it; pressed again, stop and save.
+    func toggleRecording() {
+        if isRecording { return stopRecording() }
+        guard !capturing else { return }
+        guard #available(macOS 15.0, *) else {
+            return Alerts.show("Recording needs macOS 15 or later", "Screenshots work as before on this Mac.")
+        }
+        guard ScreenRecording.isGranted else { showWelcome(); return }
+        capturing = true
+        NativeCapture.pickRegion { [weak self] region in
+            guard let self else { return }
+            self.capturing = false
+            switch region {
+            case .cancelled: break
+            case .failed: Alerts.show("Shotate couldn't start recording", "macOS didn't let it see the screen. Try again.")
+            case let .area(screen, rect):
+                Recorder.start(rect, on: screen, to: self.settings.newRecordingURL()) { [weak self] url, error in
+                    self?.recordingFinished(url, error: error)
+                }
+                self.updateStatusIcon()
+            }
+        }
+    }
+
+    @objc func stopRecording() {
+        if #available(macOS 15.0, *) { Recorder.current?.stop() }
+    }
+
+    /// Saved: copy the video like a capture (it pastes as a file in Finder, Mail, Slack and the
+    /// like) and show it in Finder.
+    private func recordingFinished(_ url: URL, error: Error?) {
+        updateStatusIcon()
+        if let error {
+            return Alerts.show("Shotate couldn't save the recording", error: error)
+        }
+        if settings.copyOnCapture {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects([url as NSURL])
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     func open(_ url: URL) {
@@ -353,11 +406,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func installStatusItem() {
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = Self.menuBarIcon
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
         statusItem = item
+        updateStatusIcon()
+    }
+
+    /// A stop button while recording, so the menu bar says how to end it.
+    private func updateStatusIcon() {
+        statusItem?.button?.image = isRecording
+            ? NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Shotate is recording")
+            : Self.menuBarIcon
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -367,6 +427,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             fix.target = self
             fix.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
             menu.addItem(fix)
+            menu.addItem(.separator())
+        }
+        if isRecording {
+            let stop = NSMenuItem(title: "Stop Recording", action: #selector(stopRecording), keyEquivalent: "")
+            stop.target = self
+            stop.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: nil)
+            if let s = settings.recordShortcut, s.key.count == 1 {
+                stop.keyEquivalent = s.key
+                stop.keyEquivalentModifierMask = s.modifierFlags
+            }
+            menu.addItem(stop)
             menu.addItem(.separator())
         }
         if let offer = updater.available {
@@ -388,6 +459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for i in [item("Capture Area", #selector(captureArea), shortcut: "captureArea"),
                   item("Capture Window", #selector(captureWindow), shortcut: "captureWindow"),
                   item("Capture Full Screen", #selector(captureScreen), shortcut: "captureScreen"),
+                  item("Record Area", #selector(recordArea), shortcut: "recordArea"),
                   .separator(),
                   NSMenuItem(title: "Open Image…", action: #selector(openImagePanel), keyEquivalent: ""),
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
@@ -416,6 +488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func captureArea() { capture(.area) }
     @objc func captureWindow() { capture(.window) }
     @objc func captureScreen() { capture(.screen) }
+    @objc func recordArea() { toggleRecording() }
     @objc func openFolder() {
         try? FileManager.default.createDirectory(at: settings.saveFolder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(settings.saveFolder)

@@ -139,4 +139,21 @@ final class CaptureGeometryTests: XCTestCase {
         XCTAssertEqual(CaptureGeometry.pixelRect(of: CGRect(x: -1900, y: 1080, width: 100, height: 100), screenFrame: side, scale: 1),
                        CGRect(x: 20, y: 0, width: 100, height: 100))
     }
+
+    /// A recording's source area is in the display's points from its top-left, on any screen.
+    func testRecordedAreaIsInDisplayPoints() {
+        let main = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        XCTAssertEqual(CaptureGeometry.displayRect(of: CGRect(x: 200, y: 150, width: 300, height: 200), screenFrame: main),
+                       CGRect(x: 200, y: 632, width: 300, height: 200))
+        let side = CGRect(x: -1920, y: 100, width: 1920, height: 1080)
+        XCTAssertEqual(CaptureGeometry.displayRect(of: CGRect(x: -1900, y: 1080, width: 100, height: 100), screenFrame: side),
+                       CGRect(x: 20, y: 0, width: 100, height: 100))
+    }
+
+    /// H.264 needs even sides; an odd or tiny area still gives a size the encoder takes.
+    func testVideoSizeIsEven() {
+        XCTAssertTrue(CaptureGeometry.videoSize(of: CGSize(width: 300, height: 200), scale: 2) == (600, 400))
+        XCTAssertTrue(CaptureGeometry.videoSize(of: CGSize(width: 301, height: 151), scale: 1) == (300, 150))
+        XCTAssertTrue(CaptureGeometry.videoSize(of: CGSize(width: 100.5, height: 0.5), scale: 2) == (200, 2))
+    }
 }

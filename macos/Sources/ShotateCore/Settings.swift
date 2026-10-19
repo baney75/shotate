@@ -7,7 +7,8 @@ public struct Settings: Equatable {
     public var saveFolder: URL
     public var copyOnCapture: Bool
     public var showMenuBarIcon: Bool
-    /// Global shortcuts by action ("captureArea", "captureWindow", "captureScreen"). Empty means off.
+    /// Global shortcuts by action ("captureArea", "captureWindow", "captureScreen", "recordArea").
+    /// Empty means off.
     public var shortcuts: [String: String]
     /// Extra global shortcuts that run a shell command, e.g. ["cmd+shift+a": "~/bin/open-terminal"].
     public var commandHotkeys: [String: String]
@@ -24,8 +25,10 @@ public struct Settings: Equatable {
     public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
                                           isDirectory: true)
     public static let defaultShortcut = "cmd+shift+s"
-    public static let actions = ["captureArea", "captureWindow", "captureScreen"]
-    public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "", "captureScreen": ""]
+    public static let defaultRecordShortcut = "cmd+shift+r"
+    public static let actions = ["captureArea", "captureWindow", "captureScreen", "recordArea"]
+    public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "", "captureScreen": "",
+                                          "recordArea": defaultRecordShortcut]
     public static let channels = ["stable", "nightly"]
     public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/shotate/config.json")
     /// Where the app kept its config when it was called Snapmark.
@@ -59,6 +62,9 @@ public struct Settings: Equatable {
 
     /// The area-capture shortcut, or nil when it is turned off.
     public var captureShortcut: Shortcut? { shortcuts["captureArea"].flatMap(Shortcut.init) }
+
+    /// The shortcut that starts and stops recording an area, or nil when it is turned off.
+    public var recordShortcut: Shortcut? { shortcuts["recordArea"].flatMap(Shortcut.init) }
 
     // MARK: Tool keys
 
@@ -179,15 +185,20 @@ public struct Settings: Equatable {
     }
 
     /// "Shotate 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
-    public func newCaptureURL(date: Date = Date()) -> URL {
+    public func newCaptureURL(date: Date = Date()) -> URL { newURL("Shotate", "png", date) }
+
+    /// "Shotate Recording 2026-10-10 at 14.03.22.mp4" in the save folder; adds " 2", " 3" on a clash.
+    public func newRecordingURL(date: Date = Date()) -> URL { newURL("Shotate Recording", "mp4", date) }
+
+    private func newURL(_ name: String, _ ext: String, _ date: Date) -> URL {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let base = "Shotate \(f.string(from: date))"
-        var url = saveFolder.appendingPathComponent(base + ".png")
+        let base = "\(name) \(f.string(from: date))"
+        var url = saveFolder.appendingPathComponent("\(base).\(ext)")
         var n = 2
         while FileManager.default.fileExists(atPath: url.path) {
-            url = saveFolder.appendingPathComponent("\(base) \(n).png")
+            url = saveFolder.appendingPathComponent("\(base) \(n).\(ext)")
             n += 1
         }
         return url

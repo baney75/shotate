@@ -330,14 +330,15 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         relaunchButton.isHidden = granted || !openedSettings
         relaunchButton.bezelColor = .controlAccentColor
         settingsLink.isHidden = granted || !openedSettings
-        let what = "Lets Shotate see your screen only at the moment you take a capture. It doesn't record "
-            + "video or watch in the background, and captures stay on your Mac."
+        let what = "Lets Shotate see your screen only at the moment you take a capture, or while a recording "
+            + "you started is running. It doesn't watch in the background, and captures and recordings stay on your Mac."
         statusLabel.stringValue = granted ? what + "\nAllowed."
             : openedSettings ? what + "\nTurn Shotate on when macOS asks (or in System Settings), then click Relaunch."
             : what + "\nNot allowed yet. Click Allow."
         let s = app?.settings
         if let keys = s?.captureShortcut?.displayString {
             shortcutLabel.stringValue = "Press \(keys) and drag. Space switches to a whole window. Click the shortcut to change it."
+                + (s?.recordShortcut.map { " \($0.displayString) records an area; press it again to stop." } ?? "")
         } else {
             shortcutLabel.stringValue = "No shortcut set. Record one here, or use the menu bar icon."
         }

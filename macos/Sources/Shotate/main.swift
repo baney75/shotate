@@ -41,6 +41,22 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
     exit(0)
 }
 
+// `open -n Shotate.app --args --record-selftest out.mp4` records an area near the main screen's
+// top-left for two seconds with the recorder ⇧⌘R uses, and exits 0 once the video is written. It
+// needs Screen Recording, so it runs as the app, not from a terminal.
+if let i = args.firstIndex(of: "--record-selftest"), i + 1 < args.count {
+    guard #available(macOS 15.0, *), let screen = NSScreen.screens.first else { exit(2) }
+    NSApplication.shared.setActivationPolicy(.accessory)
+    let f = screen.frame
+    Recorder.start(CGRect(x: f.minX + 100, y: f.maxY - 300, width: 301, height: 201), on: screen,
+                   to: URL(fileURLWithPath: args[i + 1])) { _, error in
+        if let error { NSLog("Shotate: record selftest: %@", error.localizedDescription) }
+        exit(error == nil ? 0 : 1)
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Recorder.current?.stop() }
+    NSApplication.shared.run()
+}
+
 // A relaunch starts this copy while the old one is still quitting: wait for it (up to 10 s), so the
 // global shortcuts and the menu bar icon are free.
 let waitPid = args.firstIndex(of: "--wait-for").flatMap { $0 + 1 < args.count ? pid_t(args[$0 + 1]) : nil }

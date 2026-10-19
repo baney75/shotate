@@ -172,6 +172,29 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertTrue(second.lastPathComponent.hasSuffix(" 2.png"))
     }
 
+    func testRecordingFileNamesNeverCollide() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let s = Settings(saveFolder: dir)
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = s.newRecordingURL(date: date)
+        XCTAssertTrue(first.lastPathComponent.hasPrefix("Shotate Recording "))
+        XCTAssertEqual(first.pathExtension, "mp4")
+        FileManager.default.createFile(atPath: first.path, contents: Data())
+        XCTAssertTrue(s.newRecordingURL(date: date).lastPathComponent.hasSuffix(" 2.mp4"))
+    }
+
+    /// ⇧⌘R records an area out of the box, including for config files written before recording
+    /// existed, and an empty string turns it off.
+    func testRecordShortcutDefaultsOnForOldConfigs() throws {
+        let url = tempConfig()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"shortcuts": {"captureArea": "shift+cmd+s", "captureScreen": "", "captureWindow": ""}}"#.utf8).write(to: url)
+        XCTAssertEqual(try Settings.load(from: url).recordShortcut, Shortcut("cmd+shift+r"))
+        try Data(#"{"shortcuts": {"recordArea": ""}}"#.utf8).write(to: url)
+        XCTAssertNil(try Settings.load(from: url).recordShortcut)
+    }
+
     func tempConfig() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
     }
