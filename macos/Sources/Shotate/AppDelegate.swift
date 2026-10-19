@@ -388,8 +388,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func stopRecording() { Recording.stop() }
 
-    /// Saved: copy it like a capture and show it in Finder. A recorded app's log is what's copied
-    /// (it pastes as text into a chat, an issue or a coding agent); otherwise the video, as a file.
+    /// Saved: copy it like a capture, and nothing more (no Finder window; Donovan asked for none). A
+    /// recorded app's log is what's copied (it pastes as text into a chat, an issue or a coding
+    /// agent); otherwise the video, as a file.
     private func recordingFinished(_ saved: SavedRecording?, error: Error?) {
         updateStatusIcon()
         if settings.copyOnCapture, let saved {
@@ -407,7 +408,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Alerts.show("Shotate couldn't read the app's log",
                         "The video is saved\(settings.copyOnCapture ? " and copied" : ""). macOS said: \(why)")
         }
-        if let saved { NSWorkspace.shared.activateFileViewerSelecting([saved.video] + [saved.log].compactMap { $0 }) }
     }
 
     func open(_ url: URL) {
