@@ -172,6 +172,75 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertTrue(second.lastPathComponent.hasSuffix(" 2.png"))
     }
 
+    func testRecordingFileNamesNeverCollide() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let s = Settings(saveFolder: dir)
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = s.newRecordingURL(date: date)
+        XCTAssertTrue(first.lastPathComponent.hasPrefix("Shotate Recording "))
+        XCTAssertEqual(first.pathExtension, "mp4")
+        FileManager.default.createFile(atPath: first.path, contents: Data())
+        XCTAssertTrue(s.newRecordingURL(date: date).lastPathComponent.hasSuffix(" 2.mp4"))
+    }
+
+    /// The record shortcuts work out of the box, including for config files written before they
+    /// existed, and an empty string turns one off.
+    func testRecordShortcutsDefaultOnForOldConfigs() throws {
+        let url = tempConfig()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"shortcuts": {"captureArea": "shift+cmd+s", "captureScreen": "", "captureWindow": ""}}"#.utf8).write(to: url)
+        let s = try Settings.load(from: url)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(s.shortcut("recordScreen"), Shortcut("cmd+ctrl+shift+r"))
+        XCTAssertEqual(s.shortcut("recordApp"), Shortcut("cmd+shift+d"))
+        XCTAssertNil(s.shortcut("captureScreen"), "a shortcut the file turned off stays off")
+        try Data(#"{"shortcuts": {"recordArea": ""}}"#.utf8).write(to: url)
+        XCTAssertNil(try Settings.load(from: url).shortcut("recordArea"))
+        XCTAssertEqual(Settings().shortcut("captureScreen"), Shortcut("cmd+ctrl+shift+s"))
+    }
+
+    /// An upgrade never takes keys the file already uses: a new action whose default clashes with
+    /// one of the person's shortcuts or commands starts off instead.
+    func testNewDefaultsYieldToShortcutsInUse() throws {
+        let url = tempConfig()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"shortcuts": {"captureWindow": "shift+cmd+r"}, "commands": {"cmd+shift+d": "/usr/bin/true"}}"#.utf8)
+            .write(to: url)
+        let s = try Settings.load(from: url)
+        XCTAssertEqual(s.shortcut("captureWindow"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(s.shortcut("recordArea"))
+        XCTAssertNil(s.shortcut("recordApp"))
+        XCTAssertEqual(s.shortcut("recordScreen"), Shortcut("cmd+ctrl+shift+r"))
+        XCTAssertEqual(s.commandHotkeys["cmd+shift+d"], "/usr/bin/true")
+    }
+
+    /// Settings carried over from before the config file get the same protection.
+    func testMigratedSettingsYieldNewDefaults() {
+        let d = UserDefaults(suiteName: "shotate-test-\(UUID().uuidString)")!
+        d.set("cmd+shift+r", forKey: "captureShortcut")
+        d.set(["cmd+shift+d": "/usr/bin/true"], forKey: "commandHotkeys")
+        let s = Settings.migrated(from: d)
+        XCTAssertEqual(s.shortcut("captureArea"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(s.shortcut("recordArea"))
+        XCTAssertNil(s.shortcut("recordApp"))
+        XCTAssertEqual(s.shortcut("recordScreen"), Shortcut("cmd+ctrl+shift+r"))
+    }
+
+    /// A short log is copied whole; a long one is cut to its newest whole lines, and says so.
+    func testLongLogsAreClippedForTheClipboard() {
+        let short = Data("a\nb\n".utf8)
+        XCTAssertEqual(LogClip.text(tail: short, size: short.count, path: "/x.log"), "a\nb\n")
+        let lines = (0..<1000).map { "line \($0)\n" }.joined()
+        let tail = Data(lines.utf8).suffix(100)
+        let clipped = LogClip.text(tail: tail, size: 50_000, path: "/x.log", limit: 100)
+        XCTAssertTrue(clipped.hasPrefix("# The log is 48 KB"))
+        XCTAssertTrue(clipped.contains("Whole log: /x.log\n"))
+        XCTAssertTrue(clipped.hasSuffix("line 999\n"))
+        let body = clipped.split(separator: "\n", omittingEmptySubsequences: false).dropFirst()
+        XCTAssertTrue(body.first?.hasPrefix("line ") == true, "starts on a whole line")
+    }
+
     func tempConfig() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
     }

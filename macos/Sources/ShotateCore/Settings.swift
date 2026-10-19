@@ -7,7 +7,7 @@ public struct Settings: Equatable {
     public var saveFolder: URL
     public var copyOnCapture: Bool
     public var showMenuBarIcon: Bool
-    /// Global shortcuts by action ("captureArea", "captureWindow", "captureScreen"). Empty means off.
+    /// Global shortcuts by action (see `actions`). Empty means off.
     public var shortcuts: [String: String]
     /// Extra global shortcuts that run a shell command, e.g. ["cmd+shift+a": "~/bin/open-terminal"].
     public var commandHotkeys: [String: String]
@@ -24,8 +24,12 @@ public struct Settings: Equatable {
     public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
                                           isDirectory: true)
     public static let defaultShortcut = "cmd+shift+s"
-    public static let actions = ["captureArea", "captureWindow", "captureScreen"]
-    public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "", "captureScreen": ""]
+    public static let actions = ["captureArea", "captureWindow", "captureScreen", "recordArea", "recordScreen", "recordApp"]
+    /// The record actions: pressed again while recording, any of them stops it.
+    public static let recordActions: Set<String> = ["recordArea", "recordScreen", "recordApp"]
+    public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "",
+                                          "captureScreen": "cmd+ctrl+shift+s", "recordArea": "cmd+shift+r",
+                                          "recordScreen": "cmd+ctrl+shift+r", "recordApp": "cmd+shift+d"]
     public static let channels = ["stable", "nightly"]
     public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/shotate/config.json")
     /// Where the app kept its config when it was called Snapmark.
@@ -59,6 +63,8 @@ public struct Settings: Equatable {
 
     /// The area-capture shortcut, or nil when it is turned off.
     public var captureShortcut: Shortcut? { shortcuts["captureArea"].flatMap(Shortcut.init) }
+
+    public func shortcut(_ action: String) -> Shortcut? { shortcuts[action].flatMap(Shortcut.init) }
 
     // MARK: Tool keys
 
@@ -127,6 +133,7 @@ public struct Settings: Equatable {
             for a in actions { if let v = m[a] { s.shortcuts[a] = Shortcut(v) != nil ? v.lowercased() : "" } }
         }
         if let m = o["commands"] as? [String: String] { s.commandHotkeys = m.filter { Shortcut($0.key) != nil } }
+        s.yieldNewDefaults(written: Set((o["shortcuts"] as? [String: Any] ?? [:]).keys))
         if let m = o["toolKeys"] as? [String: String] { s.toolKeys = m.mapValues { $0.lowercased() } }
         if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
         if let b = o["checkForUpdates"] as? Bool { s.checkForUpdates = b }
@@ -175,19 +182,37 @@ public struct Settings: Equatable {
             s.shortcuts["captureArea"] = ""
         }
         s.commandHotkeys = d.dictionary(forKey: "commandHotkeys") as? [String: String] ?? [:]
+        s.yieldNewDefaults(written: ["captureArea"])
         return s
     }
 
+    /// An action the saved settings don't mention (`written` lists those they do) gets its default
+    /// keys only if they aren't already used for something else, so an upgrade never takes over
+    /// someone's own shortcut.
+    mutating func yieldNewDefaults(written: Set<String>) {
+        for a in Settings.actions where !written.contains(a) {
+            guard let mine = shortcut(a) else { continue }
+            let taken = Settings.actions.contains { $0 != a && written.contains($0) && shortcut($0) == mine }
+                || commandHotkeys.keys.contains { Shortcut($0) == mine }
+            if taken { shortcuts[a] = "" }
+        }
+    }
+
     /// "Shotate 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
-    public func newCaptureURL(date: Date = Date()) -> URL {
+    public func newCaptureURL(date: Date = Date()) -> URL { newURL("Shotate", "png", date) }
+
+    /// "Shotate Recording 2026-10-10 at 14.03.22.mp4" in the save folder; adds " 2", " 3" on a clash.
+    public func newRecordingURL(date: Date = Date()) -> URL { newURL("Shotate Recording", "mp4", date) }
+
+    private func newURL(_ name: String, _ ext: String, _ date: Date) -> URL {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let base = "Shotate \(f.string(from: date))"
-        var url = saveFolder.appendingPathComponent(base + ".png")
+        let base = "\(name) \(f.string(from: date))"
+        var url = saveFolder.appendingPathComponent("\(base).\(ext)")
         var n = 2
         while FileManager.default.fileExists(atPath: url.path) {
-            url = saveFolder.appendingPathComponent("\(base) \(n).png")
+            url = saveFolder.appendingPathComponent("\(base) \(n).\(ext)")
             n += 1
         }
         return url
