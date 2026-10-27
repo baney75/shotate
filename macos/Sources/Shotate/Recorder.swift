@@ -446,11 +446,18 @@ final class RecordingIndicator {
         guard timer == nil else { return }
         let start = Date()
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            let s = Int(Date().timeIntervalSince(start))
-            self?.clock.stringValue = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
-                : String(format: "%d:%02d", s / 60, s % 60)
+            self?.show(elapsed: Int(Date().timeIntervalSince(start)))
         }
     }
+
+    /// "0:42", "12:05", "1:02:09".
+    func show(elapsed s: Int) {
+        clock.stringValue = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
+            : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// For `--render-ui`.
+    var barWindow: NSWindow { bar }
 
     func close() {
         timer?.invalidate()

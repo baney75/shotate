@@ -205,6 +205,8 @@ final class PasteChooser {
     var onToggle: (Bool) -> Void = { _ in }
     private let model: Model
     private let panel: ChooserPanel
+    /// For `--render-ui`, which captures the panel without showing it the usual way.
+    var window: NSWindow { panel }
     private var resignObserver: NSObjectProtocol?
     private var done = false
 

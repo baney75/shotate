@@ -469,3 +469,30 @@ private final class PickerView: NSView {
         }
     }
 }
+
+extension Picker {
+    /// For `--render-ui`: the overlay over `image` on `screen`, drawn to an image without showing a
+    /// window. With `window` it highlights that window (global frame); otherwise it shows an area
+    /// dragged from `a` to `b` (global points).
+    static func snapshot(screen: NSScreen, image: CGImage, from a: CGPoint, to b: CGPoint, window: CGRect? = nil) -> CGImage? {
+        let p = Picker(windows: window.map { [(id: CGWindowID(1), frame: $0)] } ?? [], windowMode: window != nil) { _ in }
+        p.screens = [screen]
+        if let window {
+            p.hover(at: CGPoint(x: window.midX, y: window.midY))
+        } else {
+            p.dragScreen = screen
+            p.dragStart = a
+            p.dragPoint = b
+        }
+        let view = PickerView(screen: screen, image: image, picker: p)
+        view.update()
+        let scale = screen.backingScaleFactor, size = screen.frame.size
+        guard let layer = view.layer,
+              let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.scaleBy(x: scale, y: scale)
+        layer.render(in: ctx)
+        return ctx.makeImage()
+    }
+}
