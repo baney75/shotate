@@ -373,7 +373,10 @@ private final class PickerView: NSView {
     private let screen: NSScreen
     private let dim = CAShapeLayer()
     private let outline = CAShapeLayer()
+    /// The selection's pixel size, in a dark pill under it.
+    private let badge = CALayer()
     private let label = CATextLayer()
+    private let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
 
     init(screen: NSScreen, image: CGImage, picker: Picker) {
         self.picker = picker
@@ -394,14 +397,15 @@ private final class PickerView: NSView {
         outline.shadowOpacity = 0.6
         outline.shadowRadius = 1
         outline.shadowOffset = .zero
-        label.fontSize = 11
-        label.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        label.fontSize = labelFont.pointSize
+        label.font = labelFont
         label.foregroundColor = NSColor.white.cgColor
-        label.backgroundColor = NSColor(white: 0, alpha: 0.65).cgColor
-        label.cornerRadius = 4
         label.alignmentMode = .center
         label.contentsScale = screen.backingScaleFactor
-        for l in [dim, outline, label] as [CALayer] { root.addSublayer(l) }
+        badge.backgroundColor = NSColor(white: 0, alpha: 0.65).cgColor
+        badge.cornerRadius = 5
+        badge.addSublayer(label)
+        for l in [dim, outline, badge] as [CALayer] { root.addSublayer(l) }
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect, .cursorUpdate],
                                        owner: self))
     }
@@ -457,15 +461,20 @@ private final class PickerView: NSView {
         outline.path = shown ? CGPath(rect: mine!.insetBy(dx: -0.5, dy: -0.5), transform: nil) : nil
         if !picker.windowMode, shown, let sel = picker.selection {
             let s = screen.backingScaleFactor
-            label.string = "\(Int((sel.width * s).rounded())) × \(Int((sel.height * s).rounded()))"
-            let size = CGSize(width: 90, height: 18)
+            let text = "\(Int((sel.width * s).rounded())) × \(Int((sel.height * s).rounded()))"
+            label.string = text
+            // As wide as the text, with the text centered top to bottom (a text layer draws from its top).
+            let line = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
+            let textWidth = ceil((text as NSString).size(withAttributes: [.font: labelFont]).width)
+            let size = CGSize(width: textWidth + 14, height: line + 6)
             var origin = CGPoint(x: mine!.maxX - size.width, y: mine!.minY - size.height - 6)
             if origin.y < 4 { origin.y = mine!.minY + 6 }
             origin.x = max(4, origin.x)
-            label.frame = CGRect(origin: origin, size: size)
-            label.isHidden = false
+            badge.frame = CGRect(origin: origin, size: size)
+            label.frame = CGRect(x: 0, y: 3, width: size.width, height: line)
+            badge.isHidden = false
         } else {
-            label.isHidden = true
+            badge.isHidden = true
         }
     }
 }
