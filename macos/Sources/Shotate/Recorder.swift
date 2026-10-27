@@ -142,8 +142,10 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             guard let app = content.applications.first(where: { $0.processID == pid }) else {
                 throw Self.error("That app quit before recording started.")
             }
-            // If the app is Shotate itself, its recording bar still stays out.
-            filter = SCContentFilter(display: display, including: [app], exceptingWindows: notOurs)
+            // `exceptingWindows` flips a window's inclusion: for another app, naming the bar would
+            // put it in the video; only when the app is Shotate itself does naming it keep it out.
+            let isShotate = pid == ProcessInfo.processInfo.processIdentifier
+            filter = SCContentFilter(display: display, including: [app], exceptingWindows: isShotate ? notOurs : [])
             log = try AppLog(pid: pid, file: file.deletingPathExtension().appendingPathExtension("log"))
         }
         let pixels = CaptureGeometry.videoSize(of: size, scale: screen.backingScaleFactor)
