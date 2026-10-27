@@ -359,10 +359,15 @@ final class RecordingIndicator {
     private let bar: NSPanel
     private let clock = NSTextField(labelWithString: "0:00")
     private var timer: Timer?
+    private let row: NSStackView
+    private let area: CGRect
+    private let screenFrame: CGRect
 
     var windowIDs: [CGWindowID] { ([outline, bar].compactMap { $0 }).map { CGWindowID($0.windowNumber) } }
 
     init(area: CGRect, outlined: Bool, screen: NSScreen, title: String?, stop: @escaping () -> Void) {
+        self.area = area
+        screenFrame = screen.visibleFrame
         if outlined {
             // Drawn just outside the area, so it would stay out of the video even if it were captured.
             let pad: CGFloat = 3
@@ -399,7 +404,7 @@ final class RecordingIndicator {
             name.widthAnchor.constraint(lessThanOrEqualToConstant: 180).isActive = true
             views.append(name)
         }
-        let row = NSStackView(views: views + [clock, button])
+        row = NSStackView(views: views + [clock, button])
         row.spacing = 8
         row.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 6)
         let size = row.fittingSize
@@ -452,8 +457,17 @@ final class RecordingIndicator {
 
     /// "0:42", "12:05", "1:02:09".
     func show(elapsed s: Int) {
+        let old = clock.stringValue.count
         clock.stringValue = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
             : String(format: "%d:%02d", s / 60, s % 60)
+        // At 10:00 and 1:00:00 the time grows a digit: grow the bar too, or Stop is cut off.
+        if clock.stringValue.count != old { fit() }
+    }
+
+    private func fit() {
+        let size = row.fittingSize
+        row.frame = CGRect(origin: .zero, size: size)
+        bar.setFrame(Self.barFrame(size: size, area: area, screen: screenFrame), display: true)
     }
 
     /// For `--render-ui`.
