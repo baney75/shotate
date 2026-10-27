@@ -551,10 +551,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
                   .separator(),
                   choosePasteItem(),
+                  // Settings, then the app itself, then Quit on its own, as menu bar apps group them.
+                  .separator(),
                   NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","),
                   NSMenuItem(title: "Edit Config File…", action: #selector(openConfig), keyEquivalent: ""),
+                  .separator(),
                   NSMenuItem(title: "About Shotate", action: #selector(showAbout), keyEquivalent: ""),
                   NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: ""),
+                  .separator(),
                   NSMenuItem(title: "Quit Shotate", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
             if i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
             menu.addItem(i)
