@@ -136,8 +136,7 @@ final class GeneralPane: SettingsPane {
     private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
     private let channelMenu = NSPopUpButton()
     private let autoUpdateBox = NSButton(checkboxWithTitle: "Check for updates automatically", target: nil, action: nil)
-    private let pasteBox = NSButton(checkboxWithTitle: "With several screenshots copied, ⌘V asks which to paste",
-                                    target: nil, action: nil)
+    private let pasteBox = NSButton(checkboxWithTitle: "Ask which screenshot to paste with ⌘V", target: nil, action: nil)
     private let checkButton = NSButton(title: "Check Now", target: nil, action: nil)
     private let installButton = NSButton(title: "Install Update", target: nil, action: nil)
     private let updateStatus = NSTextField(wrappingLabelWithString: "")
@@ -166,7 +165,7 @@ final class GeneralPane: SettingsPane {
         folderMenu.widthAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
 
         for b in [copyBox, menuBox, loginBox, autoUpdateBox, pasteBox] { b.target = self; b.action = #selector(toggled(_:)) }
-        pasteBox.toolTip = "Take two or more screenshots, then press ⌘V: a menu shows them so you pick one. "
+        pasteBox.toolTip = "Take two or more screenshots, then press ⌘V: a panel shows them so you pick one. "
             + "Shotate types the paste for you, which needs Accessibility."
         let options = NSStackView(views: [copyBox, pasteBox, menuBox, loginBox])
         options.orientation = .vertical
@@ -320,6 +319,7 @@ final class ShortcutsPane: SettingsPane {
         let tools = NSGridView(numberOfColumns: 6, rows: 0)
         tools.rowSpacing = 8
         tools.columnSpacing = 8
+        tools.rowAlignment = .firstBaseline
         let all = Tool.allCases
         for row in stride(from: 0, to: all.count, by: 3) {
             var cells: [NSView] = []
@@ -327,8 +327,11 @@ final class ShortcutsPane: SettingsPane {
                 let name = NSTextField(labelWithString: t.title)
                 let image = NSImageView(image: NSImage(systemSymbolName: t.symbol, accessibilityDescription: nil)!)
                 image.contentTintColor = .secondaryLabelColor
+                // Symbols differ in width; a fixed column keeps the tool names lined up.
+                image.widthAnchor.constraint(equalToConstant: 20).isActive = true
                 let title = NSStackView(views: [image, name])
                 title.spacing = 5
+                title.alignment = .firstBaseline
                 let field = NSTextField(string: "")
                 field.alignment = .center
                 field.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
@@ -482,12 +485,20 @@ final class AdvancedPane: SettingsPane {
         let reload = NSButton(title: "Reload", target: self, action: #selector(reloadConfig))
         let buttons = NSStackView(views: [edit, reveal, reload])
 
-        let urls = NSTextField(labelWithString: "shotate://capture    shotate://capture/window    shotate://capture/screen\n"
-                               + "shotate://open?path=…    shotate://settings    shotate://config\n"
-                               + "shotate://reload    shotate://relaunch")
-        urls.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        urls.textColor = .secondaryLabelColor
-        urls.isSelectable = true
+        // Two even columns, so the list fits the pane and the window keeps one width for every pane.
+        let names = ["shotate://capture", "shotate://capture/window", "shotate://capture/screen", "shotate://open?path=…",
+                     "shotate://settings", "shotate://config", "shotate://reload", "shotate://relaunch"]
+        let urls = NSGridView(views: stride(from: 0, to: names.count, by: 2).map { i in
+            names[i..<i + 2].map { name -> NSView in
+                let f = NSTextField(labelWithString: name)
+                f.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+                f.textColor = .secondaryLabelColor
+                f.isSelectable = true
+                return f
+            }
+        })
+        urls.rowSpacing = 4
+        urls.columnSpacing = 24
 
         let permissions = NSButton(title: "Set Up Screen Recording…", target: self, action: #selector(welcome))
         let relaunch = NSButton(title: "Relaunch Shotate", target: self, action: #selector(relaunchApp))
