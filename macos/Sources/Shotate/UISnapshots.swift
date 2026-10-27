@@ -50,6 +50,7 @@ final class UISnapshots {
         pasteChooser()
         recordingBar()
         overlay()
+        menuBarMenu()
     }
 
     // MARK: Surfaces
@@ -129,6 +130,26 @@ final class UISnapshots {
         if let shot = Picker.snapshot(screen: screen, image: image, from: .zero, to: .zero, window: window) {
             write(shot, "overlay-window")
         }
+    }
+
+    /// The menu bar menu as text: a menu can't be shown without taking the keyboard, so it is
+    /// listed instead (titles, shortcuts, check marks, separators).
+    private func menuBarMenu() {
+        let menu = NSMenu()
+        AppDelegate().menuNeedsUpdate(menu)
+        let lines = menu.items.map { i -> String in
+            if i.isSeparatorItem { return "────────────" }
+            var keys = ""
+            if !i.keyEquivalent.isEmpty {
+                let m = i.keyEquivalentModifierMask
+                keys = (m.contains(.control) ? "⌃" : "") + (m.contains(.option) ? "⌥" : "") + (m.contains(.shift) ? "⇧" : "")
+                    + (m.contains(.command) ? "⌘" : "") + i.keyEquivalent.uppercased()
+            }
+            return (i.state == .on ? "✓ " : "  ") + i.title + (keys.isEmpty ? "" : "    " + keys)
+        }
+        let file = out.appendingPathComponent("menu-bar-menu.txt")
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        print("wrote \(file.path)")
     }
 
     // MARK: Capturing
