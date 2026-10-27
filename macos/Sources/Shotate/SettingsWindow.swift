@@ -165,7 +165,7 @@ final class GeneralPane: SettingsPane {
         folderMenu.widthAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
 
         for b in [copyBox, menuBox, loginBox, autoUpdateBox, pasteBox] { b.target = self; b.action = #selector(toggled(_:)) }
-        pasteBox.toolTip = "Take two or more screenshots, then press ⌘V: a panel shows them so you pick one. "
+        pasteBox.toolTip = "Take screenshots within 3 seconds of each other, then press ⌘V: a panel shows them so you pick one. "
             + "Shotate types the paste for you, which needs Accessibility."
         let options = NSStackView(views: [copyBox, pasteBox, menuBox, loginBox])
         options.orientation = .vertical

@@ -379,8 +379,18 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         axLabel.stringValue = axWhat + (ax ? "\nAllowed."
             : pasteOn ? "\nNeeded for the option below. Click Allow, then turn Shotate on in System Settings."
             : "\nNot allowed, and not needed unless you turn the option on.")
+        statusLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [allowButton, relaunchButton], check: statusIcon)
+        axLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [axAllowButton], check: axStatusIcon)
         fitHeight()
         primary.isEnabled = granted
+    }
+
+    /// A permission note's width: 390 pt beside a check mark, less whatever button shows in its place,
+    /// so Allow or Relaunch keeps its room at the card's right edge.
+    private static func noteWidth(beside buttons: [NSView], check: NSView) -> CGFloat {
+        let freed = check.isHidden ? check.fittingSize.width + 12 : 0
+        let taken = buttons.filter { !$0.isHidden }.reduce(0) { $0 + $1.fittingSize.width + 12 }
+        return 390 + freed - taken
     }
 
     @objc private func allow() {

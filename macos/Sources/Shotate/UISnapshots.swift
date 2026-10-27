@@ -26,13 +26,15 @@ final class UISnapshots {
         let snapshots = UISnapshots(out: URL(fileURLWithPath: args[i + 1], isDirectory: true), image: image)
         DispatchQueue.main.async {
             snapshots.all()
-            exit(0)
+            exit(snapshots.failures == 0 ? 0 : 1)
         }
         app.run()
         exit(0)
     }
 
     private let out: URL
+    /// Surfaces that weren't written; any makes the run exit 1.
+    private(set) var failures = 0
     private let image: CGImage
     private let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-render-ui", isDirectory: true)
 
@@ -149,8 +151,7 @@ final class UISnapshots {
             return (i.state == .on ? "✓ " : "  ") + i.title + (keys.isEmpty ? "" : "    " + keys)
         }
         let file = out.appendingPathComponent("menu-bar-menu.txt")
-        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
-        print("wrote \(file.path)")
+        report((try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)) != nil, file)
     }
 
     // MARK: Capturing
@@ -169,14 +170,19 @@ final class UISnapshots {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         p.arguments = ["-x", "-o", "-l", String(window.windowNumber), file.path]
-        try? p.run()
+        guard (try? p.run()) != nil else { return report(false, file) }
         p.waitUntilExit()
-        print(p.terminationStatus == 0 ? "wrote \(file.path)" : "screencapture failed for \(name)")
+        report(p.terminationStatus == 0, file)
     }
 
     private func write(_ image: CGImage, _ name: String) {
         let file = out.appendingPathComponent("\(name).png")
-        if let data = Renderer.pngData(image) { try? data.write(to: file) }
-        print("wrote \(file.path)")
+        report(Renderer.pngData(image).map { (try? $0.write(to: file)) != nil } ?? false, file)
+    }
+
+    private func report(_ ok: Bool, _ file: URL) {
+        if ok { return print("wrote \(file.path)") }
+        failures += 1
+        FileHandle.standardError.write(Data("couldn't write \(file.path)\n".utf8))
     }
 }
