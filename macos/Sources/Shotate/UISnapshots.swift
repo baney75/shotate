@@ -59,9 +59,10 @@ final class UISnapshots {
         let doc = Document(image: image)
         let w = CGFloat(image.width), h = CGFloat(image.height)
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: w * x, y: h * y) }
-        // The README's picture: a label pointing at a button, a box, numbered steps and a redaction.
+        // The README's picture (docs/editor.png): a label pointing at a button, a highlight, a box,
+        // numbered steps and a redaction.
         doc.add(Mark(tool: .text, color: RGBA.palette[0], start: p(0.08, 0.64), end: .zero, text: "Click Deploy"))
-        doc.add(Mark(tool: .arrow, color: RGBA.palette[0], start: p(0.2, 0.6), end: p(0.16, 0.2), bend: w * 0.03))
+        doc.add(Mark(tool: .arrow, color: RGBA.palette[0], start: p(0.2, 0.55), end: p(0.16, 0.2), bend: w * 0.03))
         doc.add(Mark(tool: .box, color: RGBA.palette[1], start: p(0.5, 0.5), end: p(0.9, 0.85)))
         doc.add(Mark(tool: .step, color: RGBA.palette[3], start: p(0.94, 0.86), end: .zero))
         doc.add(Mark(tool: .step, color: RGBA.palette[3], start: p(0.94, 0.3), end: .zero))
@@ -70,7 +71,7 @@ final class UISnapshots {
         let url = scratch.appendingPathComponent("Release checklist.png")
         let c = EditorWindowController(document: doc, fileURL: url, ownsFile: false, settings: Settings())
         c.select(tool: .arrow)
-        c.window?.setContentSize(CGSize(width: 1000, height: 640))
+        c.window?.setContentSize(CGSize(width: 1000, height: 612))
         capture(c.window, "editor")
         c.window?.orderOut(nil)
     }
