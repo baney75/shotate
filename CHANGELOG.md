@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Recording an app (⇧⌘D) no longer puts the time-and-Stop bar in the video.
 - Tool letters (V, A, P, R…) work right after a capture. macOS often left the app you were in
   active, so the letters went there instead of the editor.
 - A tool key changed in Settings works in editors that are already open.
