@@ -113,8 +113,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let settingsLink = NSButton(title: "Open System Settings", target: nil, action: nil)
     private let shortcutLabel = NSTextField(labelWithString: "")
     private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
-    private let pasteBox = NSButton(checkboxWithTitle: "Turn on: ⌘V asks which screenshot to paste",
-                                    target: nil, action: nil)
+    private let pasteBox = NSButton(checkboxWithTitle: "Ask which screenshot to paste with ⌘V", target: nil, action: nil)
     private let axLabel = NSTextField(wrappingLabelWithString: "")
     private let axStatusIcon = NSImageView()
     private let axAllowButton = NSButton(title: "Allow…", target: nil, action: nil)
@@ -133,10 +132,12 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let primary = NSButton(title: "Try a Capture", target: nil, action: nil)
     private var timer: Timer?
     private var openedSettings = false
+    /// Wide enough that the permission notes wrap in a few lines and the window fits a laptop screen.
+    private static let width: CGFloat = 600
 
     init(app: AppDelegate) {
         self.app = app
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 480),
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: Self.width, height: 480),
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -164,8 +165,8 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
 
     private func build() {
         let icon = NSImageView(image: NSApp.applicationIconImage ?? NSImage())
-        icon.widthAnchor.constraint(equalToConstant: 72).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 72).isActive = true
+        icon.widthAnchor.constraint(equalToConstant: 64).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 64).isActive = true
         let title = NSTextField(labelWithString: "Welcome to Shotate")
         title.font = .systemFont(ofSize: 22, weight: .bold)
         let subtitle = NSTextField(labelWithString: "Capture, mark up, and paste in a few seconds.")
@@ -190,7 +191,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
         statusLabel.maximumNumberOfLines = 0
-        statusLabel.preferredMaxLayoutWidth = 300
+        statusLabel.preferredMaxLayoutWidth = 390
         let permissionsTitle = NSTextField(labelWithString: "Permissions")
         permissionsTitle.font = .systemFont(ofSize: 13, weight: .bold)
         let permissionsIntro = NSTextField(wrappingLabelWithString:
@@ -199,12 +200,12 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
             + "System Settings › Privacy & Security.")
         permissionsIntro.font = .systemFont(ofSize: 12)
         permissionsIntro.textColor = .secondaryLabelColor
-        permissionsIntro.preferredMaxLayoutWidth = 400
+        permissionsIntro.preferredMaxLayoutWidth = 500
         let permission = row(symbol: "rectangle.dashed.badge.record", title: "Screen Recording · Required",
                              detail: statusLabel, trailing: [statusIcon, allowButton, relaunchButton])
 
         axLabel.maximumNumberOfLines = 0
-        axLabel.preferredMaxLayoutWidth = 300
+        axLabel.preferredMaxLayoutWidth = 390
         axStatusIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Allowed")
         axStatusIcon.contentTintColor = .systemGreen
         axStatusIcon.symbolConfiguration = .init(pointSize: 18, weight: .regular)
@@ -219,7 +220,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         shortcutLabel.lineBreakMode = .byWordWrapping
         shortcutLabel.cell?.wraps = true
         shortcutLabel.cell?.usesSingleLineMode = false
-        shortcutLabel.preferredMaxLayoutWidth = 200
+        shortcutLabel.preferredMaxLayoutWidth = 290
         let shortcut = row(symbol: "keyboard", title: "Capture from anywhere", detail: shortcutLabel, trailing: [shortcutRecorder])
         let mark = row(symbol: "pencil.tip.crop.circle", title: "Mark it up, press Return",
                        detail: NSTextField(labelWithString: "Return (or Esc) copies it and closes. It is saved too."),
@@ -242,11 +243,16 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let footer = NSStackView(views: [loginBox, NSView(), done, primary])
         footer.spacing = 10
 
+        // The paste option belongs to Accessibility: indented to line up with its text.
+        let pasteRow = NSStackView(views: [pasteBox])
+        pasteRow.edgeInsets = NSEdgeInsets(top: 0, left: 40, bottom: 0, right: 0)
         let card = NSStackView(views: [permissionsTitle, permissionsIntro, permission, settingsLink, separator(),
-                                       accessibility, pasteBox, separator(), shortcut, separator(), mark])
+                                       accessibility, pasteRow, separator(), shortcut, separator(), mark])
         card.orientation = .vertical
         card.alignment = .leading
         card.spacing = 14
+        card.setCustomSpacing(4, after: permissionsTitle)
+        card.setCustomSpacing(8, after: accessibility)
         card.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         card.wantsLayer = true
         card.layer?.cornerRadius = 10
@@ -258,11 +264,11 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         privacy.font = .systemFont(ofSize: 11)
         privacy.textColor = .secondaryLabelColor
         privacy.alignment = .center
-        privacy.preferredMaxLayoutWidth = 440
+        privacy.preferredMaxLayoutWidth = 480
         let stack = NSStackView(views: [header, card, privacy, footer, Credits.label(centered: true)])
         stack.orientation = .vertical
-        stack.spacing = 22
-        stack.edgeInsets = NSEdgeInsets(top: 36, left: 28, bottom: 22, right: 28)
+        stack.spacing = 18
+        stack.edgeInsets = NSEdgeInsets(top: 30, left: 28, bottom: 20, right: 28)
         stack.translatesAutoresizingMaskIntoConstraints = false
         let root = NSVisualEffectView()
         root.material = .windowBackground
@@ -287,7 +293,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let height = max(480, root.fittingSize.height)
         guard abs(window.contentLayoutRect.height - height) > 1 else { return }
         var frame = window.frame
-        let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: 500, height: height)))
+        let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: Self.width, height: height)))
         frame.origin.y += frame.height - newFrame.height  // keep the top edge where it is
         frame.size = newFrame.size
         window.setFrame(frame, display: true)
@@ -306,10 +312,14 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
-        text.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let row = NSStackView(views: [image, text] + trailing)
         row.spacing = 12
-        row.alignment = .centerY
+        // The note takes the spare width, so a check mark or button sits at the card's right edge.
+        row.distribution = .fill
+        text.setContentHuggingPriority(.defaultLow - 1, for: .horizontal)
+        for v in [image] + trailing { v.setContentHuggingPriority(.required, for: .horizontal) }
+        // The symbol sits beside the title, not halfway down a long note.
+        row.alignment = .top
         return row
     }
 
