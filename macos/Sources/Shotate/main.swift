@@ -41,6 +41,9 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
     exit(0)
 }
 
+// `Shotate --render-ui <folder>` saves a picture of each window (see UISnapshots).
+if let i = args.firstIndex(of: "--render-ui"), i + 1 < args.count { UISnapshots.run(args, at: i) }
+
 // `open -n Shotate.app --args --record-selftest out.mp4 [pid]` records for two seconds with the
 // recorder the record shortcuts use, and exits 0 once the video is written: an area near the main
 // screen's top-left, or with a pid that app and its log (out.log). It needs Screen Recording, so it

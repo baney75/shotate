@@ -50,6 +50,10 @@ final class ShortcutRecorder: NSView {
     required init?(coder: NSCoder) { fatalError() }
     private let placeholder: String
 
+    /// The button's text baseline, so a label beside it in a form lines up with the shortcut.
+    override var firstBaselineOffsetFromTop: CGFloat { button.firstBaselineOffsetFromTop }
+    override var lastBaselineOffsetFromBottom: CGFloat { button.lastBaselineOffsetFromBottom }
+
     private func update() {
         if recording {
             button.title = "Type shortcut…"

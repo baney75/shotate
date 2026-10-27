@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/editor.png" alt="The Shotate editor with an arrow, a text label, a box, a redaction and numbered steps" width="860">
+  <img src="docs/editor.png" alt="The Shotate editor with a text label and a curved arrow pointing at a button, a highlight, a box, numbered steps and a redaction" width="860">
 </p>
 
 ## Install
