@@ -16,7 +16,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let toolTip = HoverLabel()
     private var nameTimer: Timer?
     private var sizeControl = NSSegmentedControl()
-    private var colorButtons: [NSButton] = []
+    private var colorButtons: [ColorSwatch] = []
     private var undoButton = NSButton()
     private var redoButton = NSButton()
     private var deleteButton = NSButton()
@@ -95,22 +95,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         showToolKeys()
         bar.addArrangedSubview(toolControl)
 
+        // The tools, the colors, the sizes: a wider gap between groups than inside one.
+        bar.setCustomSpacing(16, after: toolControl)
         for (i, c) in RGBA.palette.enumerated() {
-            let b = NSButton(title: "", target: self, action: #selector(colorClicked(_:)))
+            let b = ColorSwatch(color: NSColor(cgColor: c.cgColor) ?? .black, target: self, action: #selector(colorClicked(_:)))
             b.tag = i
-            b.isBordered = false
-            b.wantsLayer = true
-            b.layer?.backgroundColor = c.cgColor
-            b.layer?.cornerRadius = 10
-            b.layer?.borderColor = NSColor.separatorColor.cgColor
-            b.layer?.borderWidth = 1
             let name = ["Red", "Amber", "Blue", "Green", "Purple", "White"][i]
             b.toolTip = "\(name) (\(i + 1))"
             b.setAccessibilityLabel(name)
-            b.widthAnchor.constraint(equalToConstant: 20).isActive = true
-            b.heightAnchor.constraint(equalToConstant: 20).isActive = true
             colorButtons.append(b)
             bar.addArrangedSubview(b)
+            bar.setCustomSpacing(i == RGBA.palette.count - 1 ? 16 : 2, after: b)
         }
 
         // Three dots of growing size read as stroke weight at a glance.
@@ -136,9 +131,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         bar.addArrangedSubview(deleteButton)
         bar.addArrangedSubview(undoButton)
         bar.addArrangedSubview(redoButton)
+        // Editing, then the ways out (drag, copy the path, save a copy), then Copy & Close.
+        bar.setCustomSpacing(16, after: redoButton)
         bar.addArrangedSubview(DragOutButton(controller: self))
         bar.addArrangedSubview(iconButton("doc.on.clipboard", "Copy file path (⇧⌘C), for terminals", #selector(copyPathClicked)))
-        bar.addArrangedSubview(iconButton("square.and.arrow.down", "Save a copy as… (⌘S)", #selector(saveCopyClicked)))
+        let save = iconButton("square.and.arrow.down", "Save a copy as… (⌘S)", #selector(saveCopyClicked))
+        bar.addArrangedSubview(save)
+        bar.setCustomSpacing(12, after: save)
         let copy = NSButton(title: "Copy & Close", target: self, action: #selector(copyClicked))
         copy.bezelStyle = .rounded
         copy.bezelColor = .controlAccentColor
@@ -157,7 +156,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         status.lineBreakMode = .byTruncatingMiddle
         status.translatesAutoresizingMaskIntoConstraints = false
         let hint = NSTextField(labelWithString: "Return or Esc copies and closes · ⌘Z undo")
-        hint.textColor = .tertiaryLabelColor
+        hint.textColor = .secondaryLabelColor
         hint.font = .systemFont(ofSize: 11)
         hint.translatesAutoresizingMaskIntoConstraints = false
         hint.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -253,10 +252,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func showColor(_ i: Int) {
-        for (j, b) in colorButtons.enumerated() {
-            b.layer?.borderWidth = j == i ? 3 : 1
-            b.layer?.borderColor = (j == i ? NSColor.labelColor : NSColor.separatorColor).cgColor
-        }
+        for (j, b) in colorButtons.enumerated() { b.isChosen = j == i }
     }
 
     func select(size: StrokeSize) {
@@ -485,6 +481,41 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         finished = true
         onClose?(self)
+    }
+}
+
+/// One color in the toolbar: a dot with a thin edge, so white shows on a light toolbar, and a ring
+/// around it when it is the current color. Drawn, so both follow light and dark mode.
+final class ColorSwatch: NSButton {
+    let color: NSColor
+    var isChosen = false { didSet { needsDisplay = true; setAccessibilityValue(isChosen ? "Selected" : nil) } }
+
+    init(color: NSColor, target: AnyObject, action: Selector) {
+        self.color = color
+        super.init(frame: .zero)
+        self.target = target
+        self.action = action
+        title = ""
+        isBordered = false
+        setButtonType(.momentaryChange)
+        widthAnchor.constraint(equalToConstant: 24).isActive = true
+        heightAnchor.constraint(equalToConstant: 24).isActive = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let dot = NSBezierPath(ovalIn: bounds.insetBy(dx: 4, dy: 4))
+        color.setFill()
+        dot.fill()
+        NSColor.labelColor.withAlphaComponent(0.22).setStroke()
+        let edge = NSBezierPath(ovalIn: bounds.insetBy(dx: 4.5, dy: 4.5))
+        edge.lineWidth = 1
+        edge.stroke()
+        guard isChosen else { return }
+        NSColor.labelColor.setStroke()
+        let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
+        ring.lineWidth = 2
+        ring.stroke()
     }
 }
 
