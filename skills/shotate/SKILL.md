@@ -66,7 +66,7 @@ into the user's active window), or let the user drive it. Script the beats first
 
 ## 5. Debug recordings (⇧⌘D, or `shotate record app`)
 The folder holds `<name>.mp4`, `debug.md`, `stills/*.png` (the first and last frames, and one
-just after each of the first 6 clicks; clicks under a second apart share one), `system.log` (everything the app sent to the macOS log), `app-logs/` (what
+just after each of the first 6 clicks; clicks less than 0.8 s apart share one), `system.log` (everything the app sent to the macOS log), `app-logs/` (what
 the app added to its own log files while recorded) and `<name>.clicks.json`.
 
 When the user pastes a note that starts "# <App>: screen recording with debug logs", or `record

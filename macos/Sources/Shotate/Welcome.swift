@@ -350,7 +350,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let records = app?.canRecord == true
         let agents = app?.settings.agentControl == true
             ? " Agent control is on: programs you run on this Mac (the shotate command, coding agents) can "
-                + "take captures" + (records ? " and start recordings" : "") + " without a click."
+                + "take captures" + (records ? " and start and stop recordings (yours only when asked to)" : "") + " without a click."
                 + (records ? " The recording bar still shows." : "")
                 + " The switch guards against accidents, not against a harmful program running as you."
             : ""

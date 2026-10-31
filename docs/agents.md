@@ -55,7 +55,7 @@ blue, green, purple, white. Sizes: thin, medium, thick.
 
 - `screen` and `area`: `<name>.mp4` and `<name>.clicks.json`.
 - `app` (and ⇧⌘D): a folder `<name>/` with `<name>.mp4`, `<name>.clicks.json`, `stills/` (the
-  first and last frames and one after each of the first 6 clicks), `system.log`, `app-logs/` and
+  first and last frames and one after each of the first 6 clicks; clicks less than 0.8 s apart share one), `system.log`, `app-logs/` and
   `debug.md`.
 
 `--out` must name something that isn't there yet: Shotate never records over an existing file or

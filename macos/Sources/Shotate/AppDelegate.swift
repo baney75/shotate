@@ -354,6 +354,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func toggleRecording(_ kind: RecordKind) {
         if isRecording { return stopRecording() }
         guard !capturing else { return }
+        // The last recording is still writing its note: a pick now would only be refused after it.
+        guard !Recording.isSaving else { return NSSound.beep() }
         guard #available(macOS 14.0, *), canRecord else {
             return Alerts.show("Recording needs macOS 15 or later", "Screenshots work as before on this Mac. "
                                + "On macOS 15, updating Shotate with Xcode 16 or later installed turns recording on.")
@@ -605,8 +607,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func agentControlItem() -> NSMenuItem {
         let i = NSMenuItem(title: "Let Agents Control Shotate", action: #selector(toggleAgentControl), keyEquivalent: "")
         i.state = settings.agentControl ? .on : .off
-        i.toolTip = "Programs you run on this Mac (the shotate command, coding agents) can take screenshots and "
-            + "start and stop recordings without a click. The recording bar still shows."
+        i.toolTip = "Programs you run on this Mac (the shotate command, coding agents) can take screenshots"
+            + (canRecord ? " and start and stop recordings without a click. The recording bar still shows." : " without a click.")
         return i
     }
 

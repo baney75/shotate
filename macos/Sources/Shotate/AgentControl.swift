@@ -78,6 +78,7 @@ final class AgentControl: NSObject {
             "screenRecording": ScreenRecording.isGranted,
             "canRecord": app?.canRecord ?? false,
             "recording": Recording.isActive,
+            "saving": Recording.isSaving,
             "saveFolder": app?.settings.saveFolder.path ?? "",
         ]
         #if compiler(>=6.0)
@@ -231,7 +232,8 @@ final class AgentControl: NSObject {
             }
             unclaimed = nil
             guard app.startRecording(target, to: file, byAgent: true), Recording.isActive else {
-                let why = unclaimed?["error"] as? String ?? "Shotate is already recording."
+                let why = unclaimed?["error"] as? String
+                    ?? (Recording.isSaving ? "Still saving the last recording. Try again in a moment." : "Shotate is already recording.")
                 unclaimed = nil
                 return fail(id, why)
             }
@@ -247,11 +249,19 @@ final class AgentControl: NSObject {
     }
 
     private func stop(_ id: String, any: Bool) {
+        let users = app?.recordingByAgent == false
+        if users, !any, Recording.isActive || Recording.isSaving {
+            // The agent's own recording already ended (the user stopped it): that's its answer.
+            if let last = unclaimed {
+                unclaimed = nil
+                return reply(id, last)
+            }
+            return Recording.isActive
+                ? fail(id, "The user started this recording. Only stop it if they asked: `shotate stop --any`.")
+                : fail(id, "Nothing is recording.")
+        }
         // Stopped already and still saving: answer once it's saved.
         if !Recording.isActive, Recording.isSaving { return waitingForSave.append(id) }
-        if Recording.isActive, app?.recordingByAgent == false, !any {
-            return fail(id, "The user started this recording. Only stop it if they asked: `shotate stop --any`.")
-        }
         guard Recording.isActive else {
             // The agent's recording already ended (it failed, or the user stopped it): say how.
             if let last = unclaimed {

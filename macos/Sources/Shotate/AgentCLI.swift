@@ -42,7 +42,9 @@ enum AgentCLI {
             finish(send(["command": "open", "path": absolute(path)], wait: 15))
         case "capture", "record":
             let seconds = options["for"].map { Double($0) ?? -1 }
-            if command == "record", let seconds, seconds <= 0 { fail("--for needs seconds, e.g. --for 20") }
+            if command == "record", let seconds, !(seconds.isFinite && seconds > 0 && seconds <= 4 * 3600) {
+                fail("--for needs seconds, up to 4 hours, e.g. --for 20")
+            }
             var r: [String: Any] = ["command": command]
             if let mode = positional.first { r["mode"] = mode }
             for key in ["app", "pid", "window", "title", "rect"] { if let v = options[key] { r[key] = v } }

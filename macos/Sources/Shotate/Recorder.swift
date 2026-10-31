@@ -254,9 +254,17 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         guard Recorder.current === self else { return }
         Recorder.current = nil
         Recorder.saving += 1
+        // Exactly once, however it ends: a lost callback must never leave Shotate "saving" forever
+        // (quitting and new recordings wait for it), so a watchdog ends the save after 90 s.
+        var delivered = false
         let done: (SavedRecording?, Error?) -> Void = { [done] saved, error in
+            guard !delivered else { return }
+            delivered = true
             Recorder.saving -= 1
             done(saved, error)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
+            done(nil, Self.error("Saving the recording took too long. What was written is in its folder."))
         }
         stopping = true
         indicator?.close()
@@ -278,7 +286,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             return done(keep ? saved : nil, failure)
         }
         guard keep else {
-            log.stop { [done] _, _ in
+            log.stop { [done, log] _, _ in
+                _ = log  // Keep the log alive until it answers: nothing else holds it now.
                 try? FileManager.default.removeItem(at: folder)
                 done(nil, failure)
             }
@@ -407,8 +416,9 @@ final class AppLog {
     /// once, with the log's text, or with the error `log` gave if it quit by itself.
     func stop(_ completion: @escaping (String?, String?) -> Void) {
         var called = false
-        let deliver = { [weak self] in
-            guard !called, let self else { return }
+        // Holds the log strongly until it has answered, whoever else lets go of it.
+        let deliver = {
+            guard !called else { return }
             called = true
             completion(self.newestText(), self.failure())
         }
