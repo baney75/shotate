@@ -71,7 +71,11 @@ if [ "${1:-}" = "--install" ]; then
   # `shotate` on the PATH, and the skill where coding agents look, as links into the app. Anything
   # already there that isn't one of these links is left alone.
   link() {
-    if [ -L "$2" ] || [ ! -e "$2" ]; then ln -sfn "$1" "$2" && echo "linked $2"; else echo "left $2 as it is (not Shotate's link)"; fi
+    if [ ! -e "$2" ] && [ ! -L "$2" ]; then ln -s "$1" "$2" && echo "linked $2"
+    else case "$(readlink "$2" 2>/dev/null)" in
+      */Shotate.app/Contents/*) ln -sfn "$1" "$2" && echo "linked $2" ;;
+      *) echo "left $2 as it is (not Shotate's link)" ;;
+    esac; fi
   }
   mkdir -p "$HOME/.local/bin"
   link "$DEST/Contents/Resources/bin/shotate" "$HOME/.local/bin/shotate"

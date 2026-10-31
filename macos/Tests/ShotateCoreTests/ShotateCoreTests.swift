@@ -227,7 +227,6 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(s.shortcut("recordScreen"), Shortcut("cmd+ctrl+shift+r"))
     }
 
-    /// A short log is copied whole; a long one is cut to its newest whole lines, and says so.
     func tempConfig() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
     }

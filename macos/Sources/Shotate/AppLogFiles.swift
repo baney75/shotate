@@ -15,7 +15,14 @@ final class AppLogFiles {
     private let started = Date()
     private var sizes: [String: Int] = [:]
 
+    /// In the app's log folders.
     static let extensions: Set<String> = ["log", "txt", "ndjson", "jsonl", "out", "err"]
+    /// Open anywhere else: only names that say log, so a document the app has open isn't copied.
+    static func looksLikeLog(_ path: String) -> Bool {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        if ["log", "ndjson", "jsonl"].contains(ext) { return true }
+        return extensions.contains(ext) && path.lowercased().contains("/log")
+    }
     /// Per file: what's copied into the recording's folder, and how much of it is read for the note.
     static let copyLimit = 8 * 1_048_576
     static let readLimit = 256 * 1024
@@ -128,7 +135,7 @@ final class AppLogFiles {
             if line.hasPrefix("a") { writing = line.contains("w") || line.contains("u") }
             if line.hasPrefix("n/"), writing {
                 let path = String(line.dropFirst())
-                if Self.extensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased()) { files.append(path) }
+                if Self.looksLikeLog(path) { files.append(path) }
             }
         }
         return files

@@ -192,13 +192,13 @@ public struct DebugReport {
         self.started = started; self.duration = duration; self.folder = folder; self.video = video; self.macOS = macOS
     }
 
-    /// "0:42", "1:02:09".
     /// "0:02.8": a still's time, to the tenth, never rounded up into the next second.
     public static func preciseClock(_ t: TimeInterval) -> String {
         let tenths = Int((max(0, t) * 10).rounded(.down))
         return String(format: "%d:%02d.%d", tenths / 600, tenths / 10 % 60, tenths % 10)
     }
 
+    /// "0:42", "1:02:09".
     public static func clock(_ t: TimeInterval) -> String {
         let s = Int(t.rounded())
         return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
@@ -222,31 +222,51 @@ public struct DebugReport {
         if let systemLog { head += "- Full system log: `\(systemLog)`\n" }
         head += "- Everything: `\(folder)`\n"
 
-        var body = ""
+        var crashes = ""
         if !crashReports.isEmpty {
-            body += "\n## Crash reports written during the recording\n\n"
-            body += crashReports.map { "- `\($0)`" }.joined(separator: "\n") + "\n"
+            crashes += "\n## Crash reports written during the recording\n\n"
+            crashes += crashReports.map { "- `\($0)`" }.joined(separator: "\n") + "\n"
         }
-        for log in appLogs {
-            body += "\n## \(Self.home(log.path)) (+\(Self.bytes(log.added)))\n\n```\n\(log.excerpt)\n```\n"
-        }
+        let hint = appLogs.isEmpty
+            ? "\nThe app wrote no log files Shotate could find. If it logs somewhere else, name the folder in "
+                + "`appLogs` in ~/.config/shotate/config.json.\n"
+            : ""
+        // Each section gets its share up front, so busy app logs can't push the system log's errors
+        // out of the note: the system log up to a third, the app's log files the rest.
+        let room = max(0, limit - head.count - crashes.count - hint.count - 400)
+        var system = ""
         if let systemLogError {
-            body += "\n## System log\n\nmacOS wouldn't give Shotate the log: \(systemLogError)\n"
+            system += "\n## System log\n\nmacOS wouldn't give Shotate the log: \(systemLogError)\n"
         } else if let digest {
-            body += "\n## System log, filtered\n\n"
+            system += "\n## System log, filtered\n\n"
             let dropped = digest.total - digest.kept
-            body += "\(digest.total) entries; \(digest.errors) errors or faults. "
+            system += "\(digest.total) entries; \(digest.errors) errors or faults. "
                 + (dropped > 0 ? "\(dropped) routine macOS entries (XPC, Launch Services, defaults) are left out here but kept in the full log.\n\n"
                     : "\n\n")
-            body += digest.entries.isEmpty ? "Nothing from the app itself, and no errors.\n"
-                : "```\n" + digest.markdown(limit: max(2000, limit - head.count - body.count - 200)) + "```\n"
+            system += digest.entries.isEmpty ? "Nothing from the app itself, and no errors.\n"
+                : "```\n" + digest.markdown(limit: max(1500, appLogs.isEmpty ? room - 300 : room / 3)) + "```\n"
         }
-        if appLogs.isEmpty {
-            body += "\nThe app wrote no log files Shotate could find. If it logs somewhere else, name the folder in "
-                + "`appLogs` in ~/.config/shotate/config.json.\n"
+        var logs = ""
+        if !appLogs.isEmpty {
+            let each = max(600, (room - system.count) / appLogs.count - 120)
+            for log in appLogs {
+                logs += "\n## \(Self.home(log.path)) (+\(Self.bytes(log.added)))\n\n```\n\(Self.fit(log.excerpt, each))\n```\n"
+            }
         }
-        let text = head + body
-        return text.count <= limit ? text : String(text.prefix(limit)) + "\n… (cut; the full logs are in the folder above)\n"
+        let text = head + crashes + logs + system + hint
+        guard text.count > limit else { return text }
+        var cut = String(text.prefix(limit))
+        // Don't leave the note inside an open code block.
+        if cut.components(separatedBy: "```").count % 2 == 0 { cut += "\n```" }
+        return cut + "\n… (cut; the full logs are in the folder above)\n"
+    }
+
+    /// The start and end of `text` within `n` characters: its errors lead, its newest lines close.
+    static func fit(_ text: String, _ n: Int) -> String {
+        guard text.count > n else { return text }
+        let half = n / 2
+        return String(text.prefix(half)) + "\n… (\(text.count - n) characters cut; the whole file is in app-logs/)\n"
+            + String(text.suffix(half))
     }
 
     static func home(_ path: String) -> String {

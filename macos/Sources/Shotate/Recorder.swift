@@ -87,6 +87,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private var log: AppLog?
     private var logFiles: AppLogFiles?
     private var appLogFolders: [String: [String]] = [:]
+    /// The recorded app, noted at the start: it may have quit (or crashed) by the end.
+    private var identity: AppIdentity?
     private var clicks: ClickTrail?
     private var startedAt = Date()
     private var indicator: RecordingIndicator?
@@ -101,14 +103,24 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     /// the error that stopped it.
     static func start(_ target: RecordTarget, to file: URL, appLogs: [String: [String]] = [:],
                       done: @escaping (SavedRecording?, Error?) -> Void) {
+        // One recording at a time: a second would orphan the first, still capturing.
+        guard current == nil else { return done(nil, error("Shotate is already recording.")) }
         var file = file
+        var made = file
         if case .app = target {
             // An app recording is a folder named like the video would be, with the video inside.
             let folder = file.deletingPathExtension()
             file = folder.appendingPathComponent(folder.lastPathComponent).appendingPathExtension("mp4")
+            made = folder
+        }
+        // Never record over something that's there: a failed recording deletes what it made, and
+        // an old file would pass for a new one.
+        guard !FileManager.default.fileExists(atPath: made.path) else {
+            return done(nil, error("\(made.path) already exists. Choose another name."))
         }
         let r = Recorder(target: target, file: file, done: done)
         r.appLogFolders = appLogs
+        if case let .app(pid, _) = target { r.identity = AppIdentity(pid: pid) }
         current = r
         let stop: () -> Void = { [weak r] in r?.stop() }
         switch target {
@@ -166,7 +178,11 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             let isShotate = pid == ProcessInfo.processInfo.processIdentifier
             filter = SCContentFilter(display: display, including: [app], exceptingWindows: isShotate ? notOurs : [])
             log = try AppLog(pid: pid, file: file.deletingLastPathComponent().appendingPathComponent("system.log"))
-            logFiles = AppLogFiles(pid: pid, extraFolders: appLogFolders)
+            // lsof and pgrep over an Electron app's helpers can take a second: off the main thread.
+            let folders = appLogFolders
+            logFiles = await withCheckedContinuation { c in
+                DispatchQueue.global(qos: .userInitiated).async { c.resume(returning: AppLogFiles(pid: pid, extraFolders: folders)) }
+            }
         }
         clicks = ClickTrail(screen: screen, area: {
             if case let .area(rect, _) = target { return rect }
@@ -249,14 +265,14 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             }
             return
         }
-        let target = target
+        let identity = identity ?? AppIdentity(pid: 0)
         let logFiles = logFiles
         let started = startedAt
         let clickTimes = clicks?.times ?? []
         log.stop { [file, done] text, logError in
             // Stills, log files and the note take a moment: off the main thread.
             DispatchQueue.global(qos: .userInitiated).async {
-                let report = DebugBundle.write(folder: folder, video: file, target: target, started: started,
+                let report = DebugBundle.write(folder: folder, video: file, app: identity, started: started,
                                                duration: duration, systemLog: log.file, systemLogText: text,
                                                logError: logError, logFiles: logFiles, clickTimes: clickTimes)
                 saved.folder = folder
@@ -373,7 +389,7 @@ final class AppLog {
         let deliver = { [weak self] in
             guard !called, let self else { return }
             called = true
-            completion(self.clipboardText(), self.failure())
+            completion(self.newestText(), self.failure())
         }
         guard !exited else { return deliver() }
         interrupted = true
@@ -393,10 +409,9 @@ final class AppLog {
         return text.isEmpty ? "log stream exited with status \(process.terminationStatus)." : text
     }
 
-    /// The newest part of the log, read from the end of the file so a huge log isn't loaded whole.
     /// The newest part of the log (up to 16 MB) for the digest, read from the end so a huge log
     /// isn't loaded whole.
-    private func clipboardText() -> String? {
+    private func newestText() -> String? {
         guard let h = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? h.close() }
         let size = Int((try? h.seekToEnd()) ?? 0)

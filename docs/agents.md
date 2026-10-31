@@ -67,5 +67,6 @@ A recording an agent starts doesn't touch the clipboard. ⇧⌘D copies `debug.m
 the request, and the app writes its answer to
 `~/Library/Application Support/Shotate/agent/<id>.json`. Web pages can open `shotate://` links but
 can't post these notifications, which is why the agent commands aren't URLs. Any program running as
-you can, though, so agent control is off until you turn it on, and the recording bar always shows
-while a recording runs.
+you can, though. Agent control being off by default stops accidental use; it doesn't stop a hostile
+program running as you, which could also turn the setting on in the config file. The recording bar
+always shows while a recording runs.

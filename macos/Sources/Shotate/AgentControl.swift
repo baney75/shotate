@@ -23,6 +23,9 @@ final class AgentControl: NSObject {
     private weak var app: AppDelegate?
     /// Requests waiting for the recording to be saved.
     private var waitingForSave: [String] = []
+    /// How the last agent recording ended, when no `stop` was waiting for it (it failed, or the
+    /// user stopped it): the next `stop` gets it, and `status` shows it.
+    private var unclaimed: [String: Any]?
 
     init(app: AppDelegate) {
         self.app = app
@@ -46,6 +49,11 @@ final class AgentControl: NSObject {
         guard app.settings.agentControl else {
             return fail(id, "Agent control is off. Turn on \"Let Agents Control Shotate\" in the menu bar icon's menu, "
                 + "or set \"agentControl\": true in ~/.config/shotate/config.json.")
+        }
+        // The picker is up for the user: an agent capture would catch it, and a recording would
+        // collide with the one the user is about to start.
+        guard !app.capturing || command == "open" || command == "stop" else {
+            return fail(id, "The user is picking something to capture right now. Try again in a moment.")
         }
         guard ScreenRecording.isGranted || command == "open" else {
             return fail(id, "Shotate doesn't have Screen Recording permission. Open Shotate's setup (shotate://welcome).")
@@ -75,6 +83,7 @@ final class AgentControl: NSObject {
         #if compiler(>=6.0)
         if #available(macOS 15.0, *), let f = Recorder.current?.file { s["recordingFile"] = f.path }
         #endif
+        if let unclaimed { s["lastRecording"] = unclaimed }
         return s
     }
 
@@ -191,9 +200,10 @@ final class AgentControl: NSObject {
                 target = .screen(NSScreen.screens[0])
             case "area":
                 guard let rect = Self.rect(r["rect"]) else { return fail(id, "area needs --rect x,y,w,h in points, top-left origin.") }
-                let appKit = Self.appKitRect(rect)
                 let screen = Self.screen(containing: rect) ?? NSScreen.screens[0]
-                target = .area(appKit.intersection(screen.frame).integral, screen)
+                let area = Self.appKitRect(rect).intersection(screen.frame).integral
+                guard !area.isNull, area.width >= 8, area.height >= 8 else { return fail(id, "That area is off screen.") }
+                target = .area(area, screen)
             case "app":
                 guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
                       let w = Self.window(r, in: content), let owner = w.owningApplication else {
@@ -204,7 +214,18 @@ final class AgentControl: NSObject {
                 return fail(id, "record mode is app, screen or area.")
             }
             let file = Self.outURL(r["out"]) ?? app.settings.newRecordingURL()
-            app.startRecording(target, to: file, byAgent: true)
+            // An app recording is the folder named like the file; neither may be there already.
+            var made = file
+            if case .app = target { made = file.deletingPathExtension() }
+            if FileManager.default.fileExists(atPath: made.path) {
+                return fail(id, "\(made.path) already exists. Choose another --out.")
+            }
+            unclaimed = nil
+            guard app.startRecording(target, to: file, byAgent: true), Recording.isActive else {
+                let why = unclaimed?["error"] as? String ?? "Shotate is already recording."
+                unclaimed = nil
+                return fail(id, why)
+            }
             var answer: [String: Any] = ["recording": true]
             #if compiler(>=6.0)
             if #available(macOS 15.0, *), let f = Recorder.current?.file {
@@ -217,13 +238,20 @@ final class AgentControl: NSObject {
     }
 
     private func stop(_ id: String) {
-        guard Recording.isActive else { return fail(id, "Nothing is recording.") }
+        guard Recording.isActive else {
+            // The agent's recording already ended (it failed, or the user stopped it): say how.
+            if let last = unclaimed {
+                unclaimed = nil
+                return reply(id, last)
+            }
+            return fail(id, "Nothing is recording.")
+        }
         waitingForSave.append(id)
         Recording.stop()
     }
 
     /// Called by the app delegate once any recording is saved or fails.
-    func recordingFinished(_ saved: SavedRecording?, error: Error?) {
+    func recordingFinished(_ saved: SavedRecording?, error: Error?, byAgent: Bool) {
         let ids = waitingForSave
         waitingForSave = []
         var answer: [String: Any] = [:]
@@ -237,6 +265,7 @@ final class AgentControl: NSObject {
             if let e = saved.logError { answer["logError"] = e }
         }
         if let error { answer["error"] = error.localizedDescription }
+        if ids.isEmpty, byAgent { unclaimed = answer }
         for id in ids { reply(id, answer) }
     }
 

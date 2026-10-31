@@ -80,6 +80,20 @@ final class DebugReportTests: XCTestCase {
         XCTAssertLessThanOrEqual(r.markdown(limit: 300).count, 360)
     }
 
+    /// Busy app logs used to fill the note and cut the system log's errors off the end.
+    func testBusyAppLogsLeaveRoomForSystemLogErrors() {
+        var r = DebugReport(appName: "App", bundleID: nil, version: nil, pid: 1, started: Date(), duration: 5,
+                            folder: "/tmp/R", video: "/tmp/R/R.mp4", macOS: "27")
+        r.digest = LogDigest.parse(log)
+        let big = (0..<2000).map { "line \($0) " + String(repeating: "x", count: 60) }.joined(separator: "\n")
+        r.appLogs = (0..<12).map { .init(path: "/tmp/logs/\($0).log", added: 1 << 20, excerpt: big) }
+        let md = r.markdown()
+        XCTAssertLessThanOrEqual(md.count, 48_000)
+        XCTAssertTrue(md.contains("Invalid view geometry"), "the system log's faults survive")
+        XCTAssertTrue(md.contains("line 1999 "), "each file keeps its newest lines")
+        XCTAssertEqual(md.components(separatedBy: "```").count % 2, 1, "every code block is closed")
+    }
+
     func testStillTimesNeverRoundIntoTheNextSecond() {
         XCTAssertEqual(DebugReport.preciseClock(2.8), "0:02.8")
         XCTAssertEqual(DebugReport.preciseClock(59.97), "0:59.9")

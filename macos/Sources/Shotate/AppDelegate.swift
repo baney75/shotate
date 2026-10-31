@@ -13,7 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotkeys = Hotkeys()
     private var settingsWindow: SettingsWindowController?
     private var welcomeWindow: WelcomeWindowController?
-    private var capturing = false
+    /// A capture or record picker is on screen.
+    private(set) var capturing = false
     /// Quitting waits for the recording to be saved.
     private var quitAfterRecording = false
     private var configSource: DispatchSourceFileSystemObject?
@@ -361,7 +362,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let mouse = NSEvent.mouseLocation
             guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main
             else { return }
-            return startRecording(.screen(screen))
+            startRecording(.screen(screen))
+            return
         }
         capturing = true
         NativeCapture.pickToRecord(app: kind == .app) { [weak self] pick in
@@ -385,12 +387,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return a.runModal() == .alertFirstButtonReturn
     }
 
-    func startRecording(_ target: RecordTarget, to file: URL? = nil, byAgent: Bool = false) {
+    /// Returns false when a recording is already running (the picker can finish after an agent
+    /// started one): starting another would orphan it.
+    @discardableResult
+    func startRecording(_ target: RecordTarget, to file: URL? = nil, byAgent: Bool = false) -> Bool {
+        guard !isRecording else {
+            if !byAgent { Alerts.show("Shotate is already recording", "Stop that recording first.") }
+            return false
+        }
         recordingByAgent = byAgent
         Recording.start(target, to: file ?? settings.newRecordingURL(), appLogs: settings.appLogs) { [weak self] saved, error in
-            self?.recordingFinished(saved, error: error)
+            self?.recordingFinished(saved, error: error, byAgent: byAgent)
         }
         updateStatusIcon()
+        return true
     }
 
     @objc func stopRecording() { Recording.stop() }
@@ -399,11 +409,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// app recording (⇧⌘D) copies its debug note: it pastes as text into a chat, an issue or a coding
     /// agent, and names the video, stills and logs beside it. Otherwise the video, as a file. A
     /// recording an agent started leaves the clipboard alone and answers the agent instead.
-    private func recordingFinished(_ saved: SavedRecording?, error: Error?) {
+    private func recordingFinished(_ saved: SavedRecording?, error: Error?, byAgent: Bool) {
         updateStatusIcon()
-        let byAgent = recordingByAgent
         recordingByAgent = false
-        agent?.recordingFinished(saved, error: error)
+        agent?.recordingFinished(saved, error: error, byAgent: byAgent)
         if settings.copyOnCapture, let saved, !byAgent {
             NSPasteboard.general.clearContents()
             if let text = saved.debugText {
