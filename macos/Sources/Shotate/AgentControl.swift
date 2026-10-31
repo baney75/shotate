@@ -249,29 +249,23 @@ final class AgentControl: NSObject {
     }
 
     private func stop(_ id: String, any: Bool) {
-        let users = app?.recordingByAgent == false
-        if users, !any, Recording.isActive || Recording.isSaving {
-            // The agent's own recording already ended (the user stopped it): that's its answer.
-            if let last = unclaimed {
-                unclaimed = nil
-                return reply(id, last)
-            }
-            return Recording.isActive
-                ? fail(id, "The user started this recording. Only stop it if they asked: `shotate stop --any`.")
-                : fail(id, "Nothing is recording.")
+        switch AgentPolicy.stop(active: Recording.isActive, saving: Recording.isSaving,
+                                byAgent: app?.recordingByAgent ?? false, unclaimed: unclaimed != nil, any: any) {
+        case .stop:
+            waitingForSave.append(id)
+            Recording.stop()
+        case .waitForSave:
+            waitingForSave.append(id)
+        case .returnUnclaimed:
+            // The agent's own recording already ended (it failed, or the user stopped it): say how.
+            let last = unclaimed ?? [:]
+            unclaimed = nil
+            reply(id, last)
+        case .refuseUsers:
+            fail(id, "The user started this recording. Only stop it if they asked: `shotate stop --any`.")
+        case .nothingRecording:
+            fail(id, "Nothing is recording.")
         }
-        // Stopped already and still saving: answer once it's saved.
-        if !Recording.isActive, Recording.isSaving { return waitingForSave.append(id) }
-        guard Recording.isActive else {
-            // The agent's recording already ended (it failed, or the user stopped it): say how.
-            if let last = unclaimed {
-                unclaimed = nil
-                return reply(id, last)
-            }
-            return fail(id, "Nothing is recording.")
-        }
-        waitingForSave.append(id)
-        Recording.stop()
     }
 
     /// Called by the app delegate once any recording is saved or fails.

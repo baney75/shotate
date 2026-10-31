@@ -65,9 +65,10 @@ into the user's active window), or let the user drive it. Script the beats first
 `app-demo-video` skill covers story, staging, captions and App Store presets.
 
 ## 5. Debug recordings (⇧⌘D, or `shotate record app`)
-The folder holds `<name>.mp4`, `debug.md`, `stills/*.png` (the first and last frames, and one
-just after each of the first 6 clicks; clicks less than 0.8 s apart share one), `system.log` (everything the app sent to the macOS log), `app-logs/` (what
-the app added to its own log files while recorded) and `<name>.clicks.json`.
+The folder holds `<name>.mp4`, `debug.md`, `stills/*.png` (the first and last frames, and
+up to 6 more after clicks; a click within 0.8 s of an earlier still gets none), `system.log` (everything the app sent to the macOS
+log), `app-logs/` (what the app added to its own log files while recorded) and
+`<name>.clicks.json`.
 
 When the user pastes a note that starts "# <App>: screen recording with debug logs", or `record
 app` returns `debug`:
@@ -91,10 +92,11 @@ shotate export rec.mp4 --mp4 --width 1920                            # H.264, pl
 Defaults: GIF 960 wide at 15 fps, MP4 1920 wide (never upscaled) at 30 fps; `--out` names the
 file. Keep README GIFs under 10 MB: lower `--width` or `--fps`, or trim with `--from`/`--to`.
 
-Zoom to each click (needs the `app-demo-video` skill's script):
+Zoom to each click with the `app-demo-video` skill's `scripts/zoom_from_clicks.py` (in your
+skills folder: `~/.claude/skills`, `~/.codex/skills` or `~/.agents/skills`):
 ```
 python3 ~/Applications/Shotate.app/Contents/Resources/skills/shotate/scripts/clicks_to_turns.py rec.clicks.json /tmp/turns
-python3 ~/.claude/skills/app-demo-video/scripts/zoom_from_clicks.py --video rec.mp4 \
+python3 <skills folder>/app-demo-video/scripts/zoom_from_clicks.py --video rec.mp4 \
   --turns /tmp/turns --out zoomed.mp4 --scale 1 --offset <offset it printed>
 ```
 
