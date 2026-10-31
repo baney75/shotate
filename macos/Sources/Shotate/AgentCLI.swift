@@ -14,7 +14,8 @@ enum AgentCLI {
                       [--rect x,y,w,h] [--out file.png] [--copy] [--edit]
       shotate record  [app|screen|area] [--app NAME|--pid N] [--rect x,y,w,h] [--out file.mp4]
                       [--for SECONDS]     Without --for it returns at once; end it with `shotate stop`.
-      shotate stop                        Stops the recording and waits until it's saved.
+      shotate stop [--any]                Stops an agent's recording and waits until it's saved.
+                                          --any also stops one the user started.
       shotate open file.png               Opens an image in Shotate's editor.
       shotate annotate in.png out.png --marks marks.json   (or --marks - to read stdin)
       shotate export in.mp4 [--gif|--mp4] [--out file] [--from S] [--to S] [--width PX] [--fps N]
@@ -32,12 +33,16 @@ enum AgentCLI {
         switch command {
         case "annotate": annotate(positional, options)
         case "export": export(positional, options)
-        case "status", "windows", "stop":
-            finish(send(["command": command], wait: command == "stop" ? 300 : 15, launch: command != "status"))
+        case "status", "windows":
+            finish(send(["command": command], wait: 15, launch: command != "status"))
+        case "stop":
+            finish(send(["command": "stop", "any": options["any"] != nil], wait: 300))
         case "open":
             guard let path = positional.first else { fail("open needs a file.") }
             finish(send(["command": "open", "path": absolute(path)], wait: 15))
         case "capture", "record":
+            let seconds = options["for"].map { Double($0) ?? -1 }
+            if command == "record", let seconds, seconds <= 0 { fail("--for needs seconds, e.g. --for 20") }
             var r: [String: Any] = ["command": command]
             if let mode = positional.first { r["mode"] = mode }
             for key in ["app", "pid", "window", "title", "rect"] { if let v = options[key] { r[key] = v } }
@@ -45,7 +50,7 @@ enum AgentCLI {
             if options["copy"] != nil { r["copy"] = true }
             if options["edit"] != nil { r["edit"] = true }
             let started = send(r, wait: 30)
-            guard command == "record", started["error"] == nil, let seconds = options["for"].flatMap(Double.init) else {
+            guard command == "record", started["error"] == nil, let seconds else {
                 finish(started)
             }
             Thread.sleep(forTimeInterval: seconds)
@@ -171,7 +176,7 @@ enum AgentCLI {
                 if let eq = key.firstIndex(of: "=") {
                     options[String(key[..<eq])] = String(key[key.index(after: eq)...])
                 } else if i + 1 < args.count, !args[i + 1].hasPrefix("--") || args[i + 1] == "-",
-                          !["copy", "edit", "gif", "mp4"].contains(key) {
+                          !["copy", "edit", "gif", "mp4", "any"].contains(key) {
                     options[key] = args[i + 1]
                     i += 1
                 } else {

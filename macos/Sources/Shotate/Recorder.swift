@@ -45,6 +45,14 @@ enum Recording {
         return false
     }
 
+    /// Stopped, but its folder (stills, logs, the note) is still being written.
+    static var isSaving: Bool {
+        #if compiler(>=6.0)
+        if #available(macOS 15.0, *) { return Recorder.saving > 0 }
+        #endif
+        return false
+    }
+
     /// See `Recorder.start`. Returns false when this build or macOS can't record.
     @discardableResult
     static func start(_ target: RecordTarget, to file: URL, appLogs: [String: [String]] = [:],
@@ -80,6 +88,8 @@ enum Recording {
 @available(macOS 15.0, *)
 final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private(set) static var current: Recorder?
+    /// Recordings stopped but not yet handed to `done`.
+    private(set) static var saving = 0
 
     let file: URL
     private let target: RecordTarget
@@ -243,6 +253,11 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private func finish(_ error: Error?, keepFile: Bool = false) {
         guard Recorder.current === self else { return }
         Recorder.current = nil
+        Recorder.saving += 1
+        let done: (SavedRecording?, Error?) -> Void = { [done] saved, error in
+            Recorder.saving -= 1
+            done(saved, error)
+        }
         stopping = true
         indicator?.close()
         indicator = nil
@@ -256,8 +271,12 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         clicks?.stop()
         if !keep { try? FileManager.default.removeItem(at: file) }
         var saved = SavedRecording(video: file, clicks: clicksFile)
-        guard let log else { return done(keep ? saved : nil, failure) }
         let folder = file.deletingLastPathComponent()
+        guard let log else {
+            // An app recording that failed before its log started: its folder is new and empty.
+            if case .app = target, !keep { try? FileManager.default.removeItem(at: folder) }
+            return done(keep ? saved : nil, failure)
+        }
         guard keep else {
             log.stop { [done] _, _ in
                 try? FileManager.default.removeItem(at: folder)
@@ -298,6 +317,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         DispatchQueue.main.async {
             self.started = true
             self.startedAt = Date()
+            // Already given up on (stopped while starting): note no clicks outside a recording.
+            guard Recorder.current === self, !self.stopping else { return }
             self.clicks?.start()
             self.indicator?.startClock()
         }

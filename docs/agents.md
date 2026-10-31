@@ -27,6 +27,7 @@ shotate capture screen --copy                     # --copy also puts it on the c
 shotate record app --app "T3 Code" --for 20       # records 20 s and prints what it saved
 shotate record area --rect 0,0,1440,900           # returns at once...
 shotate stop                                      # ...stop waits until the file is saved
+shotate stop --any                                # also stops a recording the user started
 shotate open ~/shots/safari.png                   # opens the editor
 shotate annotate in.png out.png --marks marks.json
 shotate export rec.mp4 --gif --width 960 --fps 15 --from 2 --to 14
@@ -53,8 +54,14 @@ blue, green, purple, white. Sizes: thin, medium, thick.
 ## What a recording saves
 
 - `screen` and `area`: `<name>.mp4` and `<name>.clicks.json`.
-- `app` (and ⇧⌘D): a folder `<name>/` with `<name>.mp4`, `<name>.clicks.json`, `stills/`,
-  `system.log`, `app-logs/` and `debug.md`.
+- `app` (and ⇧⌘D): a folder `<name>/` with `<name>.mp4`, `<name>.clicks.json`, `stills/` (the
+  first and last frames and one after each of the first 6 clicks), `system.log`, `app-logs/` and
+  `debug.md`.
+
+`--out` must name something that isn't there yet: Shotate never records over an existing file or
+folder. `stop` ends only a recording an agent started unless you pass `--any`. If a recording
+ends before an agent's `stop` (it failed, or the user stopped it), the next `stop` returns how it
+ended, and `status` shows it as `lastRecording`.
 
 `clicks.json` lists each mouse click while recording: `t` in seconds from the first frame, `x` and
 `y` in video pixels from the top left. Only mouse buttons are noted, never keys.
