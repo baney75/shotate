@@ -282,7 +282,11 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         if case .app = target { fallback.folder = folder }
         let place = (fallback.folder ?? file).path
         DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
-            done(keep ? fallback : nil, Self.error("Saving the recording took too long. What was written is at \(place)."))
+            if keep {
+                done(fallback, Self.error("Saving the recording took too long. What was written is at \(place)."))
+            } else {
+                done(nil, failure ?? Self.error("Saving the recording took too long."))
+            }
         }
         guard let log else {
             // An app recording that failed before its log started: its folder is new and empty.

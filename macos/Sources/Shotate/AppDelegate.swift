@@ -429,7 +429,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if quitAfterRecording { return NSApp.reply(toApplicationShouldTerminate: true) }
         if byAgent { return }
-        if let error {
+        if let error, let saved {
+            let place = (saved.folder ?? saved.video).path
+            Alerts.show("Shotate saved the video, but not everything else in time",
+                        "It's at \(place)\(settings.copyOnCapture ? ", and the video is copied" : ""). "
+                            + "The stills and note may still appear there. \(error.localizedDescription)")
+        } else if let error {
             Alerts.show("Shotate couldn't save the recording", error: error)
         } else if let why = saved?.logError {
             Alerts.show("Shotate couldn't read the app's system log",

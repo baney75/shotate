@@ -66,7 +66,7 @@ into the user's active window), or let the user drive it. Script the beats first
 
 ## 5. Debug recordings (⇧⌘D, or `shotate record app`)
 The folder holds `<name>.mp4`, `debug.md`, `stills/*.png` (the first and last frames, and
-up to 6 more after clicks; a click within 0.8 s of an earlier still gets none), `system.log` (everything the app sent to the macOS
+up to 6 more after clicks, or a few evenly spaced ones when there were none; a click within 0.8 s of an earlier still gets none), `system.log` (everything the app sent to the macOS
 log), `app-logs/` (what the app added to its own log files while recorded) and
 `<name>.clicks.json`.
 

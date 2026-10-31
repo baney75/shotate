@@ -23,12 +23,23 @@ public enum AgentPolicy {
         switch value.lowercased() {
         case "true", "1", "yes": return .success(true)
         case "false", "0", "no": return .success(false)
-        default: return .failure(AgentError("--\(name) takes no value"))
+        default: return .failure(AgentError("--\(name) is a switch: --\(name), or --\(name)=true or --\(name)=false"))
         }
     }
 
+    /// `shotate stop`'s arguments: nothing, `--any`, or `--any=<yes/no>`. Anything else is an error,
+    /// so `--any false` (with a space) can't read as a bare `--any`.
+    public static func stopArguments(_ args: [String]) -> Result<Bool, AgentError> {
+        if args.isEmpty { return .success(false) }
+        guard args.count == 1, args[0] == "--any" || args[0].hasPrefix("--any=") else {
+            return .failure(AgentError("stop takes only --any, or --any=true or --any=false"))
+        }
+        return flag("any", args[0] == "--any" ? nil : String(args[0].dropFirst("--any=".count))).map { args[0] == "--any" ? true : $0 }
+    }
+
     public enum StopAction: Equatable {
-        /// Stop the running recording and answer once it's saved.
+        /// Stop the running recording and answer once it's saved. (With `--any` on the user's
+        /// recording, an agent result nobody collected is dropped: it would be stale later.)
         case stop
         /// Already stopped and saving: answer once it's saved.
         case waitForSave

@@ -19,7 +19,20 @@ final class AgentPolicyTests: XCTestCase {
         XCTAssertEqual(try AgentPolicy.flag("any", "YES").get(), true)
         XCTAssertEqual(try AgentPolicy.flag("any", "false").get(), false, "--any=false must not stop the user's recording")
         XCTAssertEqual(try AgentPolicy.flag("any", "0").get(), false)
-        XCTAssertThrowsError(try AgentPolicy.flag("any", "maybe").get())
+        XCTAssertThrowsError(try AgentPolicy.flag("any", "maybe").get()) { e in
+            XCTAssertEqual((e as? AgentError)?.message, "--any is a switch: --any, or --any=true or --any=false")
+        }
+    }
+
+    func testStopArgumentsCantBeMisreadAsAny() {
+        XCTAssertEqual(try AgentPolicy.stopArguments([]).get(), false)
+        XCTAssertEqual(try AgentPolicy.stopArguments(["--any"]).get(), true)
+        XCTAssertEqual(try AgentPolicy.stopArguments(["--any=false"]).get(), false)
+        XCTAssertEqual(try AgentPolicy.stopArguments(["--any=yes"]).get(), true)
+        // With a space, "false" used to be dropped and --any read as bare: the user's recording ended.
+        for bad in [["--any", "false"], ["--any", "0"], ["--any", "no"], ["now"], ["--all"], ["--any=maybe"]] {
+            XCTAssertThrowsError(try AgentPolicy.stopArguments(bad).get(), bad.joined(separator: " "))
+        }
     }
 
     func testStopLeavesTheUsersRecordingAloneUnlessAsked() {
@@ -32,6 +45,7 @@ final class AgentPolicyTests: XCTestCase {
         XCTAssertEqual(stop(saving: true), .nothingRecording, "never queue for the user's save")
         XCTAssertEqual(stop(active: true, unclaimed: true), .returnUnclaimed, "the agent's own result first")
         XCTAssertEqual(stop(active: true, any: true), .stop)
+        XCTAssertEqual(stop(active: true, unclaimed: true, any: true), .stop, "asked to stop the user's: do that")
         XCTAssertEqual(stop(saving: true, any: true), .waitForSave)
         // The agent's recording.
         XCTAssertEqual(stop(active: true, agent: true), .stop)

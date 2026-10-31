@@ -252,6 +252,9 @@ final class AgentControl: NSObject {
         switch AgentPolicy.stop(active: Recording.isActive, saving: Recording.isSaving,
                                 byAgent: app?.recordingByAgent ?? false, unclaimed: unclaimed != nil, any: any) {
         case .stop:
+            // Stopping the user's recording on request: an old agent result left uncollected would
+            // later pass for a fresh one.
+            if app?.recordingByAgent == false { unclaimed = nil }
             waitingForSave.append(id)
             Recording.stop()
         case .waitForSave:
@@ -282,7 +285,8 @@ final class AgentControl: NSObject {
             if !saved.stills.isEmpty { answer["stills"] = saved.stills.map(\.path) }
             if let e = saved.logError { answer["logError"] = e }
         }
-        if let error { answer["error"] = error.localizedDescription }
+        // The video is saved but the rest (stills, note) ran late: a warning, not a failure.
+        if let error { answer[saved == nil ? "error" : "warning"] = error.localizedDescription }
         if ids.isEmpty, byAgent { unclaimed = answer }
         for id in ids { reply(id, answer) }
     }

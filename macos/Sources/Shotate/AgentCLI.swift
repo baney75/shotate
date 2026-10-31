@@ -36,7 +36,7 @@ enum AgentCLI {
         case "status", "windows":
             finish(send(["command": command], wait: 15, launch: command != "status"))
         case "stop":
-            switch AgentPolicy.flag("any", options["any"]) {
+            switch AgentPolicy.stopArguments(Array(args.dropFirst())) {
             case let .success(any): finish(send(["command": "stop", "any": any], wait: 300))
             case let .failure(e): fail(e.message)
             }
