@@ -23,6 +23,19 @@
   arrow by accident. Press A for arrows.
 
 ### Added
+- **⇧⌘D records a demo and a bug report at once.** Recording an app saves a folder: the MP4,
+  stills of the first and last frames and of each click, the app's system log, the new lines in the
+  app's own log files (Electron and Node apps never use the system log), any crash report, and
+  `debug.md`. The note is what's copied: errors and faults first, the app's own lines, and the
+  paths to everything else. The system log digest drops the macOS housekeeping that was 99% of the
+  old copied log.
+- **Every recording saves its clicks** beside the video (`.clicks.json`: time and position), so
+  a demo can zoom to each click.
+- **The `shotate` command and an agent skill.** `shotate capture`, `record`, `stop`, `windows`,
+  `annotate` (marks from JSON, for docs) and `export` (GIF or MP4) print JSON, so coding agents
+  can make screenshots, docs images and demo videos. It only works with **Let Agents Control
+  Shotate** on. Installing links `shotate` into ~/.local/bin and the skill into the agent skill
+  folders that exist.
 - **Record the screen** (macOS 15 and later). ⇧⌘R records an area you drag (or press Space and
   click a window); ⌃⇧⌘R records the whole screen the pointer is on. A small bar shows the time and
   a Stop button, and a red outline marks a recorded area; neither shows up in the video. Press any

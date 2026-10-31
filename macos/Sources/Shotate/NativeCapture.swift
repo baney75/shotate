@@ -131,14 +131,14 @@ enum NativeCapture {
 
     /// The whole display at full resolution, without the cursor, and without the bar and outline of
     /// a recording in progress.
-    private static func capture(_ display: SCDisplay, in content: SCShareableContent) async throws -> CGImage {
+    static func capture(_ display: SCDisplay, in content: SCShareableContent) async throws -> CGImage {
         let overlay = Recording.overlayWindowIDs
         let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { overlay.contains($0.windowID) })
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration(for: filter))
     }
 
     /// One window on its own, without its shadow (screencapture -W -o), and its pixels per point.
-    private static func capture(_ window: SCWindow) async throws -> (CGImage, CGFloat) {
+    static func capture(_ window: SCWindow) async throws -> (CGImage, CGFloat) {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = configuration(for: filter)
         config.ignoreShadowsSingleWindow = true

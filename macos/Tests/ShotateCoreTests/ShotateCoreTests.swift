@@ -227,20 +227,6 @@ final class ShotateCoreTests: XCTestCase {
         XCTAssertEqual(s.shortcut("recordScreen"), Shortcut("cmd+ctrl+shift+r"))
     }
 
-    /// A short log is copied whole; a long one is cut to its newest whole lines, and says so.
-    func testLongLogsAreClippedForTheClipboard() {
-        let short = Data("a\nb\n".utf8)
-        XCTAssertEqual(LogClip.text(tail: short, size: short.count, path: "/x.log"), "a\nb\n")
-        let lines = (0..<1000).map { "line \($0)\n" }.joined()
-        let tail = Data(lines.utf8).suffix(100)
-        let clipped = LogClip.text(tail: tail, size: 50_000, path: "/x.log", limit: 100)
-        XCTAssertTrue(clipped.hasPrefix("# The log is 48 KB"))
-        XCTAssertTrue(clipped.contains("Whole log: /x.log\n"))
-        XCTAssertTrue(clipped.hasSuffix("line 999\n"))
-        let body = clipped.split(separator: "\n", omittingEmptySubsequences: false).dropFirst()
-        XCTAssertTrue(body.first?.hasPrefix("line ") == true, "starts on a whole line")
-    }
-
     func tempConfig() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
     }

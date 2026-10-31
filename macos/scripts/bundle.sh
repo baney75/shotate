@@ -18,6 +18,11 @@ swift scripts/make-icon.swift build/Shotate.iconset >/dev/null
 iconutil -c icns build/Shotate.iconset -o "$APP/Contents/Resources/Shotate.icns"
 
 sed "s/@VERSION@/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
+# The `shotate` command and the agent skill ship inside the app, so they update with it.
+mkdir -p "$APP/Contents/Resources/bin" "$APP/Contents/Resources/skills"
+cp Resources/shotate "$APP/Contents/Resources/bin/shotate"
+chmod +x "$APP/Contents/Resources/bin/shotate"
+cp -R ../skills/shotate "$APP/Contents/Resources/skills/shotate"
 # What this build is, for the update check (docs/updates.md): the commit, the channel (stable when
 # built from the release tag, otherwise nightly) and when it was built.
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
@@ -63,5 +68,19 @@ if [ "${1:-}" = "--install" ]; then
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$PWD/$APP" 2>/dev/null || true
   open "$DEST"
   echo "installed $DEST"
+  # `shotate` on the PATH, and the skill where coding agents look, as links into the app. Anything
+  # already there that isn't one of these links is left alone.
+  link() {
+    if [ ! -e "$2" ] && [ ! -L "$2" ]; then ln -s "$1" "$2" && echo "linked $2"
+    else case "$(readlink "$2" 2>/dev/null)" in
+      */Shotate.app/Contents/*) ln -sfn "$1" "$2" && echo "linked $2" ;;
+      *) echo "left $2 as it is (not Shotate's link)" ;;
+    esac; fi
+  }
+  mkdir -p "$HOME/.local/bin"
+  link "$DEST/Contents/Resources/bin/shotate" "$HOME/.local/bin/shotate"
+  for SKILLS in "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.agents/skills"; do
+    [ -d "$SKILLS" ] && link "$DEST/Contents/Resources/skills/shotate" "$SKILLS/shotate"
+  done
 fi
 [ -z "${ADHOC_NOTE:-}" ] || echo "$ADHOC_NOTE"

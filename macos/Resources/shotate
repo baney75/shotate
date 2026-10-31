@@ -1,0 +1,9 @@
+#!/bin/sh
+# shotate: Shotate's command line for people and coding agents. Run `shotate help`.
+# This file lives in Shotate.app/Contents/Resources/bin and is linked from ~/.local/bin.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+done
+exec "$(cd "$(dirname "$self")/../../MacOS" && pwd)/Shotate" --cli "$@"

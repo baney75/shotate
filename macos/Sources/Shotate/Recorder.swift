@@ -12,14 +12,20 @@ enum RecordTarget {
     case app(pid_t, NSScreen)
 }
 
-/// A saved recording. Recording an app also saves what the app logged meanwhile, beside the video.
+/// A saved recording. Every recording has a click timeline beside the video (`.clicks.json`).
+/// Recording an app saves a folder instead: the video, stills, the logs the app wrote meanwhile and
+/// `debug.md`, the note that goes on the clipboard for a coding agent.
 struct SavedRecording {
     let video: URL
-    let log: URL?
-    /// The log as it goes on the clipboard (a long one is cut to its newest lines).
-    let logText: String?
-    /// Why the app's log couldn't be read, in `log`'s words.
-    let logError: String?
+    let clicks: URL?
+    /// App recordings: the folder holding everything.
+    var folder: URL?
+    var log: URL?
+    var debug: URL?
+    var debugText: String?
+    var stills: [URL] = []
+    /// Why the app's system log couldn't be read, in `log`'s words.
+    var logError: String?
 }
 
 /// The app's way into recording. Recording needs macOS 15 and the macOS 15 SDK (Swift 6 / Xcode 16);
@@ -41,10 +47,11 @@ enum Recording {
 
     /// See `Recorder.start`. Returns false when this build or macOS can't record.
     @discardableResult
-    static func start(_ target: RecordTarget, to file: URL, done: @escaping (SavedRecording?, Error?) -> Void) -> Bool {
+    static func start(_ target: RecordTarget, to file: URL, appLogs: [String: [String]] = [:],
+                      done: @escaping (SavedRecording?, Error?) -> Void) -> Bool {
         #if compiler(>=6.0)
         if #available(macOS 15.0, *) {
-            Recorder.start(target, to: file, done: done)
+            Recorder.start(target, to: file, appLogs: appLogs, done: done)
             return true
         }
         #endif
@@ -78,6 +85,12 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private let target: RecordTarget
     private var stream: SCStream?
     private var log: AppLog?
+    private var logFiles: AppLogFiles?
+    private var appLogFolders: [String: [String]] = [:]
+    /// The recorded app, noted at the start: it may have quit (or crashed) by the end.
+    private var identity: AppIdentity?
+    private var clicks: ClickTrail?
+    private var startedAt = Date()
     private var indicator: RecordingIndicator?
     private var stopping = false
     /// The first frame is in the file.
@@ -88,8 +101,26 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
 
     /// Starts recording `target` into `file`. `done` runs on main once the file is finished, or with
     /// the error that stopped it.
-    static func start(_ target: RecordTarget, to file: URL, done: @escaping (SavedRecording?, Error?) -> Void) {
+    static func start(_ target: RecordTarget, to file: URL, appLogs: [String: [String]] = [:],
+                      done: @escaping (SavedRecording?, Error?) -> Void) {
+        // One recording at a time: a second would orphan the first, still capturing.
+        guard current == nil else { return done(nil, error("Shotate is already recording.")) }
+        var file = file
+        var made = file
+        if case .app = target {
+            // An app recording is a folder named like the video would be, with the video inside.
+            let folder = file.deletingPathExtension()
+            file = folder.appendingPathComponent(folder.lastPathComponent).appendingPathExtension("mp4")
+            made = folder
+        }
+        // Never record over something that's there: a failed recording deletes what it made, and
+        // an old file would pass for a new one.
+        guard !FileManager.default.fileExists(atPath: made.path) else {
+            return done(nil, error("\(made.path) already exists. Choose another name."))
+        }
         let r = Recorder(target: target, file: file, done: done)
+        r.appLogFolders = appLogs
+        if case let .app(pid, _) = target { r.identity = AppIdentity(pid: pid) }
         current = r
         let stop: () -> Void = { [weak r] in r?.stop() }
         switch target {
@@ -146,8 +177,17 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             // put it in the video; only when the app is Shotate itself does naming it keep it out.
             let isShotate = pid == ProcessInfo.processInfo.processIdentifier
             filter = SCContentFilter(display: display, including: [app], exceptingWindows: isShotate ? notOurs : [])
-            log = try AppLog(pid: pid, file: file.deletingPathExtension().appendingPathExtension("log"))
+            log = try AppLog(pid: pid, file: file.deletingLastPathComponent().appendingPathComponent("system.log"))
+            // lsof and pgrep over an Electron app's helpers can take a second: off the main thread.
+            let folders = appLogFolders
+            logFiles = await withCheckedContinuation { c in
+                DispatchQueue.global(qos: .userInitiated).async { c.resume(returning: AppLogFiles(pid: pid, extraFolders: folders)) }
+            }
         }
+        clicks = ClickTrail(screen: screen, area: {
+            if case let .area(rect, _) = target { return rect }
+            return screen.frame
+        }(), scale: screen.backingScaleFactor)
         let pixels = CaptureGeometry.videoSize(of: size, scale: screen.backingScaleFactor)
         config.width = pixels.width
         config.height = pixels.height
@@ -211,13 +251,38 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         let written = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { $0 > 0 } ?? false
         let failure = error ?? (written ? nil : stopError ?? Self.nothingRecorded)
         let keep = written && (failure == nil || keepFile)
+        let duration = Date().timeIntervalSince(startedAt)
+        let clicksFile = keep ? clicks?.save(beside: file) : nil
+        clicks?.stop()
         if !keep { try? FileManager.default.removeItem(at: file) }
-        guard let log else {
-            return done(keep ? SavedRecording(video: file, log: nil, logText: nil, logError: nil) : nil, failure)
+        var saved = SavedRecording(video: file, clicks: clicksFile)
+        guard let log else { return done(keep ? saved : nil, failure) }
+        let folder = file.deletingLastPathComponent()
+        guard keep else {
+            log.stop { [done] _, _ in
+                try? FileManager.default.removeItem(at: folder)
+                done(nil, failure)
+            }
+            return
         }
+        let identity = identity ?? AppIdentity(pid: 0)
+        let logFiles = logFiles
+        let started = startedAt
+        let clickTimes = clicks?.times ?? []
         log.stop { [file, done] text, logError in
-            if !keep { try? FileManager.default.removeItem(at: log.file) }
-            done(keep ? SavedRecording(video: file, log: log.file, logText: text, logError: logError) : nil, failure)
+            // Stills, log files and the note take a moment: off the main thread.
+            DispatchQueue.global(qos: .userInitiated).async {
+                let report = DebugBundle.write(folder: folder, video: file, app: identity, started: started,
+                                               duration: duration, systemLog: log.file, systemLogText: text,
+                                               logError: logError, logFiles: logFiles, clickTimes: clickTimes)
+                saved.folder = folder
+                saved.log = log.file
+                saved.debug = report.file
+                saved.debugText = report.text
+                saved.stills = report.stills
+                saved.logError = logError
+                DispatchQueue.main.async { done(saved, failure) }
+            }
         }
     }
 
@@ -232,6 +297,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     func recordingOutputDidStartRecording(_ output: SCRecordingOutput) {
         DispatchQueue.main.async {
             self.started = true
+            self.startedAt = Date()
+            self.clicks?.start()
             self.indicator?.startClock()
         }
     }
@@ -316,13 +383,13 @@ final class AppLog {
     }
 
     /// Ends the stream (as Ctrl-C would, so its last lines are written) and calls back on main,
-    /// once, with what goes on the clipboard, or with the error `log` gave if it quit by itself.
+    /// once, with the log's text, or with the error `log` gave if it quit by itself.
     func stop(_ completion: @escaping (String?, String?) -> Void) {
         var called = false
         let deliver = { [weak self] in
             guard !called, let self else { return }
             called = true
-            completion(self.clipboardText(), self.failure())
+            completion(self.newestText(), self.failure())
         }
         guard !exited else { return deliver() }
         interrupted = true
@@ -342,13 +409,14 @@ final class AppLog {
         return text.isEmpty ? "log stream exited with status \(process.terminationStatus)." : text
     }
 
-    /// The newest part of the log, read from the end of the file so a huge log isn't loaded whole.
-    private func clipboardText() -> String? {
+    /// The newest part of the log (up to 16 MB) for the digest, read from the end so a huge log
+    /// isn't loaded whole.
+    private func newestText() -> String? {
         guard let h = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? h.close() }
         let size = Int((try? h.seekToEnd()) ?? 0)
-        try? h.seek(toOffset: UInt64(max(0, size - LogClip.limit - 4096)))
-        return LogClip.text(tail: h.readDataToEndOfFile(), size: size, path: file.path)
+        try? h.seek(toOffset: UInt64(max(0, size - 16 * 1_048_576)))
+        return String(decoding: h.readDataToEndOfFile(), as: UTF8.self)
     }
 }
 
