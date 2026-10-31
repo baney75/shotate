@@ -78,7 +78,8 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | --- | --- |
 | **Capture** | Area, window or full screen from a global shortcut, the menu bar, or `shotate://` URLs |
 | **Record the screen** | On a Mac with macOS 15 or later: ⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder and copied as a file. No Finder window opens. Video only: Shotate never asks for the microphone |
-| **Record an app and its log** | ⇧⌘D, then click a window: Shotate records every window of that app (nothing else on screen) and streams what the app writes to the system log meanwhile, debug messages included. When you stop, the log is copied as text, ready to paste into an issue or a coding agent, and saved beside the video as a `.log` file |
+| **Record an app for a demo and a bug report** | ⇧⌘D, then click a window: Shotate records every window of that app (nothing else on screen) into a folder with the MP4, stills of the key moments, what the app wrote meanwhile to the system log and to its own log files, any crash report, and `debug.md`. When you stop, `debug.md` is copied: paste it into a coding agent or an issue and it has the errors, the app's log lines and the paths to the video and stills. The video is ready to share as a demo |
+| **Driven by agents** | The `shotate` command takes screenshots, records, annotates images for docs and exports GIFs and MP4s, printing JSON. Turn on **Let Agents Control Shotate** in the menu first. Coding agents get a skill for it. See [docs/agents.md](docs/agents.md) |
 | **Annotate** | Arrow, pen, box, ellipse, highlight, text label, numbered step, crop |
 | **Redact for real** | Redaction draws a solid bar. Blur and pixelation can sometimes be reversed; this can't |
 | **Draw past the edge** | Drag a mark outside the screenshot and the canvas grows to fit. The view zooms out as you drag, and the new space continues the screenshot's own edges (a title bar or page background carries on, while lines and text touching the edge don't streak), so callouts never get cramped |
@@ -199,6 +200,8 @@ carry over the first time Shotate starts.
 | `updateChannel` | macOS: `stable` or `nightly`. Leave it out to follow the build you installed. Windows and Linux always follow `nightly`. |
 | `checkForUpdates` | Check GitHub for updates once a day. `false` means Shotate makes no network request at all. |
 | `toolKeys` | The single letter that picks each editor tool. A letter already used by another tool is ignored, so every tool stays reachable. |
+| `agentControl` | macOS: let the `shotate` command and coding agents capture and record without a click. Off by default. |
+| `appLogs` | macOS: more folders to read an app's log files from while ⇧⌘D records it, by bundle ID or app name, e.g. `{"com.t3tools.t3code": ["~/.t3/userdata/logs"]}`. ~/Library/Logs/<app> and files the app has open are found on their own. |
 
 Shortcuts are written as modifiers plus one key: `cmd`, `shift`, `option` (or `alt`), `ctrl`, and a
 letter, a digit, `space`, `return`, `tab`, `escape` or `f1`–`f12`. On Windows and Linux, `cmd` means
@@ -215,7 +218,7 @@ open shotate://capture/window
 open shotate://capture/screen
 open shotate://record             # pick an area and record it; again to stop (macOS 15+)
 open shotate://record/screen
-open shotate://record/app         # click a window: record that app and its log
+open shotate://record/app         # click a window: record that app, its logs and stills
 open shotate://record/stop
 open "shotate://open?path=$HOME/Desktop/shot.png"
 open shotate://settings

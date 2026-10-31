@@ -1,8 +1,11 @@
 import AppKit
 import ShotateCore
 
-// `Shotate --selftest in.png out.png` draws one of every mark and writes the result (used by CI).
+// `Shotate --cli <command>`: the `shotate` command line (AgentCLI). It never starts a second app.
 let args = CommandLine.arguments
+if args.count > 1, args[1] == "--cli" { AgentCLI.run(Array(args.dropFirst(2))) }
+
+// `Shotate --selftest in.png out.png` draws one of every mark and writes the result (used by CI).
 if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
     guard let image = Renderer.loadImage(at: URL(fileURLWithPath: args[i + 1])) else { exit(2) }
     let doc = Document(image: image)
@@ -46,7 +49,8 @@ if let i = args.firstIndex(of: "--render-ui"), i + 1 < args.count { UISnapshots.
 
 // `open -n Shotate.app --args --record-selftest out.mp4 [pid]` records for two seconds with the
 // recorder the record shortcuts use, and exits 0 once the video is written: an area near the main
-// screen's top-left, or with a pid that app and its log (out.log). It needs Screen Recording, so it
+// screen's top-left, or with a pid that app, saved as a folder `out/` holding out.mp4, stills,
+// system.log, app-logs/ and debug.md. It needs Screen Recording, so it
 // runs as the app, not from a terminal.
 if let i = args.firstIndex(of: "--record-selftest"), i + 1 < args.count {
     guard let screen = NSScreen.screens.first else { exit(2) }

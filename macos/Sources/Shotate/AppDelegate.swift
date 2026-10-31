@@ -34,7 +34,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return p
     }()
 
+    private var agent: AgentControl?
+    /// The recording in progress was started by `shotate record`: its result goes to the agent,
+    /// not the clipboard.
+    private var recordingByAgent = false
+
     func applicationDidFinishLaunching(_ n: Notification) {
+        agent = AgentControl(app: self)
         returnTo = NSWorkspace.shared.frontmostApplication.flatMap { $0.processIdentifier == getpid() ? nil : $0 }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
                                                           object: nil, queue: .main) { [weak self] note in
@@ -379,8 +385,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return a.runModal() == .alertFirstButtonReturn
     }
 
-    private func startRecording(_ target: RecordTarget) {
-        Recording.start(target, to: settings.newRecordingURL()) { [weak self] saved, error in
+    func startRecording(_ target: RecordTarget, to file: URL? = nil, byAgent: Bool = false) {
+        recordingByAgent = byAgent
+        Recording.start(target, to: file ?? settings.newRecordingURL(), appLogs: settings.appLogs) { [weak self] saved, error in
             self?.recordingFinished(saved, error: error)
         }
         updateStatusIcon()
@@ -388,25 +395,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func stopRecording() { Recording.stop() }
 
-    /// Saved: copy it like a capture, and nothing more (no Finder window; Donovan asked for none). A
-    /// recorded app's log is what's copied (it pastes as text into a chat, an issue or a coding
-    /// agent); otherwise the video, as a file.
+    /// Saved: copy it like a capture, and nothing more (no Finder window; Donovan asked for none). An
+    /// app recording (⇧⌘D) copies its debug note: it pastes as text into a chat, an issue or a coding
+    /// agent, and names the video, stills and logs beside it. Otherwise the video, as a file. A
+    /// recording an agent started leaves the clipboard alone and answers the agent instead.
     private func recordingFinished(_ saved: SavedRecording?, error: Error?) {
         updateStatusIcon()
-        if settings.copyOnCapture, let saved {
+        let byAgent = recordingByAgent
+        recordingByAgent = false
+        agent?.recordingFinished(saved, error: error)
+        if settings.copyOnCapture, let saved, !byAgent {
             NSPasteboard.general.clearContents()
-            if saved.logError == nil, let text = saved.logText {
+            if let text = saved.debugText {
                 NSPasteboard.general.setString(text, forType: .string)
             } else {
                 NSPasteboard.general.writeObjects([saved.video as NSURL])
             }
         }
         if quitAfterRecording { return NSApp.reply(toApplicationShouldTerminate: true) }
+        if byAgent { return }
         if let error {
             Alerts.show("Shotate couldn't save the recording", error: error)
         } else if let why = saved?.logError {
-            Alerts.show("Shotate couldn't read the app's log",
-                        "The video is saved\(settings.copyOnCapture ? " and copied" : ""). macOS said: \(why)")
+            Alerts.show("Shotate couldn't read the app's system log",
+                        "The video, stills and the app's own log files are saved\(settings.copyOnCapture ? ", and the note is copied" : ""). macOS said: \(why)")
         }
     }
 
@@ -551,6 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
                   .separator(),
                   choosePasteItem(),
+                  agentControlItem(),
                   // Settings, then the app itself, then Quit on its own, as menu bar apps group them.
                   .separator(),
                   NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","),
@@ -574,6 +587,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleChoosePaste() { setChoosePaste(!settings.choosePaste) }
+
+    /// Lets the `shotate` command and coding agents capture and record without a click.
+    private func agentControlItem() -> NSMenuItem {
+        let i = NSMenuItem(title: "Let Agents Control Shotate", action: #selector(toggleAgentControl), keyEquivalent: "")
+        i.state = settings.agentControl ? .on : .off
+        i.toolTip = "Programs you run on this Mac (the shotate command, coding agents) can take screenshots and "
+            + "start recordings without a click. The recording bar still shows."
+        return i
+    }
+
+    @objc private func toggleAgentControl() {
+        settings.agentControl.toggle()
+        applySettings()
+    }
 
     @objc func captureArea() { capture(.area) }
     @objc func captureWindow() { capture(.window) }

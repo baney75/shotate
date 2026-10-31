@@ -19,6 +19,12 @@ public struct Settings: Equatable {
     public var checkForUpdates = true
     /// With two or more screenshots copied lately, ⌘V shows a menu to choose which one to paste.
     public var choosePaste = false
+    /// Lets programs on this Mac (the `shotate` command, coding agents) take screenshots and start or
+    /// stop recordings without a click. Off by default.
+    public var agentControl = false
+    /// Extra folders to read an app's log files from while it is recorded (⇧⌘D), by bundle ID or app
+    /// name: ["com.t3tools.t3code": ["~/.t3/userdata/logs"]].
+    public var appLogs: [String: [String]] = [:]
 
     // Always a directory URL, so it compares equal whether or not the folder exists yet.
     public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
@@ -138,6 +144,10 @@ public struct Settings: Equatable {
         if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
         if let b = o["checkForUpdates"] as? Bool { s.checkForUpdates = b }
         if let b = o["choosePaste"] as? Bool { s.choosePaste = b }
+        if let b = o["agentControl"] as? Bool { s.agentControl = b }
+        if let m = o["appLogs"] as? [String: Any] {
+            s.appLogs = m.compactMapValues { ($0 as? [String]) ?? ($0 as? String).map { [$0] } }
+        }
         return s
     }
 
@@ -158,6 +168,8 @@ public struct Settings: Equatable {
             "toolKeys": tools,
             "checkForUpdates": checkForUpdates,
             "choosePaste": choosePaste,
+            "agentControl": agentControl,
+            "appLogs": appLogs,
         ]
         if let updateChannel { o["updateChannel"] = updateChannel }
         return (try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]))
