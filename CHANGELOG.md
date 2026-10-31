@@ -24,10 +24,10 @@
 
 ### Added
 - **⇧⌘D records a demo and a bug report at once.** Recording an app saves a folder: the MP4,
-  stills of the first and last frames and after each of the first 6 clicks, the app's system log,
-  the new lines in the app's own log files (Electron and Node apps never use the system log), any
-  crash report, and `debug.md`. The note is what's copied: errors and faults first, the app's own lines, and the
-  paths to everything else. The system log digest drops the macOS housekeeping that was 99% of the
+  stills (the first and last frames, and up to 6 more after clicks, or a few evenly spaced ones when there were none; a click within 0.8 s of an earlier still gets none),
+  the app's system log, the new lines in the app's own log files (Electron and Node apps never use
+  the system log), any crash report, and `debug.md`. The note is what's copied: errors and faults
+  first, the app's own lines, and the paths to everything else. The system log digest drops the macOS housekeeping that was 99% of the
   old copied log.
 - **Every recording saves its clicks** beside the video (`.clicks.json`: time and position), so
   a demo can zoom to each click.

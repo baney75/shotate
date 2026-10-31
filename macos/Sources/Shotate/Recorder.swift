@@ -255,16 +255,13 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         Recorder.current = nil
         Recorder.saving += 1
         // Exactly once, however it ends: a lost callback must never leave Shotate "saving" forever
-        // (quitting and new recordings wait for it), so a watchdog ends the save after 90 s.
+        // (quitting and new recordings wait for it), so a watchdog (below) ends the save after 90 s.
         var delivered = false
         let done: (SavedRecording?, Error?) -> Void = { [done] saved, error in
             guard !delivered else { return }
             delivered = true
             Recorder.saving -= 1
             done(saved, error)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
-            done(nil, Self.error("Saving the recording took too long. What was written is in its folder."))
         }
         stopping = true
         indicator?.close()
@@ -280,6 +277,17 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         if !keep { try? FileManager.default.removeItem(at: file) }
         var saved = SavedRecording(video: file, clicks: clicksFile)
         let folder = file.deletingLastPathComponent()
+        // Too slow: hand over the video (and its folder) as they are, and say where they are.
+        var fallback = saved
+        if case .app = target { fallback.folder = folder }
+        let place = (fallback.folder ?? file).path
+        DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
+            if keep {
+                done(fallback, Self.error("Saving the recording took too long. What was written is at \(place)."))
+            } else {
+                done(nil, failure ?? Self.error("Saving the recording took too long."))
+            }
+        }
         guard let log else {
             // An app recording that failed before its log started: its folder is new and empty.
             if case .app = target, !keep { try? FileManager.default.removeItem(at: folder) }

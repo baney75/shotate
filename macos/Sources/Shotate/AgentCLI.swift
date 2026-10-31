@@ -36,14 +36,20 @@ enum AgentCLI {
         case "status", "windows":
             finish(send(["command": command], wait: 15, launch: command != "status"))
         case "stop":
-            finish(send(["command": "stop", "any": options["any"] != nil], wait: 300))
+            switch AgentPolicy.stopArguments(Array(args.dropFirst())) {
+            case let .success(any): finish(send(["command": "stop", "any": any], wait: 300))
+            case let .failure(e): fail(e.message)
+            }
         case "open":
             guard let path = positional.first else { fail("open needs a file.") }
             finish(send(["command": "open", "path": absolute(path)], wait: 15))
         case "capture", "record":
-            let seconds = options["for"].map { Double($0) ?? -1 }
-            if command == "record", let seconds, !(seconds.isFinite && seconds > 0 && seconds <= 4 * 3600) {
-                fail("--for needs seconds, up to 4 hours, e.g. --for 20")
+            var seconds: Double?
+            if command == "record" {
+                switch AgentPolicy.recordSeconds(options["for"]) {
+                case let .success(s): seconds = s
+                case let .failure(e): fail(e.message)
+                }
             }
             var r: [String: Any] = ["command": command]
             if let mode = positional.first { r["mode"] = mode }

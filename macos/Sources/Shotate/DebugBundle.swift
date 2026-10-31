@@ -52,7 +52,9 @@ final class ClickTrail {
             "size": [Int((area.width * scale).rounded()), Int((area.height * scale).rounded())],
             "scale": scale,
             "about": "Mouse clicks while recording: t is seconds from the video's first frame, x and y are video pixels from the top left.",
-            "clicks": clicks.map { ["t": ($0.t * 1000).rounded() / 1000, "x": $0.x, "y": $0.y, "button": $0.button, "count": $0.count] },
+            // Milliseconds as written ("3.36"), not as a binary double prints ("3.3599999999999999").
+            "clicks": clicks.map { ["t": NSDecimalNumber(string: String(format: "%.3f", $0.t)), "x": $0.x, "y": $0.y,
+                                    "button": $0.button, "count": $0.count] },
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
               (try? data.write(to: url)) != nil else { return nil }
