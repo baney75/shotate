@@ -33,6 +33,8 @@ final class ClickTrail {
         monitor = nil
     }
 
+    deinit { stop() }
+
     private func note(_ e: NSEvent) {
         let p = NSEvent.mouseLocation
         guard area.contains(p) else { return }

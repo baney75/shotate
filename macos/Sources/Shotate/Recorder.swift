@@ -45,6 +45,14 @@ enum Recording {
         return false
     }
 
+    /// Stopped, but its folder (stills, logs, the note) is still being written.
+    static var isSaving: Bool {
+        #if compiler(>=6.0)
+        if #available(macOS 15.0, *) { return Recorder.saving > 0 }
+        #endif
+        return false
+    }
+
     /// See `Recorder.start`. Returns false when this build or macOS can't record.
     @discardableResult
     static func start(_ target: RecordTarget, to file: URL, appLogs: [String: [String]] = [:],
@@ -80,6 +88,8 @@ enum Recording {
 @available(macOS 15.0, *)
 final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private(set) static var current: Recorder?
+    /// Recordings stopped but not yet handed to `done`.
+    private(set) static var saving = 0
 
     let file: URL
     private let target: RecordTarget
@@ -243,6 +253,19 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private func finish(_ error: Error?, keepFile: Bool = false) {
         guard Recorder.current === self else { return }
         Recorder.current = nil
+        Recorder.saving += 1
+        // Exactly once, however it ends: a lost callback must never leave Shotate "saving" forever
+        // (quitting and new recordings wait for it), so a watchdog ends the save after 90 s.
+        var delivered = false
+        let done: (SavedRecording?, Error?) -> Void = { [done] saved, error in
+            guard !delivered else { return }
+            delivered = true
+            Recorder.saving -= 1
+            done(saved, error)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
+            done(nil, Self.error("Saving the recording took too long. What was written is in its folder."))
+        }
         stopping = true
         indicator?.close()
         indicator = nil
@@ -256,10 +279,15 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         clicks?.stop()
         if !keep { try? FileManager.default.removeItem(at: file) }
         var saved = SavedRecording(video: file, clicks: clicksFile)
-        guard let log else { return done(keep ? saved : nil, failure) }
         let folder = file.deletingLastPathComponent()
+        guard let log else {
+            // An app recording that failed before its log started: its folder is new and empty.
+            if case .app = target, !keep { try? FileManager.default.removeItem(at: folder) }
+            return done(keep ? saved : nil, failure)
+        }
         guard keep else {
-            log.stop { [done] _, _ in
+            log.stop { [done, log] _, _ in
+                _ = log  // Keep the log alive until it answers: nothing else holds it now.
                 try? FileManager.default.removeItem(at: folder)
                 done(nil, failure)
             }
@@ -298,6 +326,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         DispatchQueue.main.async {
             self.started = true
             self.startedAt = Date()
+            // Already given up on (stopped while starting): note no clicks outside a recording.
+            guard Recorder.current === self, !self.stopping else { return }
             self.clicks?.start()
             self.indicator?.startClock()
         }
@@ -386,8 +416,9 @@ final class AppLog {
     /// once, with the log's text, or with the error `log` gave if it quit by itself.
     func stop(_ completion: @escaping (String?, String?) -> Void) {
         var called = false
-        let deliver = { [weak self] in
-            guard !called, let self else { return }
+        // Holds the log strongly until it has answered, whoever else lets go of it.
+        let deliver = {
+            guard !called else { return }
             called = true
             completion(self.newestText(), self.failure())
         }

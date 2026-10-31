@@ -62,7 +62,7 @@ final class AgentControl: NSObject {
         case "windows": windows(id)
         case "capture": capture(id, r)
         case "record": record(id, r)
-        case "stop": stop(id)
+        case "stop": stop(id, any: r["any"] as? Bool == true)
         case "open":
             guard let path = r["path"] as? String else { return fail(id, "open needs a path.") }
             app.open(URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
@@ -78,6 +78,7 @@ final class AgentControl: NSObject {
             "screenRecording": ScreenRecording.isGranted,
             "canRecord": app?.canRecord ?? false,
             "recording": Recording.isActive,
+            "saving": Recording.isSaving,
             "saveFolder": app?.settings.saveFolder.path ?? "",
         ]
         #if compiler(>=6.0)
@@ -163,7 +164,9 @@ final class AgentControl: NSObject {
                 case "screen", "area":
                     let rect = mode == "area" ? Self.rect(r["rect"]) : nil
                     if mode == "area", rect == nil { return fail(id, "area needs --rect x,y,w,h in points, top-left origin.") }
-                    let screen = rect.flatMap { Self.screen(containing: $0) } ?? NSScreen.screens[0]
+                    guard let screen = rect.flatMap({ Self.screen(containing: $0) }) ?? NSScreen.screens.first else {
+                        return fail(id, "No screen is available.")
+                    }
                     guard let display = NativeCapture.display(for: screen, in: content) else { return fail(id, "That screen isn't available.") }
                     image = try await NativeCapture.capture(display, in: content)
                     scale = screen.backingScaleFactor
@@ -191,16 +194,20 @@ final class AgentControl: NSObject {
         guard let app else { return }
         guard app.canRecord else { return fail(id, "Recording needs macOS 15 and a build made with Xcode 16 or later.") }
         guard !Recording.isActive else { return fail(id, "Already recording. Stop it first with `shotate stop`.") }
+        guard !Recording.isSaving else { return fail(id, "Still saving the last recording. Try again in a moment.") }
         let mode = r["mode"] as? String ?? (r["rect"] != nil ? "area" : r["app"] != nil || r["pid"] != nil ? "app" : "screen")
         guard #available(macOS 14.0, *) else { return }
         Task { @MainActor in
             let target: RecordTarget
             switch mode {
             case "screen":
-                target = .screen(NSScreen.screens[0])
+                guard let main = NSScreen.screens.first else { return fail(id, "No screen is available.") }
+                target = .screen(main)
             case "area":
                 guard let rect = Self.rect(r["rect"]) else { return fail(id, "area needs --rect x,y,w,h in points, top-left origin.") }
-                let screen = Self.screen(containing: rect) ?? NSScreen.screens[0]
+                guard let screen = Self.screen(containing: rect) ?? NSScreen.screens.first else {
+                    return fail(id, "No screen is available.")
+                }
                 let area = Self.appKitRect(rect).intersection(screen.frame).integral
                 guard !area.isNull, area.width >= 8, area.height >= 8 else { return fail(id, "That area is off screen.") }
                 target = .area(area, screen)
@@ -209,7 +216,10 @@ final class AgentControl: NSObject {
                       let w = Self.window(r, in: content), let owner = w.owningApplication else {
                     return fail(id, "No window of that app on screen. Try `shotate windows`.")
                 }
-                target = .app(owner.processID, Self.screen(containing: w.frame) ?? NSScreen.screens[0])
+                guard let screen = Self.screen(containing: w.frame) ?? NSScreen.screens.first else {
+                    return fail(id, "No screen is available.")
+                }
+                target = .app(owner.processID, screen)
             default:
                 return fail(id, "record mode is app, screen or area.")
             }
@@ -222,7 +232,8 @@ final class AgentControl: NSObject {
             }
             unclaimed = nil
             guard app.startRecording(target, to: file, byAgent: true), Recording.isActive else {
-                let why = unclaimed?["error"] as? String ?? "Shotate is already recording."
+                let why = unclaimed?["error"] as? String
+                    ?? (Recording.isSaving ? "Still saving the last recording. Try again in a moment." : "Shotate is already recording.")
                 unclaimed = nil
                 return fail(id, why)
             }
@@ -237,7 +248,20 @@ final class AgentControl: NSObject {
         }
     }
 
-    private func stop(_ id: String) {
+    private func stop(_ id: String, any: Bool) {
+        let users = app?.recordingByAgent == false
+        if users, !any, Recording.isActive || Recording.isSaving {
+            // The agent's own recording already ended (the user stopped it): that's its answer.
+            if let last = unclaimed {
+                unclaimed = nil
+                return reply(id, last)
+            }
+            return Recording.isActive
+                ? fail(id, "The user started this recording. Only stop it if they asked: `shotate stop --any`.")
+                : fail(id, "Nothing is recording.")
+        }
+        // Stopped already and still saving: answer once it's saved.
+        if !Recording.isActive, Recording.isSaving { return waitingForSave.append(id) }
         guard Recording.isActive else {
             // The agent's recording already ended (it failed, or the user stopped it): say how.
             if let last = unclaimed {

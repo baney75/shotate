@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var agent: AgentControl?
     /// The recording in progress was started by `shotate record`: its result goes to the agent,
     /// not the clipboard.
-    private var recordingByAgent = false
+    private(set) var recordingByAgent = false
 
     func applicationDidFinishLaunching(_ n: Notification) {
         agent = AgentControl(app: self)
@@ -79,7 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// file finished first; cut off, the video wouldn't play.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         editors.forEach { $0.saveEdits() }
-        guard isRecording else { return .terminateNow }
+        // Recording, or stopped but still writing its stills and note: finish first.
+        guard isRecording || Recording.isSaving else { return .terminateNow }
         quitAfterRecording = true
         stopRecording()
         return .terminateLater
@@ -353,6 +354,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func toggleRecording(_ kind: RecordKind) {
         if isRecording { return stopRecording() }
         guard !capturing else { return }
+        // The last recording is still writing its note: a pick now would only be refused after it.
+        guard !Recording.isSaving else { return NSSound.beep() }
         guard #available(macOS 14.0, *), canRecord else {
             return Alerts.show("Recording needs macOS 15 or later", "Screenshots work as before on this Mac. "
                                + "On macOS 15, updating Shotate with Xcode 16 or later installed turns recording on.")
@@ -391,8 +394,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// started one): starting another would orphan it.
     @discardableResult
     func startRecording(_ target: RecordTarget, to file: URL? = nil, byAgent: Bool = false) -> Bool {
-        guard !isRecording else {
-            if !byAgent { Alerts.show("Shotate is already recording", "Stop that recording first.") }
+        guard !isRecording, !Recording.isSaving else {
+            if !byAgent {
+                Alerts.show(isRecording ? "Shotate is already recording" : "Shotate is still saving the last recording",
+                            isRecording ? "Stop that recording first." : "Try again in a moment.")
+            }
             return false
         }
         recordingByAgent = byAgent
@@ -601,8 +607,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func agentControlItem() -> NSMenuItem {
         let i = NSMenuItem(title: "Let Agents Control Shotate", action: #selector(toggleAgentControl), keyEquivalent: "")
         i.state = settings.agentControl ? .on : .off
-        i.toolTip = "Programs you run on this Mac (the shotate command, coding agents) can take screenshots and "
-            + "start recordings without a click. The recording bar still shows."
+        i.toolTip = "Programs you run on this Mac (the shotate command, coding agents) can take screenshots"
+            + (canRecord ? " and start and stop recordings without a click. The recording bar still shows." : " without a click.")
         return i
     }
 

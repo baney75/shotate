@@ -348,19 +348,20 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         relaunchButton.bezelColor = .controlAccentColor
         settingsLink.isHidden = granted || !openedSettings
         let records = app?.canRecord == true
-        let what = records
+        let agents = app?.settings.agentControl == true
+            ? " Agent control is on: programs you run on this Mac (the shotate command, coding agents) can "
+                + "take captures" + (records ? " and start and stop recordings (yours only when asked to)" : "") + " without a click."
+                + (records ? " The recording bar still shows." : "")
+                + " The switch guards against accidents, not against a harmful program running as you."
+            : ""
+        let what = (records
             ? "Lets Shotate see your screen only at the moment you take a capture, or while a recording you "
                 + "started is running. It doesn't watch in the background, and captures and recordings stay on your "
                 + "Mac. Recording an app (⇧⌘D) also saves what that app writes meanwhile to the system log and to "
                 + "its own log files, and any crash report it leaves; Shotate reads no other logs. While any "
                 + "recording runs, Shotate notes where you click (time and position, never keys) beside the video."
-                + (app?.settings.agentControl == true
-                    ? " Agent control is on: programs you run on this Mac (the shotate command, coding agents) can "
-                        + "take captures and start recordings without a click. The recording bar still shows. The "
-                        + "switch guards against accidents, not against a harmful program running as you."
-                    : "")
             : "Lets Shotate see your screen only at the moment you take a capture. It doesn't record video or "
-                + "watch in the background, and captures stay on your Mac."
+                + "watch in the background, and captures stay on your Mac.") + agents
         statusLabel.stringValue = granted ? what + "\nAllowed."
             : openedSettings ? what + "\nTurn Shotate on when macOS asks (or in System Settings), then click Relaunch."
             : what + "\nNot allowed yet. Click Allow."

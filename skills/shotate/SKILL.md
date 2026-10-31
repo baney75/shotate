@@ -55,7 +55,8 @@ shotate record app --app "T3 Code" --for 20       # records 20 s, saves, prints 
 shotate record area --rect 0,0,1440,900            # returns at once; then drive the app...
 shotate stop                                       # ...and stop: waits until saved
 ```
-`app` records every window of that app on its screen, and saves a folder (see 5). `screen` and
+`shotate stop` ends only a recording an agent started; `--any` also ends the user's, so use it
+only when they asked. `app` records every window of that app on its screen, and saves a folder (see 5). `screen` and
 `area` save `<name>.mp4`. Every recording also saves `<name>.clicks.json`: each mouse click's time
 and position in video pixels. Shotate's own recording bar never appears in the video.
 
@@ -65,7 +66,7 @@ into the user's active window), or let the user drive it. Script the beats first
 
 ## 5. Debug recordings (⇧⌘D, or `shotate record app`)
 The folder holds `<name>.mp4`, `debug.md`, `stills/*.png` (the first and last frames, and one
-just after each click), `system.log` (everything the app sent to the macOS log), `app-logs/` (what
+just after each of the first 6 clicks; clicks less than 0.8 s apart share one), `system.log` (everything the app sent to the macOS log), `app-logs/` (what
 the app added to its own log files while recorded) and `<name>.clicks.json`.
 
 When the user pastes a note that starts "# <App>: screen recording with debug logs", or `record
@@ -92,7 +93,7 @@ file. Keep README GIFs under 10 MB: lower `--width` or `--fps`, or trim with `--
 
 Zoom to each click (needs the `app-demo-video` skill's script):
 ```
-python3 ~/.claude/skills/shotate/scripts/clicks_to_turns.py rec.clicks.json /tmp/turns
+python3 ~/Applications/Shotate.app/Contents/Resources/skills/shotate/scripts/clicks_to_turns.py rec.clicks.json /tmp/turns
 python3 ~/.claude/skills/app-demo-video/scripts/zoom_from_clicks.py --video rec.mp4 \
   --turns /tmp/turns --out zoomed.mp4 --scale 1 --offset <offset it printed>
 ```
