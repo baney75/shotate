@@ -124,17 +124,21 @@ enum DebugBundle {
     /// The video's real length and size: the wall clock at the end runs past the last frame while
     /// the file is finished.
     static func measure(_ asset: AVURLAsset) -> (TimeInterval?, (width: Int, height: Int)?) {
-        var length: TimeInterval?
-        var size: (Int, Int)?
+        let box = MeasureBox()
         let semaphore = DispatchSemaphore(value: 0)
         Task.detached {
-            if let d = try? await asset.load(.duration), d.seconds.isFinite, d.seconds > 0 { length = d.seconds }
+            if let d = try? await asset.load(.duration), d.seconds.isFinite, d.seconds > 0 { box.length = d.seconds }
             if let track = try? await asset.loadTracks(withMediaType: .video).first,
-               let s = try? await track.load(.naturalSize) { size = (Int(s.width), Int(s.height)) }
+               let s = try? await track.load(.naturalSize) { box.size = (Int(s.width), Int(s.height)) }
             semaphore.signal()
         }
         semaphore.wait()
-        return (length, size)
+        return (box.length, box.size)
+    }
+
+    private final class MeasureBox: @unchecked Sendable {
+        var length: TimeInterval?
+        var size: (Int, Int)?
     }
 
     /// The first and last frames and one just after each click (at most 8 in all), as PNGs at most
