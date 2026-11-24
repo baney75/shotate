@@ -9,7 +9,7 @@ jobs:
   create:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # A draft until every installer is attached, so `releases/latest` never points at an empty one.
       - name: Create the release from the changelog
         env:
