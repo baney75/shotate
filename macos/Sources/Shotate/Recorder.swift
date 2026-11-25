@@ -482,7 +482,7 @@ final class RecordingIndicator {
             outline.ignoresMouseEvents = true
             let border = NSView()
             border.wantsLayer = true
-            border.layer?.borderColor = NSColor.systemRed.cgColor
+            border.layer?.borderColor = Brand.red.cgColor
             border.layer?.borderWidth = 2
             border.layer?.cornerRadius = 2
             outline.contentView = border
@@ -491,14 +491,33 @@ final class RecordingIndicator {
             outline = nil
         }
 
-        let dot = NSImageView(image: NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Recording")!)
-        dot.contentTintColor = .systemRed
-        clock.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        // A live red light: a dot with a ring that pulses out of it.
+        let dot = NSView(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
+        dot.wantsLayer = true
+        dot.layer?.backgroundColor = Brand.red.cgColor
+        dot.layer?.cornerRadius = 5
+        dot.layer?.masksToBounds = false
+        dot.widthAnchor.constraint(equalToConstant: 10).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        dot.setAccessibilityLabel("Recording")
+        Pulse.add(to: dot.layer!, color: Brand.red)
+        clock.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        clock.textColor = .white
         let button = FirstClickButton(title: "Stop", target: nil, action: nil)
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.backgroundColor = Brand.red.cgColor
+        button.layer?.cornerRadius = 11
+        button.attributedTitle = NSAttributedString(string: "Stop", attributes: [
+            .foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 12, weight: .semibold)])
+        let stopGlyph = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
+        button.image = stopGlyph
+        button.contentTintColor = .white
         button.imagePosition = .imageLeading
+        button.imageHugsTitle = true
+        button.widthAnchor.constraint(equalToConstant: 66).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 22).isActive = true
         button.target = button
         button.action = #selector(FirstClickButton.clicked)
         button.onClick = stop
@@ -506,21 +525,26 @@ final class RecordingIndicator {
         var views: [NSView] = [dot]
         if let title {
             let name = NSTextField(labelWithString: title)
-            name.font = .systemFont(ofSize: 12, weight: .semibold)
+            name.font = .systemFont(ofSize: 12, weight: .medium)
+            name.textColor = NSColor(white: 1, alpha: 0.7)
             name.lineBreakMode = .byTruncatingTail
             name.widthAnchor.constraint(lessThanOrEqualToConstant: 180).isActive = true
             views.append(name)
         }
         row = NSStackView(views: views + [clock, button])
-        row.spacing = 8
-        row.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 6)
+        row.spacing = 10
+        row.setCustomSpacing(12, after: dot)
+        row.edgeInsets = NSEdgeInsets(top: 6, left: 14, bottom: 6, right: 6)
         let size = row.fittingSize
-        let background = NSVisualEffectView()
-        background.material = .hudWindow
-        background.state = .active
+        // An ink pill with a hairline edge, the same ink as the icon.
+        let background = NSView()
         background.wantsLayer = true
-        background.layer?.cornerRadius = 9
+        background.layer?.backgroundColor = Brand.ink.withAlphaComponent(0.94).cgColor
+        background.layer?.cornerRadius = size.height / 2
+        background.layer?.borderColor = Brand.edge.cgColor
+        background.layer?.borderWidth = 1
         background.layer?.masksToBounds = true
+        background.appearance = NSAppearance(named: .darkAqua)
         background.addSubview(row)
         row.frame = CGRect(origin: .zero, size: size)
         bar = Self.panel(Self.barFrame(size: size, area: area, screen: screen.visibleFrame))
@@ -574,6 +598,7 @@ final class RecordingIndicator {
     private func fit() {
         let size = row.fittingSize
         row.frame = CGRect(origin: .zero, size: size)
+        bar.contentView?.layer?.cornerRadius = size.height / 2
         bar.setFrame(Self.barFrame(size: size, area: area, screen: screenFrame), display: true)
     }
 

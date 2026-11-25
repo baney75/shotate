@@ -1,5 +1,5 @@
-// Draws Shotate's app icon into an .iconset, then iconutil makes the .icns: a red marker loop, the way you
-// circle the thing that matters on a screenshot, inside crop corners on a deep ink tile.
+// Draws Yapshot's app icon into an .iconset, then iconutil makes the .icns: a red marker loop drawn as a
+// speech bubble, the way you circle what matters and say why, inside crop corners on a deep ink tile.
 //   swift scripts/make-icon.swift build/Shotate.iconset
 import AppKit
 
@@ -10,15 +10,24 @@ enum Brand {
     static let red = CGColor(srgbRed: 0.91, green: 0.26, blue: 0.29, alpha: 1)        // #E8434A
 }
 
-/// A hand-drawn loop: a little more than one turn, growing slightly, so the ends overlap like a marker.
-func loop(center c: CGPoint, rx: CGFloat, ry: CGFloat, tilt: CGFloat) -> CGPath {
+/// A hand-drawn speech bubble: a marker loop of a little more than one turn whose ends overlap,
+/// with a tail pulled out toward the lower left. It circles what matters and says it out loud.
+func bubble(center c: CGPoint, rx: CGFloat, ry: CGFloat, tilt: CGFloat, tail: CGFloat) -> CGPath {
     let p = CGMutablePath()
-    let start = CGFloat.pi * 0.70, sweep = CGFloat.pi * 2.18, steps = 160
+    let start = CGFloat.pi * 0.62, sweep = CGFloat.pi * 2.16, steps = 220
+    let tailAt = CGFloat.pi * 1.22   // lower left, measured like `a` below
+    let half = CGFloat.pi * 0.11     // how wide the tail's base is
     for i in 0...steps {
         let t = CGFloat(i) / CGFloat(steps)
         let a = start - sweep * t
-        let grow = 0.86 + 0.24 * t
-        let x = cos(a) * rx * grow, y = sin(a) * ry * grow
+        let grow = 0.90 + 0.18 * t
+        // Distance from the tail's angle, wrapped to -pi...pi.
+        var d = (a - tailAt).truncatingRemainder(dividingBy: 2 * .pi)
+        if d > .pi { d -= 2 * .pi }
+        if d < -.pi { d += 2 * .pi }
+        // A sharp spike that eases back into the loop, only on the first turn.
+        let spike = (abs(d) < half && t < 0.9) ? tail * pow(1 - abs(d) / half, 2.2) : 0
+        let x = cos(a) * (rx * grow + spike), y = sin(a) * (ry * grow + spike)
         let pt = CGPoint(x: c.x + x * cos(tilt) - y * sin(tilt), y: c.y + x * sin(tilt) + y * cos(tilt))
         i == 0 ? p.move(to: pt) : p.addLine(to: pt)
     }
@@ -47,12 +56,29 @@ func drawIcon(_ ctx: CGContext, size s: CGFloat) {
         ctx.move(to: CGPoint(x: x + dx * arm, y: y)); ctx.addLine(to: CGPoint(x: x, y: y)); ctx.addLine(to: CGPoint(x: x, y: y + dy * arm))
     }
     ctx.strokePath()
-    // The loop: the annotation.
+    // The bubble: the annotation and the voice.
+    let center = CGPoint(x: rect.midX + w * 0.01, y: rect.midY + w * 0.03)
+    ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -w * 0.012), blur: w * 0.035, color: CGColor(gray: 0, alpha: 0.45))
     ctx.setStrokeColor(Brand.red)
-    ctx.setLineWidth(max(2, w * 0.085))
-    ctx.addPath(loop(center: CGPoint(x: rect.midX, y: rect.midY), rx: w * 0.25, ry: w * 0.17, tilt: 0.28))
+    ctx.setLineWidth(max(2, w * 0.07))
+    ctx.addPath(bubble(center: center, rx: w * 0.265, ry: w * 0.19, tilt: 0.12, tail: w * 0.15))
     ctx.strokePath()
+    ctx.restoreGState()
+    // A few voice bars inside, only where there are pixels to show them.
+    if s >= 60 {
+        let bars: [CGFloat] = [0.30, 0.62, 1.0, 0.52, 0.78, 0.36]
+        let bw = w * 0.032, gap = w * 0.030, tall = w * 0.16
+        var x = center.x - (CGFloat(bars.count) * bw + CGFloat(bars.count - 1) * gap) / 2
+        ctx.setFillColor(CGColor(gray: 1, alpha: 0.95))
+        for h in bars {
+            let bh = max(bw, tall * h)
+            ctx.addPath(CGPath(roundedRect: CGRect(x: x, y: center.y - bh / 2, width: bw, height: bh),
+                               cornerWidth: bw / 2, cornerHeight: bw / 2, transform: nil))
+            x += bw + gap
+        }
+        ctx.fillPath()
+    }
     ctx.restoreGState()
     // A thin edge so the tile reads on dark Docks.
     ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.10))
