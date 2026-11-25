@@ -23,8 +23,8 @@ public struct UpdateManifest: Codable, Equatable {
     /// Where each channel's newest manifest lives. GitHub redirects these, so there is no API rate limit.
     public static func url(channel: String) -> URL {
         URL(string: channel == "nightly"
-            ? "https://github.com/baney75/shotate/releases/download/nightly/manifest.json"
-            : "https://github.com/baney75/shotate/releases/latest/download/manifest.json")!
+            ? "https://github.com/baney75/yapshot/releases/download/nightly/manifest.json"
+            : "https://github.com/baney75/yapshot/releases/latest/download/manifest.json")!
     }
 }
 
@@ -46,9 +46,9 @@ public struct BuildInfo: Equatable {
     public init(bundle: Bundle) {
         let info = bundle.infoDictionary ?? [:]
         version = info["CFBundleShortVersionString"] as? String ?? "0"
-        commit = info["ShotateCommit"] as? String ?? "unknown"
-        channel = info["ShotateChannel"] as? String ?? "stable"
-        date = (info["ShotateBuildDate"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .distantPast
+        commit = info["YapshotCommit"] as? String ?? "unknown"
+        channel = info["YapshotChannel"] as? String ?? "stable"
+        date = (info["YapshotBuildDate"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .distantPast
     }
 
     public var shortCommit: String { String(commit.prefix(7)) }

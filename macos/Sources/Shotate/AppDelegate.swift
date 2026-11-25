@@ -796,16 +796,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Launch at login
 
-    /// Open at login was registered for Snapmark.app. Registering again once points it at Shotate.app;
-    /// macOS keeps the old path otherwise, and the item stops working once that app is gone.
+    /// Open at login was registered for Snapmark.app or Shotate.app. Registering again once points it at
+    /// Yapshot.app; macOS keeps the old path otherwise, and the item stops working once that app is gone.
+    /// The wish is saved before unregistering, so a failed register is tried again on the next launch.
     private func moveLoginItem() {
-        let key = "loginItemMovedToShotate"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        guard launchAtLogin else { return UserDefaults.standard.set(true, forKey: key) }
+        let key = "loginItemMovedToYapshot", wanted = "loginItemMoveWanted"
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: key) else { return }
+        guard launchAtLogin || defaults.bool(forKey: wanted) else { return defaults.set(true, forKey: key) }
+        defaults.set(true, forKey: wanted)
         do {
             try? SMAppService.mainApp.unregister()
             try SMAppService.mainApp.register()
-            UserDefaults.standard.set(true, forKey: key)
+            defaults.set(true, forKey: key)
+            defaults.removeObject(forKey: wanted)
         } catch {
             NSLog("Yapshot: moving the login item: %@", error.localizedDescription)
         }

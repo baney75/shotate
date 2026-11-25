@@ -2,10 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "Shotate",
+    name: "Yapshot",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "Shotate", targets: ["Shotate"]),
+        .executable(name: "Yapshot", targets: ["Shotate"]),
     ],
     targets: [
         // Drawing model, rendering and settings: no AppKit windows, fully unit-tested.

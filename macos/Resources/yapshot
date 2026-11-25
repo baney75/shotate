@@ -1,0 +1,10 @@
+#!/bin/sh
+# yapshot: Yapshot's command line for people and coding agents. Run `yapshot help`.
+# This file lives in Yapshot.app/Contents/Resources/bin and is linked from ~/.local/bin, as yapshot
+# and as shotate, the old name, which still works the same.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+done
+exec "$(cd "$(dirname "$self")/../../MacOS" && pwd)/Yapshot" --cli "$@"

@@ -1,13 +1,13 @@
 import AppKit
 import ShotateCore
 
-/// Who made Shotate and where to find them. One place, used by the About panel, Settings and Welcome.
+/// Who made Yapshot and where to find them. One place, used by the About panel, Settings and Welcome.
 enum Credits {
     static let author = "Donovan Baney"
     static let handle = "@baney75"
     static let links: [(String, String)] = [
         ("dbaney.com", "https://dbaney.com"),
-        ("GitHub", "https://github.com/baney75/shotate"),
+        ("GitHub", "https://github.com/baney75/yapshot"),
         ("X \(handle)", "https://x.com/baney75"),
     ]
 

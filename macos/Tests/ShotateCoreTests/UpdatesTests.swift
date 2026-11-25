@@ -65,14 +65,14 @@ final class UpdatesTests: XCTestCase {
     }
 
     func testDecodesTheManifestCIWrites() throws {
-        let json = #"{"channel":"stable","version":"0.12.0","commit":"abc","date":"2026-10-11T18:00:00Z","notes":"https://github.com/baney75/shotate/releases/tag/v0.12.0","assets":{"windows-x64":{"name":"Shotate_0.12.0_x64-setup.exe","url":"https://github.com/x","sha256":"00"}}}"#
+        let json = #"{"channel":"stable","version":"0.12.0","commit":"abc","date":"2026-10-11T18:00:00Z","notes":"https://github.com/baney75/yapshot/releases/tag/v0.12.0","assets":{"windows-x64":{"name":"Yapshot_0.12.0_x64-setup.exe","url":"https://github.com/x","sha256":"00"}}}"#
         let m = try UpdateManifest.decode(Data(json.utf8))
         XCTAssertEqual(m.version, "0.12.0")
-        XCTAssertEqual(m.assets["windows-x64"]?.name, "Shotate_0.12.0_x64-setup.exe")
+        XCTAssertEqual(m.assets["windows-x64"]?.name, "Yapshot_0.12.0_x64-setup.exe")
     }
 
     func testUpdateSettingsRoundTrip() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-upd-\(UUID().uuidString).json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-upd-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }
         var s = Settings()
         XCTAssertNil(s.updateChannel)
