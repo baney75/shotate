@@ -71,7 +71,7 @@ export const api = {
   updateStatus: () => call<UpdateStatus>("get_update_status"),
   /** Always checks, even with automatic checks off. */
   checkUpdates: () => call<UpdateStatus>("check_updates"),
-  /** Installs the available update; Shotate quits and the new one starts. */
+  /** Installs the available update; Yapshot quits and the new one starts. */
   installUpdate: () => call<void>("install_update"),
 };
 

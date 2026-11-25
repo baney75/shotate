@@ -10,12 +10,12 @@ export async function startWelcome(root: HTMLElement) {
   const keys = shortcutLabel(config.shortcuts.captureArea);
   const wayland = platform === "linux-wayland";
   const capture = wayland
-    ? "Wayland lets your desktop own global shortcuts: add one in your keyboard settings that runs <code>shotate --capture</code>."
+    ? "Wayland lets your desktop own global shortcuts: add one in your keyboard settings that runs <code>yapshot --capture</code>."
     : keys ? `Press ${keys} and drag. Space switches to picking a whole window.` : "Use the tray icon, or set a shortcut in Settings.";
   root.innerHTML = `
     <div class="page"><div class="welcome">
       <img src="/icon.png" alt="">
-      <h1>Welcome to Shotate</h1>
+      <h1>Welcome to Yapshot</h1>
       <p>Capture, mark up, and paste in a few seconds.</p>
       <p class="note" id="build"></p>
       <div class="card">
@@ -24,7 +24,7 @@ export async function startWelcome(root: HTMLElement) {
         <div class="row">${icon("gear")}<div class="label"><b>Lives in your system tray</b><span>Every capture mode, Open Image and Settings are one click away.</span></div></div>
       </div>
       <div class="actions">
-        <label class="grow"><button class="switch" role="switch" id="login" aria-checked="${login}" aria-label="Open Shotate when I log in"></button>Open at login</label>
+        <label class="grow"><button class="switch" role="switch" id="login" aria-checked="${login}" aria-label="Open Yapshot when I log in"></button>Open at login</label>
         <button class="btn" id="done">Done</button><button class="primary" id="try">Try a capture</button>
       </div>
       ${credits()}

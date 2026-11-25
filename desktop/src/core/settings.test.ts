@@ -39,8 +39,8 @@ const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
 
 describe("updates", () => {
   it("labels the build with version, channel and short commit", () => {
-    expect(buildLabel(build)).toBe("Shotate 0.12.0 · Stable · a3cab60");
-    expect(buildLabel({ ...build, channel: "nightly", commit: "unknown" })).toBe("Shotate 0.12.0 · Nightly preview");
+    expect(buildLabel(build)).toBe("Yapshot 0.12.0 · Stable · a3cab60");
+    expect(buildLabel({ ...build, channel: "nightly", commit: "unknown" })).toBe("Yapshot 0.12.0 · Nightly preview");
   });
 
   it("says how long ago", () => {
@@ -54,12 +54,12 @@ describe("updates", () => {
 
   it("writes the status line", () => {
     const now = Date.now();
-    expect(updateStatusLine(status({ checkedAt: now - 3 * 60_000 }), now)).toBe("Shotate 0.12.0 is up to date. Checked 3 minutes ago.");
-    expect(updateStatusLine(status(), now)).toBe("Shotate 0.12.0. Not checked yet.");
+    expect(updateStatusLine(status({ checkedAt: now - 3 * 60_000 }), now)).toBe("Yapshot 0.12.0 is up to date. Checked 3 minutes ago.");
+    expect(updateStatusLine(status(), now)).toBe("Yapshot 0.12.0. Not checked yet.");
     expect(updateStatusLine(status({ checking: true }), now)).toBe("Checking for updates…");
     expect(updateStatusLine(status({ error: "Couldn't reach GitHub" }), now)).toBe("Couldn't reach GitHub");
-    const available = { version: "0.12.1", notes: "https://github.com/baney75/shotate/releases/tag/v0.12.1", offer: "update" as const, label: "Update to Shotate 0.12.1" };
-    expect(updateStatusLine(status({ available }), now)).toBe("Shotate 0.12.1 is available.");
+    const available = { version: "0.12.1", notes: "https://github.com/baney75/yapshot/releases/tag/v0.12.1", offer: "update" as const, label: "Update to Yapshot 0.12.1" };
+    expect(updateStatusLine(status({ available }), now)).toBe("Yapshot 0.12.1 is available.");
     expect(updateStatusLine(status({ available: { ...available, offer: "switchToStable" } }), now)).toBe("Stable 0.12.1 is available.");
   });
 });
