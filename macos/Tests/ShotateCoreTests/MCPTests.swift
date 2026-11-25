@@ -177,7 +177,8 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual((servers["shotate"] as? [String: Any])?["command"] as? String, "/Apps/shotate")
         XCTAssertEqual((servers["shotate"] as? [String: Any])?["args"] as? [String], ["mcp"])
 
-        XCTAssertEqual(try MCPInstall.addJSON(at: file, command: "/other", args: [], now: now).outcome, .alreadyThere)
+        XCTAssertEqual(try MCPInstall.addJSON(at: file, command: "/Apps/shotate", args: ["mcp"], now: now,
+                                              isExecutable: { _ in true }).outcome, .alreadyThere)
         let removed = try MCPInstall.removeJSON(at: file, now: now)
         XCTAssertEqual(removed.outcome, .removed)
         XCTAssertNotEqual(removed.backup, backup)
@@ -218,7 +219,8 @@ final class MCPTests: XCTestCase {
         let added = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(added.hasPrefix(original))
         XCTAssertTrue(added.contains("[mcp_servers.shotate]\ncommand = \"/Apps/Sho \\\"tate\\\"/shotate\"\nargs = [\"mcp\"]\n"))
-        XCTAssertEqual(try MCPInstall.addTOML(at: file, command: "/y", args: [], now: now).outcome, .alreadyThere)
+        XCTAssertEqual(try MCPInstall.addTOML(at: file, command: "/Apps/Sho \"tate\"/shotate", args: ["mcp"], now: now,
+                                              isExecutable: { _ in true }).outcome, .alreadyThere)
 
         // A subtable the user added under it goes too; the tables after it stay.
         try Data((added + "\n[mcp_servers.shotate.env]\nA = \"1\"\n\n[tools]\nweb = true\n").utf8).write(to: file)
@@ -258,5 +260,56 @@ final class MCPTests: XCTestCase {
         let a = try XCTUnwrap(MCPInstall.backupIfPresent(file, now: now))
         let b = try XCTUnwrap(MCPInstall.backupIfPresent(file, now: now))
         XCTAssertNotEqual(a, b)
+    }
+
+    func testInitializeEchoesASupportedOlderVersion() throws {
+        let s = MCPServer(handler: FakeHandler(), version: "1")
+        for (asked, answer) in [("2024-11-05", "2024-11-05"), ("2025-03-26", "2025-03-26"), ("2025-06-18", "2025-06-18"),
+                                ("1999-01-01", "2025-06-18")] {
+            let r = try reply(s, #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"\#(asked)"}}"#)
+            XCTAssertEqual((r["result"] as? [String: Any])?["protocolVersion"] as? String, answer, asked)
+        }
+        let none = try reply(s, #"{"jsonrpc":"2.0","id":2,"method":"initialize"}"#)
+        XCTAssertEqual((none["result"] as? [String: Any])?["protocolVersion"] as? String, "2025-06-18")
+    }
+
+    /// Every name list_scripts shows reads back: .txt files, a title that ended in .md, and two files
+    /// with the same base name.
+    func testEveryListedScriptNameReadsBack() throws {
+        let voice = try tempFolder()
+        let dir = Scripts.folder(in: voice)
+        let intro = try Scripts.save(title: "Intro.md", text: "intro", in: voice)
+        XCTAssertEqual(intro.lastPathComponent, "Intro.md")
+        XCTAssertEqual(Scripts.safeTitle("Notes.TXT"), "Notes")
+        try Data("plan".utf8).write(to: dir.appendingPathComponent("Plan.txt"))
+        try Data("dup md".utf8).write(to: dir.appendingPathComponent("Dup.md"))
+        try Data("dup txt".utf8).write(to: dir.appendingPathComponent("Dup.txt"))
+        try Data("old".utf8).write(to: dir.appendingPathComponent("Old.md.md"))
+        let names = Scripts.list(in: voice).map(\.name)
+        XCTAssertEqual(Set(names), ["Intro", "Plan", "Dup.md", "Dup.txt", "Old.md"])
+        for info in Scripts.list(in: voice) {
+            XCTAssertEqual(try Scripts.resolve(info.name, in: voice).lastPathComponent, info.url.lastPathComponent, info.name)
+        }
+        XCTAssertEqual(try Scripts.read("Plan", in: voice), "plan")
+        XCTAssertEqual(try Scripts.read("Plan.txt", in: voice), "plan")
+        XCTAssertEqual(try Scripts.read("Intro.md", in: voice), "intro")
+        XCTAssertEqual(try Scripts.read("Dup", in: voice), "dup md")
+        try Scripts.delete("Plan", in: voice)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("Plan.txt").path))
+    }
+
+    /// Durations are measured only for the notes returned.
+    func testVoiceLibraryLimitMeasuresOnlyWhatItReturns() throws {
+        let voice = try tempFolder()
+        for i in 0..<10 {
+            let u = voice.appendingPathComponent("Note \(i).m4a")
+            try Data().write(to: u)
+            try FileManager.default.setAttributes([.creationDate: Date(timeIntervalSince1970: Double(1000 + i))], ofItemAtPath: u.path)
+        }
+        var measured: [String] = []
+        let lib = VoiceNotes.library(in: voice, limit: 2) { measured.append($0.lastPathComponent); return 1 }
+        XCTAssertEqual(lib.map(\.name), ["Note 9", "Note 8"])
+        XCTAssertEqual(lib.map(\.duration), [1, 1])
+        XCTAssertEqual(measured.sorted(), ["Note 8.m4a", "Note 9.m4a"])
     }
 }

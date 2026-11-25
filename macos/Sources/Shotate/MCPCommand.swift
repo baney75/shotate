@@ -43,12 +43,13 @@ struct MCPTools: MCPToolHandler {
         case "send_script":
             let url = try Scripts.save(title: MCPServer.string(a, "title"), text: MCPServer.string(a, "text"), in: voice)
             let name = url.deletingPathExtension().lastPathComponent
-            guard AgentCLI.appIsRunning() else {
-                return "Saved \u{201C}\(name)\u{201D} to \(url.path). Shotate isn't running, so it isn't on screen; "
-                    + "the user can open it from Scripts in Shotate's menu bar menu."
+            let saved = "Saved \u{201C}\(name)\u{201D} to \(url.path)."
+            guard AgentCLI.appIsRunning() else { return saved }
+            let r = AgentCLI.send(["command": "script", "path": url.path], wait: 2, launch: false)
+            if let e = r["error"] as? String {
+                // An app without the teleprompter says so; anything else, claim nothing more than the save.
+                return e.hasPrefix("Unknown command") ? saved + " Open it from Shotate's Scripts menu." : saved
             }
-            let r = AgentCLI.send(["command": "script", "path": url.path], wait: 10, launch: false)
-            if let e = r["error"] as? String { return "Saved \u{201C}\(name)\u{201D} to \(url.path), but Shotate couldn't show it: \(e)" }
             return "Saved \u{201C}\(name)\u{201D} to \(url.path) and opened it in Shotate's teleprompter. "
                 + "The user presses Record there to read it aloud as a voice note."
         case "list_scripts":
@@ -65,7 +66,7 @@ struct MCPTools: MCPToolHandler {
         case "list_voice_notes":
             let limit = max(1, (a["limit"] as? Int) ?? 20)
             let f = ISO8601DateFormatter()
-            let notes = VoiceNotes.library(in: voice) { (try? AVAudioPlayer(contentsOf: $0))?.duration }.prefix(limit)
+            let notes = VoiceNotes.library(in: voice, limit: limit) { (try? AVAudioPlayer(contentsOf: $0))?.duration }
             return MCPServer.json(["folder": voice.path, "voiceNotes": notes.map { n -> [String: Any] in
                 var o: [String: Any] = ["name": n.name, "file": n.url.lastPathComponent, "date": f.string(from: n.date),
                                         "hasTranscript": n.meta.transcript != nil]
@@ -84,12 +85,10 @@ struct MCPTools: MCPToolHandler {
             return MCPServer.json(o)
         case "status":
             let s = settings
-            var o: [String: Any] = ["running": AgentCLI.appIsRunning(), "agentControl": s.agentControl,
+            let app = AgentCLI.ping()
+            var o: [String: Any] = ["running": app != nil, "agentControl": s.agentControl,
                                     "voiceFolder": s.voiceFolder.path, "scriptsFolder": Scripts.folder(in: s.voiceFolder).path]
-            if o["running"] as? Bool == true {
-                let r = AgentCLI.send(["command": "status"], wait: 5, launch: false)
-                for key in ["agentControl", "version", "screenRecording", "recording"] { if let v = r[key] { o[key] = v } }
-            }
+            for key in ["agentControl", "version", "screenRecording", "recording"] { if let v = app?[key] { o[key] = v } }
             return MCPServer.json(o)
         case "capture":
             guard settings.agentControl else {
@@ -129,6 +128,12 @@ enum MCPSetup {
 
     static func run(install: Bool, clients: [MCPInstall.Client]) -> [Result] {
         let (command, args) = serverCommand
+        if install {
+            let readOnly = (try? URL(fileURLWithPath: command).resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly ?? false
+            if let refusal = MCPInstall.installRefusal(command: command, readOnlyVolume: readOnly) {
+                return clients.map { Result(client: $0, outcome: "error", detail: refusal) }
+            }
+        }
         let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
         return clients.map { c in
             guard let file = c.configURL(home: home) else { return claude(install: install, command: command, args: args) }
@@ -145,7 +150,8 @@ enum MCPSetup {
                 let detail: String
                 switch change.outcome {
                 case .added: detail = "Added shotate to \(path)\(backup)."
-                case .alreadyThere: detail = "\(path) already has a shotate entry; left it as it is."
+                case .updated: detail = "Updated shotate in \(path) to run this copy of Shotate\(backup)."
+                case .alreadyThere: detail = "\(path) already has a shotate entry for this copy of Shotate; left it as it is."
                 case .removed: detail = "Removed shotate from \(path)\(backup)."
                 case .notThere: detail = "\(path) has no shotate entry."
                 }
@@ -156,32 +162,46 @@ enum MCPSetup {
         }
     }
 
-    /// Claude Code keeps its own config: its `claude mcp` command edits it.
+    /// Claude Code keeps its own config: its `claude mcp` command edits it. An entry that is already
+    /// there is removed and added again, so it points at this copy of Shotate.
     static func claude(install: Bool, command: String, args: [String]) -> Result {
         let argv = install ? MCPInstall.claudeAddArguments(command: command, args: args) : MCPInstall.claudeRemoveArguments
-        guard let claude = MCPInstall.findExecutable("claude", path: ProcessInfo.processInfo.environment["PATH"],
-                                                     extra: ["~/.local/bin", "~/.claude/local", "/opt/homebrew/bin", "/usr/local/bin"]) else {
+        let extra = ["~/.local/bin", "~/.claude/local", "/opt/homebrew/bin", "/usr/local/bin"]
+        let env = ProcessInfo.processInfo.environment
+        guard let claude = MCPInstall.findExecutable("claude", path: env["PATH"], extra: extra) else {
             return Result(client: .claude, outcome: "skipped",
                           detail: "claude isn't on PATH. To add it later: claude " + argv.joined(separator: " "))
         }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: claude)
-        p.arguments = argv
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = pipe
-        p.standardInput = FileHandle.nullDevice
-        do { try p.run() } catch { return Result(client: .claude, outcome: "error", detail: error.localizedDescription) }
-        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        p.waitUntilExit()
-        if p.terminationStatus == 0 {
+        var childEnv = env
+        childEnv["PATH"] = MCPInstall.childPATH(current: env["PATH"], extra: extra, found: claude)
+        func runClaude(_ argv: [String]) -> (status: Int32, output: String)? {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: claude)
+            p.arguments = argv
+            p.environment = childEnv
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = pipe
+            p.standardInput = FileHandle.nullDevice
+            do { try p.run() } catch { return nil }
+            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            p.waitUntilExit()
+            return (p.terminationStatus, output)
+        }
+        guard let (status, output) = runClaude(argv) else {
+            return Result(client: .claude, outcome: "error", detail: "Couldn't run \(claude).")
+        }
+        if status == 0 {
             return Result(client: .claude, outcome: install ? "added" : "removed",
                           detail: install ? "Ran claude mcp add: shotate is in Claude Code's user config." : "Ran claude mcp remove.")
         }
         let lower = output.lowercased()
         if install, lower.contains("already exists") {
-            return Result(client: .claude, outcome: "alreadyThere", detail: "Claude Code already has a shotate server; left it as it is.")
+            if runClaude(MCPInstall.claudeRemoveArguments)?.status == 0, let again = runClaude(argv), again.status == 0 {
+                return Result(client: .claude, outcome: "updated", detail: "Updated shotate in Claude Code's user config to run this copy of Shotate.")
+            }
+            return Result(client: .claude, outcome: "error", detail: "Claude Code has a shotate server Shotate couldn't update: \(output)")
         }
         if !install, lower.contains("no ") || lower.contains("not found") {
             return Result(client: .claude, outcome: "notThere", detail: "Claude Code has no shotate server.")

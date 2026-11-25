@@ -82,6 +82,11 @@ enum AgentCLI {
             guard launch else { return ["running": false] }
             startApp()
         }
+        return post(request, wait: wait)
+    }
+
+    /// Posts one request to the app and waits up to `wait` seconds for its reply.
+    static func post(_ request: [String: Any], wait: TimeInterval) -> [String: Any] {
         let id = UUID().uuidString
         let reply = AgentProtocol.replyURL(id)
         guard let data = try? JSONSerialization.data(withJSONObject: request), let json = String(data: data, encoding: .utf8) else {
@@ -101,22 +106,29 @@ enum AgentCLI {
         return ["error": "Shotate didn't answer within \(Int(wait)) s. Is it running? (`open -a Shotate`)"]
     }
 
-    static func appIsRunning() -> Bool {
+    /// The app's status reply, or nil when the app isn't up. Other processes of this bundle (the
+    /// `shotate mcp` servers agents keep running) count only if they answer, and only the app does.
+    static func ping(wait: TimeInterval = 1) -> [String: Any]? {
         let me = getpid()
-        return NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.baney.snapmark")
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.baney.snapmark")
             .contains { $0.processIdentifier != me && !$0.isTerminated }
+        guard others else { return nil }
+        let r = post(["command": "status"], wait: wait)
+        return r["error"] == nil ? r : nil
     }
 
-    /// Opens the app this command lives in, in the background, and waits until it can answer.
+    /// Whether the Shotate app itself is running and answering.
+    static func appIsRunning() -> Bool { ping() != nil }
+
+    /// Opens the app this command lives in, in the background, and waits until it answers.
     static func startApp() {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         p.arguments = ["-g", Bundle.main.bundleURL.path]
         try? p.run()
         p.waitUntilExit()
-        for _ in 0..<100 where !appIsRunning() { Thread.sleep(forTimeInterval: 0.1) }
-        // Let it finish launching and start listening.
-        Thread.sleep(forTimeInterval: 1.5)
+        let deadline = Date().addingTimeInterval(12)
+        while Date() < deadline, !appIsRunning() { Thread.sleep(forTimeInterval: 0.2) }
     }
 
     // MARK: Local commands

@@ -11,6 +11,8 @@ public protocol MCPToolHandler {
 /// only, as a child process of the agent that started it; it opens no port.
 public final class MCPServer {
     public static let protocolVersion = "2025-06-18"
+    /// Versions this server can speak. Nothing it uses is newer than the oldest.
+    public static let supportedVersions = ["2024-11-05", "2025-03-26", "2025-06-18"]
     private let handler: MCPToolHandler
     private let version: String
 
@@ -76,8 +78,10 @@ public final class MCPServer {
         let params = message["params"] as? [String: Any] ?? [:]
         switch method {
         case "initialize":
+            // The client's version when this server supports it, as MCP asks; otherwise the latest.
+            let asked = params["protocolVersion"] as? String ?? ""
             return encode(result: [
-                "protocolVersion": Self.protocolVersion,
+                "protocolVersion": Self.supportedVersions.contains(asked) ? asked : Self.protocolVersion,
                 "capabilities": ["tools": ["listChanged": false]],
                 "serverInfo": ["name": "shotate", "title": "Shotate", "version": version],
                 "instructions": "Shotate is the user's screenshot and voice notes app on this Mac. send_script puts a script "

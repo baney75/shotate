@@ -15,10 +15,11 @@ public enum Scripts {
     }
 
     /// A title made into a file name: no separators, no leading dots (so never "..", never hidden),
-    /// at most 120 characters. Empty becomes "Script".
+    /// no `.md` or `.txt` on the end (save adds `.md`), at most 120 characters. Empty becomes "Script".
     public static func safeTitle(_ raw: String) -> String {
         var s = VoiceNotes.safeName(raw.replacingOccurrences(of: "\\", with: "-"))
         s = String(s.drop { $0 == "." || $0 == " " })
+        for ext in [".md", ".txt"] where s.lowercased().hasSuffix(ext) { s = String(s.dropLast(ext.count)) }
         s = String(s.prefix(120)).trimmingCharacters(in: .whitespacesAndNewlines)
         return s.isEmpty ? "Script" : s
     }
@@ -33,25 +34,37 @@ public enum Scripts {
         return url
     }
 
-    /// Newest first.
+    /// Newest first. A name is the file name without its extension, unless two files share that
+    /// base name (`Plan.md`, `Plan.txt`): then each is listed by its file name. Every name listed
+    /// reads back with `resolve`.
     public static func list(in voiceFolder: URL) -> [Info] {
         let dir = folder(in: voiceFolder)
         let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
                                                                  options: [.skipsHiddenFiles])) ?? []
-        return urls.filter { ["md", "txt"].contains($0.pathExtension.lowercased()) }.map { u in
+        let scripts = urls.filter { ["md", "txt"].contains($0.pathExtension.lowercased()) }
+        let bases = scripts.map { $0.deletingPathExtension().lastPathComponent.lowercased() }
+        return scripts.map { u in
             let date = (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             let text = (try? String(contentsOf: u, encoding: .utf8)) ?? ""
-            return Info(name: u.deletingPathExtension().lastPathComponent, url: u, modified: date, words: wordCount(text))
+            let base = u.deletingPathExtension().lastPathComponent
+            let shared = bases.filter { $0 == base.lowercased() }.count > 1
+            return Info(name: shared ? u.lastPathComponent : base, url: u, modified: date, words: wordCount(text))
         }.sorted { $0.modified != $1.modified ? $0.modified > $1.modified : $0.name < $1.name }
     }
 
-    /// The file a name means, with or without `.md`. Throws for anything that isn't a plain name of
-    /// a script in the folder: "../x", "a/b", "~", ".hidden" or a missing file.
+    /// The file a name means: the file name itself when it ends in `.md` or `.txt`, then
+    /// `<name>.md`, then `<name>.txt`. Throws for anything that isn't a plain name of a script in the
+    /// folder: "../x", "a/b", "~", ".hidden" or a missing file.
     public static func resolve(_ name: String, in voiceFolder: URL) throws -> URL {
         let dir = folder(in: voiceFolder)
-        let url = try contained(name, in: dir, extensions: ["md", "txt"], defaultExtension: "md")
-        guard FileManager.default.fileExists(atPath: url.path) else { throw AgentError("No script named \u{201C}\(name)\u{201D}.") }
-        return url
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var candidates = [n + ".md", n + ".txt"]
+        if ["md", "txt"].contains((n as NSString).pathExtension.lowercased()) { candidates.insert(n, at: 0) }
+        for c in candidates {
+            let url = try contained(c, in: dir, extensions: ["md", "txt"], defaultExtension: "md")
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        throw AgentError("No script named \u{201C}\(name)\u{201D}.")
     }
 
     public static func read(_ name: String, in voiceFolder: URL) throws -> String {
@@ -94,17 +107,22 @@ extension VoiceNotes {
     }
 
     /// The voice notes in `folder`, newest first, read straight from the files and sidecars. A
-    /// duration missing from the sidecar comes from `duration` (the app measures the audio).
-    public static func library(in folder: URL, duration: (URL) -> Double? = { _ in nil }) -> [Entry] {
+    /// duration missing from the sidecar comes from `duration` (the app measures the audio), and
+    /// only for the `limit` newest notes returned.
+    public static func library(in folder: URL, limit: Int? = nil, duration: (URL) -> Double? = { _ in nil }) -> [Entry] {
         let keys: [URLResourceKey] = [.creationDateKey]
         let urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys,
                                                                  options: [.skipsHiddenFiles])) ?? []
-        return urls.filter { audioExtensions.contains($0.pathExtension.lowercased()) }.map { u in
+        let all: [Entry] = urls.filter { audioExtensions.contains($0.pathExtension.lowercased()) }.map { u in
             let meta = (try? JSONDecoder().decode(VoiceMeta.self, from: Data(contentsOf: sidecarURL(for: u)))) ?? VoiceMeta()
             let date = (try? u.resourceValues(forKeys: Set(keys)))?.creationDate ?? .distantPast
             return Entry(name: u.deletingPathExtension().lastPathComponent, url: u, date: date,
-                         duration: meta.duration ?? duration(u), meta: meta)
-        }.sorted { $0.date != $1.date ? $0.date > $1.date : $0.name < $1.name }
+                         duration: meta.duration, meta: meta)
+        }
+        let sorted = all.sorted { $0.date != $1.date ? $0.date > $1.date : $0.name < $1.name }
+        var kept = Array(sorted.prefix(limit ?? Int.max))
+        for i in kept.indices where kept[i].duration == nil { kept[i].duration = duration(kept[i].url) }
+        return kept
     }
 
     /// The note a name means: its name as listed, or its file name. Never outside `folder`.
