@@ -1,9 +1,9 @@
 // Draws Yapshot's app icon into an .iconset, then iconutil makes the .icns: a red marker loop drawn as a
 // speech bubble, the way you circle what matters and say why, inside crop corners on a deep ink tile.
-//   swift scripts/make-icon.swift build/Shotate.iconset
+//   swift scripts/make-icon.swift build/Yapshot.iconset
 import AppKit
 
-/// Shotate's colors. Mark red is also the editor's default ink.
+/// Yapshot's colors. Mark red is also the editor's default ink.
 enum Brand {
     static let ink = CGColor(srgbRed: 0.075, green: 0.082, blue: 0.137, alpha: 1)      // #131523
     static let inkTop = CGColor(srgbRed: 0.161, green: 0.176, blue: 0.290, alpha: 1)   // #292D4A

@@ -1,10 +1,10 @@
 // Draws the README banner and the GitHub social card from the app icon:
-//   swift scripts/make-brand.swift build/Shotate.iconset/icon_512x512@2x.png docs
+//   swift scripts/make-brand.swift build/Yapshot.iconset/icon_512x512@2x.png docs
 import AppKit
 
 let icon = NSImage(contentsOfFile: CommandLine.arguments[1])!.cgImage(forProposedRect: nil, context: nil, hints: nil)!
 let out = CommandLine.arguments[2]
-// Shotate's colors: deep ink, and mark red (the editor's default ink).
+// Yapshot's colors: deep ink, and mark red (the editor's default ink).
 let ink = CGColor(srgbRed: 0.075, green: 0.082, blue: 0.137, alpha: 1)
 let inkTop = CGColor(srgbRed: 0.161, green: 0.176, blue: 0.290, alpha: 1)
 let red = NSColor(srgbRed: 0.91, green: 0.26, blue: 0.29, alpha: 1)
@@ -40,7 +40,7 @@ func render(_ w: Int, _ h: Int, iconSize: CGFloat, title: CGFloat, to name: Stri
         ctx.textPosition = p
         CTLineDraw(line(width > room ? size * room / width : size), ctx)
     }
-    text("Shotate", size: title, weight: .heavy, rounded: true, color: .white, at: CGPoint(x: x, y: lift + H / 2 + title * 0.12))
+    text("Yapshot", size: title, weight: .heavy, rounded: true, color: .white, at: CGPoint(x: x, y: lift + H / 2 + title * 0.12))
     text("Point at what matters.", size: title * 0.38, weight: .semibold, color: NSColor(white: 1, alpha: 0.86),
          at: CGPoint(x: x, y: lift + H / 2 - title * 0.42))
     text("Free screenshot and annotation tool for macOS, Windows and Linux", size: title * 0.235, weight: .regular,

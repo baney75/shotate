@@ -10,10 +10,10 @@ install:
 uninstall:
 	../uninstall.sh
 selftest: app
-	build/Shotate.app/Contents/MacOS/Shotate --selftest Tests/Fixtures/sample.png build/selftest.png
+	build/Yapshot.app/Contents/MacOS/Yapshot --selftest Tests/Fixtures/sample.png build/selftest.png
 # Regenerates the README banner, social card and example image from the app icon and renderer.
 brand: app
-	swift scripts/make-brand.swift build/Shotate.iconset/icon_512x512@2x.png ../docs
-	build/Shotate.app/Contents/MacOS/Shotate --selftest Tests/Fixtures/sample.png ../docs/example.png
+	swift scripts/make-brand.swift build/Yapshot.iconset/icon_512x512@2x.png ../docs
+	build/Yapshot.app/Contents/MacOS/Yapshot --selftest Tests/Fixtures/sample.png ../docs/example.png
 clean:
 	rm -rf .build build
