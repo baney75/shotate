@@ -1,11 +1,11 @@
 import AppKit
 import ShotateCore
 
-// `Shotate --cli <command>`: the `shotate` command line (AgentCLI). It never starts a second app.
+// `Yapshot --cli <command>`: the `yapshot` command line (AgentCLI). It never starts a second app.
 let args = CommandLine.arguments
 if args.count > 1, args[1] == "--cli" { AgentCLI.run(Array(args.dropFirst(2))) }
 
-// `Shotate --selftest in.png out.png` draws one of every mark and writes the result (used by CI).
+// `Yapshot --selftest in.png out.png` draws one of every mark and writes the result (used by CI).
 if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
     guard let image = Renderer.loadImage(at: URL(fileURLWithPath: args[i + 1])) else { exit(2) }
     let doc = Document(image: image)
@@ -44,10 +44,10 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
     exit(0)
 }
 
-// `Shotate --render-ui <folder>` saves a picture of each window (see UISnapshots).
+// `Yapshot --render-ui <folder>` saves a picture of each window (see UISnapshots).
 if let i = args.firstIndex(of: "--render-ui"), i + 1 < args.count { MainActor.assumeIsolated { UISnapshots.run(args, at: i) } }
 
-// `open -n Shotate.app --args --record-selftest out.mp4 [pid]` records for two seconds with the
+// `open -n Yapshot.app --args --record-selftest out.mp4 [pid]` records for two seconds with the
 // recorder the record shortcuts use, and exits 0 once the video is written: an area near the main
 // screen's top-left, or with a pid that app, saved as a folder `out/` holding out.mp4, stills,
 // system.log, app-logs/ and debug.md. It needs Screen Recording, so it
@@ -59,7 +59,7 @@ if let i = args.firstIndex(of: "--record-selftest"), i + 1 < args.count {
     let target: RecordTarget = i + 2 < args.count ? pid_t(args[i + 2]).map { .app($0, screen) } ?? .screen(screen)
         : .area(CGRect(x: f.minX + 100, y: f.maxY - 300, width: 301, height: 201), screen)
     let started = Recording.start(target, to: URL(fileURLWithPath: args[i + 1])) { _, error in
-        if let error { NSLog("Shotate: record selftest: %@", error.localizedDescription) }
+        if let error { NSLog("Yapshot: record selftest: %@", error.localizedDescription) }
         exit(error == nil ? 0 : 1)
     }
     guard started else { exit(2) }
@@ -74,12 +74,12 @@ if let pid = waitPid {
     for _ in 0..<100 where kill(pid, 0) == 0 { usleep(100_000) }
 }
 
-// One copy at a time. Shotate keeps Snapmark's bundle ID, so an old Snapmark still running (say, a
-// copy installed somewhere else) would fight it for the shortcuts: quit that one. If another Shotate
-// is already running, hand over to it.
+// One copy at a time. Yapshot keeps Snapmark's bundle ID (it was Shotate before that), so an old
+// Snapmark or Shotate still running (say, a copy installed somewhere else) would fight it for the
+// shortcuts: quit that one. If another Yapshot is already running, hand over to it.
 for other in NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
 where other.processIdentifier != getpid() && other.processIdentifier != waitPid && !other.isTerminated {
-    if other.bundleURL?.lastPathComponent == "Snapmark.app" {
+    if ["Snapmark.app", "Shotate.app"].contains(other.bundleURL?.lastPathComponent ?? "") {
         other.terminate()
         // Let it let go of the shortcuts and the menu bar icon (up to 5 s).
         for _ in 0..<50 where !other.isTerminated { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }

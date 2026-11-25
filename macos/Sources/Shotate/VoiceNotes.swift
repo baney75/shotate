@@ -137,7 +137,7 @@ extension VoiceQuality {
     private func startTranscription(_ u: URL, status: SFSpeechRecognizerAuthorizationStatus) {
         authorizing.remove(u)
         guard status == .authorized else {
-            fail(u, "Speech recognition is off for Shotate. Turn it on in System Settings > Privacy & Security > Speech Recognition.")
+            fail(u, "Speech recognition is off for Yapshot. Turn it on in System Settings > Privacy & Security > Speech Recognition.")
             return
         }
         guard let rec = SFSpeechRecognizer(), rec.isAvailable else {
@@ -209,7 +209,7 @@ extension VoiceQuality {
     @Published private(set) var history: [Float] = Array(repeating: 0, count: 160)
     @Published private(set) var markers: [VoiceMarker] = []
     @Published var error: String?
-    /// Kept in Shotate's config; `onSettingsChange` writes a change made here back to it.
+    /// Kept in Yapshot's config; `onSettingsChange` writes a change made here back to it.
     @Published var quality: VoiceQuality = .aac { didSet { if quality != oldValue, !adopting { onSettingsChange?() } } }
     @Published var stereo = false { didSet { if stereo != oldValue, !adopting { onSettingsChange?() } } }
     var onSettingsChange: (() -> Void)?
@@ -224,8 +224,8 @@ extension VoiceQuality {
     private var timer: Timer?
     private var url: URL?
     /// Posted with the file's URL when a voice note is saved.
-    static let saved = Notification.Name("ShotateVoiceNoteSaved")
-    static let deniedText = "Shotate can't use the microphone. Allow it in System Settings > Privacy & Security > Microphone."
+    static let saved = Notification.Name("YapshotVoiceNoteSaved")
+    static let deniedText = "Yapshot can't use the microphone. Allow it in System Settings > Privacy & Security > Microphone."
 
     var inputName: String { AVCaptureDevice.default(for: .audio)?.localizedName ?? "No microphone found" }
 

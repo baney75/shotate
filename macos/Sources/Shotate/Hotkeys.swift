@@ -37,7 +37,7 @@ final class Hotkeys {
             var ref: EventHotKeyRef?
             let status = RegisterEventHotKey(UInt32(Hotkeys.keyCode(typing: "v")), UInt32(cmdKey), EventHotKeyID(signature: OSType(0x534E4150), id: Hotkeys.pasteID),
                                              GetApplicationEventTarget(), 0, &ref)
-            if status == noErr { pasteRef = ref } else { NSLog("Shotate: couldn't claim ⌘V (status %d)", status) }
+            if status == noErr { pasteRef = ref } else { NSLog("Yapshot: couldn't claim ⌘V (status %d)", status) }
         } else if !on, let ref = pasteRef {
             UnregisterEventHotKey(ref)
             pasteRef = nil
@@ -86,7 +86,7 @@ final class Hotkeys {
         let status = RegisterEventHotKey(UInt32(code), UInt32(mods), EventHotKeyID(signature: OSType(0x534E4150), id: id),
                                          GetApplicationEventTarget(), 0, &ref)
         guard status == noErr, let ref else {
-            NSLog("Shotate: shortcut %@ is taken (status %d)", shortcut.key, status)
+            NSLog("Yapshot: shortcut %@ is taken (status %d)", shortcut.key, status)
             return false
         }
         refs.append(ref)
