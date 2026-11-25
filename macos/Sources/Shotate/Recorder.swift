@@ -32,7 +32,7 @@ struct SavedRecording {
 }
 
 /// The app's way into recording. Recording needs macOS 15 and the macOS 15 SDK (Swift 6 / Xcode 16);
-/// Shotate updates by building on your Mac, so an older toolchain still builds, just without it.
+/// Yapshot updates by building on your Mac, so an older toolchain still builds, just without it.
 enum Recording {
     static var isSupported: Bool {
         #if compiler(>=6.0)
@@ -118,7 +118,7 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     static func start(_ target: RecordTarget, to file: URL, appLogs: [String: [String]] = [:],
                       done: @escaping (SavedRecording?, Error?) -> Void) {
         // One recording at a time: a second would orphan the first, still capturing.
-        guard current == nil else { return done(nil, error("Shotate is already recording.")) }
+        guard current == nil else { return done(nil, error("Yapshot is already recording.")) }
         var file = file
         var made = file
         if case .app = target {
@@ -188,9 +188,9 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
                 throw Self.error("That app quit before recording started.")
             }
             // `exceptingWindows` flips a window's inclusion: for another app, naming the bar would
-            // put it in the video; only when the app is Shotate itself does naming it keep it out.
-            let isShotate = pid == ProcessInfo.processInfo.processIdentifier
-            filter = SCContentFilter(display: display, including: [app], exceptingWindows: isShotate ? notOurs : [])
+            // put it in the video; only when the app is Yapshot itself does naming it keep it out.
+            let isYapshot = pid == ProcessInfo.processInfo.processIdentifier
+            filter = SCContentFilter(display: display, including: [app], exceptingWindows: isYapshot ? notOurs : [])
             log = try AppLog(pid: pid, file: file.deletingLastPathComponent().appendingPathComponent("system.log"))
             // lsof and pgrep over an Electron app's helpers can take a second: off the main thread.
             let folders = appLogFolders
@@ -239,7 +239,7 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     }
 
     /// The recording output reports when the file is complete. If it never does, don't leave
-    /// Shotate stuck recording. A file that started can take a while to finish; one that never got
+    /// Yapshot stuck recording. A file that started can take a while to finish; one that never got
     /// a frame has nothing to wait for.
     private func finishSoon() {
         let wait: Double = started ? 60 : 5
@@ -258,7 +258,7 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         guard Recorder.current === self else { return }
         Recorder.current = nil
         Recorder.saving += 1
-        // Exactly once, however it ends: a lost callback must never leave Shotate "saving" forever
+        // Exactly once, however it ends: a lost callback must never leave Yapshot "saving" forever
         // (quitting and new recordings wait for it), so a watchdog (below) ends the save after 90 s.
         var delivered = false
         let done: (SavedRecording?, Error?) -> Void = { [done] saved, error in
@@ -358,7 +358,7 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     /// macOS stopped the stream, for example from the screen-recording item in the menu bar. The
     /// recording output still finishes the file.
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        NSLog("Shotate: recording stream stopped: %@", error.localizedDescription)
+        NSLog("Yapshot: recording stream stopped: %@", error.localizedDescription)
         DispatchQueue.main.async {
             self.stopError = error
             guard !self.stopping else { return }
@@ -394,14 +394,14 @@ final class AppLog {
         f.formatOptions = [.withInternetDateTime]
         f.timeZone = .current
         let header = "# Log of \(app?.localizedName ?? "process \(pid)") (\(app?.bundleIdentifier ?? "no bundle ID"), "
-            + "pid \(pid)) while Shotate recorded it, from \(f.string(from: Date())).\n"
+            + "pid \(pid)) while Yapshot recorded it, from \(f.string(from: Date())).\n"
             + "# log stream --level debug --predicate '\(predicate)'\n"
         try Data(header.utf8).write(to: file)
         let out = try FileHandle(forWritingTo: file)
         out.seekToEndOfFile()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
         process.arguments = ["stream", "--level", "debug", "--style", "compact", "--predicate", predicate]
-        // Through a pipe Shotate copies into the file, not straight into the file: if Shotate is
+        // Through a pipe Yapshot copies into the file, not straight into the file: if Yapshot is
         // force-quit or crashes, the pipe closes and `log` exits instead of writing forever.
         let lines = Pipe()
         process.standardOutput = lines
@@ -621,7 +621,7 @@ final class RecordingIndicator {
     }
 }
 
-/// Stop works on the first click, though Shotate isn't the active app.
+/// Stop works on the first click, though Yapshot isn't the active app.
 private final class FirstClickButton: NSButton {
     var onClick: () -> Void = {}
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

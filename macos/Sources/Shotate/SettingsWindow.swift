@@ -1,9 +1,9 @@
 import AppKit
 import ShotateCore
 
-/// Shotate Settings: a standard macOS settings window with a toolbar of panes. Every control
-/// applies at once and writes ~/.config/shotate/config.json; edits to that file (by hand or by
-/// an agent) show up here as soon as Shotate reloads it.
+/// Yapshot Settings: a standard macOS settings window with a toolbar of panes. Every control
+/// applies at once and writes ~/.config/yapshot/config.json; edits to that file (by hand or by
+/// an agent) show up here as soon as Yapshot reloads it.
 final class SettingsWindowController: NSWindowController {
     private weak var app: AppDelegate?
     private let panes: [SettingsPane]
@@ -23,7 +23,7 @@ final class SettingsWindowController: NSWindowController {
         }
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
-        window.title = "Shotate Settings"
+        window.title = "Yapshot Settings"
         window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
         window.collectionBehavior.insert(.moveToActiveSpace)  // open on the Space the user is looking at
@@ -133,8 +133,8 @@ final class GeneralPane: SettingsPane {
     private let permissionButton = NSButton(title: "Set Up…", target: nil, action: nil)
     private let folderMenu = NSPopUpButton()
     private let copyBox = NSButton(checkboxWithTitle: "Copy every capture to the clipboard", target: nil, action: nil)
-    private let menuBox = NSButton(checkboxWithTitle: "Show Shotate in the menu bar", target: nil, action: nil)
-    private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
+    private let menuBox = NSButton(checkboxWithTitle: "Show Yapshot in the menu bar", target: nil, action: nil)
+    private let loginBox = NSButton(checkboxWithTitle: "Open Yapshot when I log in", target: nil, action: nil)
     private let channelMenu = NSPopUpButton()
     private let autoUpdateBox = NSButton(checkboxWithTitle: "Check for updates automatically", target: nil, action: nil)
     private let pasteBox = NSButton(checkboxWithTitle: "Ask which screenshot to paste with ⌘V", target: nil, action: nil)
@@ -167,7 +167,7 @@ final class GeneralPane: SettingsPane {
 
         for b in [copyBox, menuBox, loginBox, autoUpdateBox, pasteBox] { b.target = self; b.action = #selector(toggled(_:)) }
         pasteBox.toolTip = "Take screenshots within 3 seconds of each other, then press ⌘V: a panel shows them so you pick one. "
-            + "Shotate types the paste for you, which needs Accessibility."
+            + "Yapshot types the paste for you, which needs Accessibility."
         let options = NSStackView(views: [copyBox, pasteBox, menuBox, loginBox])
         options.orientation = .vertical
         options.alignment = .leading
@@ -208,7 +208,7 @@ final class GeneralPane: SettingsPane {
         permissionIcon.image = NSImage(systemSymbolName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
                                        accessibilityDescription: nil)
         permissionIcon.contentTintColor = granted ? .systemGreen : .systemOrange
-        permissionLabel.stringValue = granted ? "Allowed" : "Off: Shotate can't capture yet"
+        permissionLabel.stringValue = granted ? "Allowed" : "Off: Yapshot can't capture yet"
         permissionButton.isHidden = granted
         reloadFolderMenu(s.saveFolder)
         copyBox.state = s.copyOnCapture ? .on : .off
@@ -587,8 +587,8 @@ final class AdvancedPane: SettingsPane {
         let buttons = NSStackView(views: [edit, reveal, reload])
 
         // Two even columns, so the list fits the pane and the window keeps one width for every pane.
-        let names = ["shotate://capture", "shotate://capture/window", "shotate://capture/screen", "shotate://open?path=…",
-                     "shotate://settings", "shotate://config", "shotate://reload", "shotate://relaunch"]
+        let names = ["yapshot://capture", "yapshot://capture/window", "yapshot://capture/screen", "yapshot://open?path=…",
+                     "yapshot://settings", "yapshot://config", "yapshot://reload", "yapshot://relaunch"]
         let urls = NSGridView(views: stride(from: 0, to: names.count, by: 2).map { i in
             names[i..<i + 2].map { name -> NSView in
                 let f = NSTextField(labelWithString: name)
@@ -603,18 +603,18 @@ final class AdvancedPane: SettingsPane {
 
         let connect = NSButton(title: "Connect to AI Agents…", target: self, action: #selector(connectAgents))
         let permissions = NSButton(title: "Set Up Screen Recording…", target: self, action: #selector(welcome))
-        let relaunch = NSButton(title: "Relaunch Shotate", target: self, action: #selector(relaunchApp))
+        let relaunch = NSButton(title: "Relaunch Yapshot", target: self, action: #selector(relaunchApp))
         return [
             heading("Config file"),
             note("Every setting lives in one JSON file. Edit it yourself or let a script or AI agent change it; "
-                 + "Shotate applies changes the moment the file is saved."),
+                 + "Yapshot applies changes the moment the file is saved."),
             path, buttons,
             separator(),
             heading("Automation"),
             urls,
             separator(),
             heading("AI agents"),
-            note("Adds Shotate's MCP server to Claude Code, Codex, Cursor and Claude Desktop, so they can send you a script "
+            note("Adds Yapshot's MCP server to Claude Code, Codex, Cursor and Claude Desktop, so they can send you a script "
                  + "to read aloud and read your voice note transcripts. It runs on this Mac only. Each config file is backed up first."),
             connect,
             separator(),
@@ -631,7 +631,7 @@ final class AdvancedPane: SettingsPane {
     @objc private func reloadConfig() { app?.reloadConfig() }
     @objc private func welcome() { app?.showWelcome() }
 
-    /// Runs `shotate mcp install` for every client off the main thread, then says what it did.
+    /// Runs `yapshot mcp install` for every client off the main thread, then says what it did.
     @objc private func connectAgents(_ sender: NSButton) {
         sender.isEnabled = false
         DispatchQueue.global(qos: .userInitiated).async {
@@ -641,7 +641,7 @@ final class AdvancedPane: SettingsPane {
                 let alert = NSAlert()
                 alert.messageText = results.contains { $0.outcome == "error" } ? "Some agents weren't connected" : "Connected to AI agents"
                 alert.informativeText = results.map { "\($0.client.title): \($0.detail)" }.joined(separator: "\n\n")
-                    + "\n\nRestart an agent that is open to pick it up. To undo: shotate mcp uninstall"
+                    + "\n\nRestart an agent that is open to pick it up. To undo: yapshot mcp uninstall"
                 if let w = sender.window { alert.beginSheetModal(for: w) } else { alert.runModal() }
             }
         }
