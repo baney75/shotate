@@ -141,6 +141,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// The config file, or settings migrated from before it existed. A broken file is reported and
     /// left alone, never overwritten, so a typo can't wipe someone's settings.
+    private static let voiceNoteMoveKey = "voiceNoteShortcutMoveDone"
+
     private func loadConfig() -> Settings? {
         let url = Settings.configURL
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -148,8 +150,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return Settings.migrated(from: .standard)
         }
         do {
-            let s = try Settings.load(from: url)
+            // The voice note shortcut move is decided on the first load after the upgrade only.
+            let pending = !UserDefaults.standard.bool(forKey: Self.voiceNoteMoveKey)
+            let (s, migrated) = try Settings.loadReporting(from: url, migrate: pending)
             configBroken = false
+            if pending {
+                do {
+                    if migrated { try s.writeVoiceNoteShortcuts(to: url) }
+                    UserDefaults.standard.set(true, forKey: Self.voiceNoteMoveKey)
+                } catch {
+                    Alerts.show("Shotate couldn't update its config file",
+                                "It moved area recording to make room for voice notes but couldn't write that to "
+                                + "\((url.path as NSString).abbreviatingWithTildeInPath): \(error.localizedDescription)")
+                }
+            }
             return s
         } catch {
             configBroken = true
