@@ -625,6 +625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   + record + [
                   .separator(),
                   NSMenuItem(title: "Voice Notes…", action: #selector(showVoiceNotes), keyEquivalent: ""),
+                  scriptsItem(),
                   .separator(),
                   NSMenuItem(title: "Open Image…", action: #selector(openImagePanel), keyEquivalent: ""),
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
@@ -643,6 +644,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
             menu.addItem(i)
         }
+    }
+
+    /// Scripts agents sent (or you saved), newest first: one opens the teleprompter.
+    private func scriptsItem() -> NSMenuItem {
+        let menu = NSMenu()
+        let scripts = Scripts.list(in: settings.voiceFolder)
+        for s in scripts.prefix(20) {
+            let i = NSMenuItem(title: s.name, action: #selector(openScript(_:)), keyEquivalent: "")
+            i.representedObject = s.url
+            i.target = self
+            menu.addItem(i)
+        }
+        if scripts.isEmpty {
+            let none = NSMenuItem(title: "No Scripts Yet", action: nil, keyEquivalent: "")
+            none.toolTip = "An AI agent connected over MCP can send you one (send_script)."
+            menu.addItem(none)
+        }
+        menu.addItem(.separator())
+        let folder = NSMenuItem(title: "Show Scripts Folder", action: #selector(openScriptsFolder), keyEquivalent: "")
+        folder.target = self
+        menu.addItem(folder)
+        let i = NSMenuItem(title: "Scripts", action: nil, keyEquivalent: "")
+        i.submenu = menu
+        return i
+    }
+
+    @objc private func openScript(_ sender: NSMenuItem) {
+        if let u = sender.representedObject as? URL { Teleprompter.shared.show(u) }
+    }
+
+    @objc private func openScriptsFolder() {
+        let dir = Scripts.folder(in: settings.voiceFolder)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(dir)
     }
 
     /// A checkmark to turn "⌘V asks which screenshot" on and off without opening Settings.

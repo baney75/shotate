@@ -80,6 +80,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | **Record the screen** | On a Mac with macOS 15 or later: ⌥⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder and copied as a file. No Finder window opens. Video only: screen recordings never use the microphone |
 | **Voice notes** | On a Mac: ⇧⌘R from any app starts recording your voice, and pressing it again copies the text. **Voice Notes…** in the menu keeps them all. See [Voice notes](#voice-notes) |
 | **Record an app for a demo and a bug report** | ⇧⌘D, then click a window: Shotate records every window of that app (nothing else on screen) into a folder with the MP4, stills (first and last frames, and up to 6 more, one 0.6 s after each click, skipped when it would land within 0.8 s of an earlier still, so a click within 0.8 s of the previous click with a still, or in the first half second, gets none; with no clicks, a few evenly spaced ones), what the app wrote meanwhile to the system log and to its own log files, any crash report, and `debug.md`. When you stop, `debug.md` is copied: paste it into a coding agent or an issue and it has the errors, the app's log lines and the paths to the video and stills. The video is ready to share as a demo |
+| **Scripts from AI agents** | Claude Code, Codex, Cursor or Claude Desktop can send you a script over MCP (local only). It opens in a teleprompter that scrolls while you record a voice note, and the agent can read the transcript back. `shotate mcp install` connects them. See [docs/agents.md](docs/agents.md#mcp-server) |
 | **Driven by agents** | The `shotate` command takes screenshots, records, annotates images for docs and exports GIFs and MP4s, printing JSON. Turn on **Let Agents Control Shotate** in the menu first. Coding agents get a skill for it. See [docs/agents.md](docs/agents.md) |
 | **Annotate** | Arrow, pen, box, ellipse, highlight, text label, numbered step, crop |
 | **Redact for real** | Redaction draws a solid bar. Blur and pixelation can sometimes be reversed; this can't |
@@ -132,6 +133,13 @@ search names and transcripts, play at any speed, transcribe, copy the text, rena
 move to the Trash, or drag a note out as a file. Notes are plain audio files in `~/Music/Voice
 Notes`, with markers and transcripts in a hidden `.meta` folder beside them. Pick the folder, AAC,
 Apple Lossless or WAV, and stereo in **Settings › Voice Notes**. Quitting mid note saves it.
+
+**Scripts** in the menu bar menu (and the Voice Notes window) opens a script in the teleprompter: a
+floating panel in large white type that leaves the keyboard with the app you're in. Press Record
+and it scrolls as you read; hold it, scroll by hand, change the speed or the text size. The voice
+note saves its transcript as usual and remembers the script. Scripts are Markdown files in
+`Scripts/` inside the voice notes folder; AI agents send them over MCP (see
+[docs/agents.md](docs/agents.md#mcp-server)).
 
 Transcripts come from macOS speech recognition. When the Mac supports on-device recognition, it runs
 on the Mac; otherwise macOS sends the audio to Apple to transcribe it.

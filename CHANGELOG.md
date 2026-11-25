@@ -31,6 +31,14 @@
   arrow by accident. Press A for arrows.
 
 ### Added
+- **Scripts and an MCP server for AI agents.** `shotate mcp` is a local MCP server (stdio, no
+  network) for Claude Code, Codex, Cursor and Claude Desktop. An agent can send you a script to
+  read aloud, list and read your voice notes' transcripts, and take a screenshot. A script opens in
+  a floating teleprompter that keeps the keyboard with the app you're in and scrolls while you
+  record a voice note; the note remembers which script it was. **Scripts** in the menu bar menu and
+  the Voice Notes window open saved ones. `shotate mcp install` (or **Connect to AI Agents…** in
+  Settings › Advanced) registers it, backing up each config file first; `shotate mcp uninstall`
+  takes it out.
 - **Voice notes.** ⇧⌘R from any app starts recording your voice, with a small badge that never
   takes focus; press it again and the text is copied, transcribed by macOS speech recognition (on
   this Mac when it supports that). With no text, the audio file is copied instead. **Voice Notes…**

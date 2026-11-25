@@ -219,6 +219,8 @@ extension VoiceQuality {
     private var recorder: AVAudioRecorder?
     private var timer: Timer?
     private var url: URL?
+    /// Posted with the file's URL when a voice note is saved.
+    static let saved = Notification.Name("ShotateVoiceNoteSaved")
     static let deniedText = "Shotate can't use the microphone. Allow it in System Settings > Privacy & Security > Microphone."
 
     var inputName: String { AVCaptureDevice.default(for: .audio)?.localizedName ?? "No microphone found" }
@@ -307,6 +309,7 @@ extension VoiceQuality {
         store.saveMeta(m, for: u)
         store.reload()
         store.selection = u
+        NotificationCenter.default.post(name: Self.saved, object: u)
         return u
     }
 }

@@ -55,6 +55,7 @@ final class UISnapshots {
         recordingBar()
         voiceNotes()
         voiceBadge()
+        teleprompter()
         overlay()
         menuBarMenu()
     }
@@ -183,6 +184,29 @@ final class UISnapshots {
             let host = NSHostingView(rootView: QuickVoiceBadge(sample: (phase, 47, levels)))
             p.contentView = host
             p.setContentSize(host.fittingSize)
+            capture(p, name)
+            p.orderOut(nil)
+        }
+    }
+
+    /// The teleprompter with a sample script: ready to record, and recording part way down.
+    private func teleprompter() {
+        let t = Teleprompter.shared
+        t.load(name: "Launch video intro", text: """
+            Hi, this is Shotate: screenshots, recordings and voice notes from the menu bar.
+
+            Press Shift-Command-S, drag over what you want, and it's on your clipboard, ready to paste.
+
+            Add an arrow, a box or a numbered step, then drag the image straight into a document or a chat.
+
+            When you need to explain something out loud, press Shift-Command-R and just talk. Shotate writes it down for you.
+            """)
+        for (elapsed, name) in [(nil, "teleprompter"), (83.0, "teleprompter-recording")] as [(Double?, String)] {
+            let p = t.makePanel(sampleElapsed: elapsed)
+            p.orderBack(nil)
+            p.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            if elapsed != nil { t.scrollForSample(to: 120) } else { t.scrollToTop() }
             capture(p, name)
             p.orderOut(nil)
         }
