@@ -140,7 +140,13 @@ public enum MCPInstall {
     public static func addTOML(at url: URL, command: String, args: [String], now: Date = Date(),
                                isExecutable: (String) -> Bool = FileManager.default.isExecutableFile) throws -> Change {
         let file = url.resolvingSymlinksInPath()
-        let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        var text = ""
+        if FileManager.default.fileExists(atPath: file.path) {
+            guard let read = try? String(contentsOf: file, encoding: .utf8) else {
+                throw AgentError("\(url.path) isn't readable UTF-8 text, so Shotate left the file alone.")
+            }
+            text = read
+        }
         let lines = tomlLines(text)
         let found = tomlFind(lines)
         if let other = found.other {

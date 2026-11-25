@@ -73,6 +73,15 @@ final class MCPInstallTests: XCTestCase {
                                               isExecutable: { _ in true }).outcome, .alreadyThere)
     }
 
+    func testTOMLThatIsNotUTF8IsLeftAlone() throws {
+        let file = try tempFolder().appendingPathComponent("config.toml")
+        let original = Data([0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x3d, 0x22, 0xff, 0xfe, 0x22, 0x0a])
+        try original.write(to: file)
+        XCTAssertThrowsError(try MCPInstall.addTOML(at: file, command: "/new/shotate", args: ["mcp"], now: now,
+                                                    isExecutable: { _ in true }))
+        XCTAssertEqual(try Data(contentsOf: file), original)
+    }
+
     func testInstallRefusesATranslocatedOrReadOnlyApp() {
         XCTAssertNotNil(MCPInstall.installRefusal(
             command: "/private/var/folders/x/T/AppTranslocation/ABC/d/Shotate.app/Contents/Resources/bin/shotate", readOnlyVolume: false))
