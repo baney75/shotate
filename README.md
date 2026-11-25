@@ -181,7 +181,7 @@ uses `grim`, `gnome-screenshot` or `spectacle` instead.
 On **macOS**, Yapshot needs one permission, **Screen Recording**, and the welcome window asks for it with
 one click. Voice notes add **Microphone** (only while a voice note you started records) and **Speech
 Recognition** (only when you transcribe one); macOS asks the first time you use them. If macOS ever shows the switch as on while Yapshot still can't capture, click **Allow…**
-again: Yapshot clears its own stale entry and asks fresh. It needs no Accessibility and no Input Monitoring. The global shortcut is
+again: Yapshot clears its own stale entry and asks fresh. It needs no Input Monitoring, and Accessibility only if you turn on the paste chooser, which types the paste for you. The global shortcut is
 registered with `RegisterEventHotKey`, which macOS allows without extra permission.
 
 macOS ties that permission to the app's code signature. Yapshot's installer creates a local signing
