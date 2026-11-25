@@ -12,6 +12,9 @@ Var ReplacedOldApp
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Shotate"
   StrCmp $0 "" +2 0
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Yapshot" '"$INSTDIR\yapshot.exe" --autostart'
+  ; Copied once: a later update must not turn Open at login back on.
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Snapmark"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Shotate"
   nsExec::Exec 'taskkill /F /IM snapmark.exe'
   Pop $0
   nsExec::Exec 'taskkill /F /IM shotate.exe'
