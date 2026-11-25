@@ -55,7 +55,7 @@ blue, green, purple, white. Sizes: thin, medium, thick.
 
 - `screen` and `area`: `<name>.mp4` and `<name>.clicks.json`.
 - `app` (and ⇧⌘D): a folder `<name>/` with `<name>.mp4`, `<name>.clicks.json`, `stills/` (the
-  first and last frames, and up to 6 more after clicks, or a few evenly spaced ones when there were none; a click within 0.8 s of an earlier still gets none), `system.log`,
+  first and last frames, and up to 6 more, one 0.6 s after each click, skipped when it would land within 0.8 s of an earlier still, so a click within 0.8 s of the previous click with a still, or in the first half second, gets none; with no clicks, a few evenly spaced ones), `system.log`,
   `app-logs/` and `debug.md`.
 
 `--out` must name something that isn't there yet: Shotate never records over an existing file or
@@ -63,8 +63,10 @@ folder. `stop` ends only a recording an agent started unless you pass `--any`. I
 ends before an agent's `stop` (it failed, or the user stopped it), the next `stop` returns how it
 ended, and `status` shows it as `lastRecording`.
 
-A reply with both `video` and `warning` is a partial save: the video is there, but the stills and
-`debug.md` ran late and may still appear in the folder.
+A reply with both `video` and `warning` is a partial save: saving ran past 90 s, so Shotate handed
+over the video and folder as they were, and the stills and `debug.md` may still appear in the folder.
+It exits 0. A reply with `video` and `error` kept what was written, but the recording failed (for
+example, the video may be incomplete), and it exits 1.
 
 `clicks.json` lists each mouse click while recording: `t` in seconds from the first frame, `x` and
 `y` in video pixels from the top left. Only mouse buttons are noted, never keys.

@@ -419,26 +419,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateStatusIcon()
         recordingByAgent = false
         agent?.recordingFinished(saved, error: error, byAgent: byAgent)
+        var copied = RecordingAlert.Copied.nothing
         if settings.copyOnCapture, let saved, !byAgent {
             NSPasteboard.general.clearContents()
             if let text = saved.debugText {
                 NSPasteboard.general.setString(text, forType: .string)
+                copied = .note
             } else {
                 NSPasteboard.general.writeObjects([saved.video as NSURL])
+                copied = .video
             }
         }
         if quitAfterRecording { return NSApp.reply(toApplicationShouldTerminate: true) }
         if byAgent { return }
-        if let error, let saved {
-            let place = (saved.folder ?? saved.video).path
-            Alerts.show("Shotate saved the video, but not everything else in time",
-                        "It's at \(place)\(settings.copyOnCapture ? ", and the video is copied" : ""). "
-                            + "The stills and note may still appear there. \(error.localizedDescription)")
-        } else if let error {
-            Alerts.show("Shotate couldn't save the recording", error: error)
-        } else if let why = saved?.logError {
-            Alerts.show("Shotate couldn't read the app's system log",
-                        "The video, stills and the app's own log files are saved\(settings.copyOnCapture ? ", and the note is copied" : ""). macOS said: \(why)")
+        if let alert = RecordingAlert.message(place: saved.map { ($0.folder ?? $0.video).path },
+                                                        partial: saved?.partial ?? false, hasFolder: saved?.folder != nil,
+                                                        copied: copied, error: error?.localizedDescription,
+                                                        logError: saved?.logError) {
+            Alerts.show(alert.title, alert.detail)
         }
     }
 

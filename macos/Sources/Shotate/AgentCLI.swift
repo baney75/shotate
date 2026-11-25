@@ -55,8 +55,10 @@ enum AgentCLI {
             if let mode = positional.first { r["mode"] = mode }
             for key in ["app", "pid", "window", "title", "rect"] { if let v = options[key] { r[key] = v } }
             if let out = options["out"] { r["out"] = absolute(out) }
-            if options["copy"] != nil { r["copy"] = true }
-            if options["edit"] != nil { r["edit"] = true }
+            switch AgentPolicy.switches(["copy", "edit"], in: options) {
+            case let .success(on): for key in on { r[key] = true }
+            case let .failure(e): fail(e.message)
+            }
             let started = send(r, wait: 30)
             guard command == "record", started["error"] == nil, let seconds else {
                 finish(started)
@@ -139,7 +141,12 @@ enum AgentCLI {
         guard let ffmpeg = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"].first(where: FileManager.default.isExecutableFile) else {
             fail("export needs ffmpeg: brew install ffmpeg")
         }
-        let gif = options["gif"] != nil || options["out"]?.lowercased().hasSuffix(".gif") == true
+        let on: Set<String>
+        switch AgentPolicy.switches(["gif", "mp4"], in: options) {
+        case let .success(s): on = s
+        case let .failure(e): fail(e.message)
+        }
+        let gif = on.contains("gif") || options["out"]?.lowercased().hasSuffix(".gif") == true
         let src = URL(fileURLWithPath: absolute(input))
         let out = options["out"].map { URL(fileURLWithPath: absolute($0)) }
             ?? src.deletingPathExtension().appendingPathExtension(gif ? "gif" : "web.mp4")
@@ -172,30 +179,10 @@ enum AgentCLI {
 
     // MARK: Helpers
 
-    /// `--key value` pairs; a `--flag` with no value (or followed by another option) is "true".
+    /// `--key value` pairs; see `AgentPolicy.parse`.
     static func parse(_ args: [String]) -> ([String], [String: String]) {
-        var positional: [String] = []
-        var options: [String: String] = [:]
-        var i = 0
-        while i < args.count {
-            let a = args[i]
-            if a.hasPrefix("--"), a.count > 2 {
-                let key = String(a.dropFirst(2))
-                if let eq = key.firstIndex(of: "=") {
-                    options[String(key[..<eq])] = String(key[key.index(after: eq)...])
-                } else if i + 1 < args.count, !args[i + 1].hasPrefix("--") || args[i + 1] == "-",
-                          !["copy", "edit", "gif", "mp4", "any"].contains(key) {
-                    options[key] = args[i + 1]
-                    i += 1
-                } else {
-                    options[key] = "true"
-                }
-            } else {
-                positional.append(a)
-            }
-            i += 1
-        }
-        return (positional, options)
+        let p = AgentPolicy.parse(args)
+        return (p.positional, p.options)
     }
 
     static func absolute(_ path: String) -> String {

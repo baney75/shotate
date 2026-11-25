@@ -9,6 +9,14 @@
 - A tool key changed in Settings works in editors that are already open.
 - Closing the last editor gives focus back to the app you were in. Shotate used to stay in
   front with no window, so your next keys went nowhere.
+- A recording whose video may be incomplete is an error again (`shotate` exits 1, with the video
+  and folder still in the reply), and its alert says where what was written is. Only a save that
+  ran past 90 s is a warning. The alert says the note is copied, not the video, when the note is
+  what was copied.
+- `--copy=false`, `--edit=0`, `--gif=no` and `--mp4=false` are off, not on; any other value is an
+  error.
+- `shotate stop --any` on a recording you are saving drops an older agent result nobody collected,
+  so a later `stop` can't return it as fresh.
 
 ### Changed
 - **Drawing past the edge looks like the screenshot goes on.** Text or a bar cut by the edge no
@@ -24,7 +32,7 @@
 
 ### Added
 - **⇧⌘D records a demo and a bug report at once.** Recording an app saves a folder: the MP4,
-  stills (the first and last frames, and up to 6 more after clicks, or a few evenly spaced ones when there were none; a click within 0.8 s of an earlier still gets none),
+  stills (the first and last frames, and up to 6 more, one 0.6 s after each click, skipped when it would land within 0.8 s of an earlier still, so a click within 0.8 s of the previous click with a still, or in the first half second, gets none; with no clicks, a few evenly spaced ones),
   the app's system log, the new lines in the app's own log files (Electron and Node apps never use
   the system log), any crash report, and `debug.md`. The note is what's copied: errors and faults
   first, the app's own lines, and the paths to everything else. The system log digest drops the macOS housekeeping that was 99% of the
