@@ -1,4 +1,4 @@
-# Shotate updates: stable and nightly channels
+# Yapshot updates: stable and nightly channels
 
 ## Channels
 - **Stable**: GitHub releases tagged `vX.Y.Z` (not prerelease). Created by `.github/workflows/release.yml` on tag push. **macOS only for now**: it is the platform each release is tested on, so a stable release has the Mac zip and a manifest with no Windows or Linux installers.
@@ -14,9 +14,9 @@ Every release (stable and nightly) has an asset `manifest.json`, written by the 
   "version": "0.12.0",
   "commit": "<40-hex sha the release was built from>",
   "date": "2026-10-11T18:00:00Z",
-  "notes": "https://github.com/baney75/shotate/releases/tag/v0.12.0",
+  "notes": "https://github.com/baney75/yapshot/releases/tag/v0.12.0",
   "assets": {
-    "windows-x64": {"name": "Shotate_0.12.0_x64-setup.exe", "url": "https://github.com/...", "sha256": "..."},
+    "windows-x64": {"name": "Yapshot_0.12.0_x64-setup.exe", "url": "https://github.com/...", "sha256": "..."},
     "linux-x64-deb": {...}, "linux-arm64-deb": {...},
     "linux-x64-rpm": {...}, "linux-arm64-rpm": {...},
     "linux-x64-appimage": {...}, "linux-arm64-appimage": {...}
@@ -25,12 +25,12 @@ Every release (stable and nightly) has an asset `manifest.json`, written by the 
 ```
 
 Fetch URLs (no GitHub API, so no rate limit):
-- stable: `https://github.com/baney75/shotate/releases/latest/download/manifest.json`
-- nightly: `https://github.com/baney75/shotate/releases/download/nightly/manifest.json`
+- stable: `https://github.com/baney75/yapshot/releases/latest/download/manifest.json`
+- nightly: `https://github.com/baney75/yapshot/releases/download/nightly/manifest.json`
 
 ## What a build knows about itself
 - `version` (VERSION / package.json; nightly CI rewrites it), `commit` (git sha), `channel` ("stable" if built from a `v*` tag matching VERSION, else "nightly"), `date` (build time, ISO 8601 UTC).
-- macOS: `bundle.sh` writes `ShotateCommit`, `ShotateChannel`, `ShotateBuildDate` into Info.plist. Desktop: compile-time env (`SHOTATE_COMMIT`, `SHOTATE_CHANNEL`, `SHOTATE_BUILD_DATE`) set by build.rs from git / CI.
+- macOS: `bundle.sh` writes `YapshotCommit`, `YapshotChannel`, `YapshotBuildDate` into Info.plist. Desktop: compile-time env (`YAPSHOT_COMMIT`, `YAPSHOT_CHANNEL`, `YAPSHOT_BUILD_DATE`) set by build.rs from git / CI.
 
 ## Config (shared format, both apps)
 - `"updateChannel": "stable" | "nightly"` (macOS). When the key is absent, default to the build's own channel. Windows and Linux ignore it and always follow `nightly`.
@@ -48,18 +48,18 @@ Fetch URLs (no GitHub API, so no rate limit):
 On launch (after ~10 s) and every 24 h while running, if `checkForUpdates`; always on "Check Now". One HTTPS GET to github.com, no identifiers, no cookies. Failures are silent for automatic checks and shown for manual ones.
 
 ## How an update installs (same route the app was installed by)
-- **macOS** (built from source so Screen Recording stays granted): needs the command line tools (`xcode-select -p`). Validate the manifest's version, commit and channel, fetch the release's commit (stable: tag `vX.Y.Z`; nightly: the manifest's commit) into a temp dir, then run `macos/scripts/bundle.sh --install` detached; the values reach the script as arguments, and any failure opens `shotate://update-failed?token=…` with a per-install token (`nohup`, own session), logging to `~/Library/Logs/Shotate/update.log`. `bundle.sh --install` quits the running app by bundle ID, installs and relaunches. If the tools are missing, show the one-line install command instead.
-- **Windows**: download the setup .exe to temp, verify sha256, then run a fixed PowerShell script (by absolute path) that reads the setup and app paths from environment variables, waits for the silent install, relaunches Shotate and deletes the download.
+- **macOS** (built from source so Screen Recording stays granted): needs the command line tools (`xcode-select -p`). Validate the manifest's version, commit and channel, fetch the release's commit (stable: tag `vX.Y.Z`; nightly: the manifest's commit) into a temp dir, then run `macos/scripts/bundle.sh --install` detached; the values reach the script as arguments, and any failure opens `yapshot://update-failed?token=…` with a per-install token (`nohup`, own session), logging to `~/Library/Logs/Yapshot/update.log`. `bundle.sh --install` quits the running app by bundle ID, installs and relaunches. If the tools are missing, show the one-line install command instead.
+- **Windows**: download the setup .exe to temp, verify sha256, then run a fixed PowerShell script (by absolute path) that reads the setup and app paths from environment variables, waits for the silent install, relaunches Yapshot and deletes the download.
 - **Linux AppImage** (`$APPIMAGE` set): download next to it, verify sha256, chmod +x, atomically rename over `$APPIMAGE`, relaunch, quit.
 - **Linux .deb/.rpm** (exe under /usr): download, verify, run `/usr/bin/pkexec /usr/bin/apt-get install -y --reinstall --allow-downgrades <file.deb>` or `/usr/bin/pkexec /usr/bin/rpm -U --oldpackage --replacepkgs <file.rpm>` (switching to Stable can be a downgrade), then relaunch and quit. Without pkexec, open the release page.
 
 ## UI (both apps)
-- Settings › General › **Updates**: on macOS a channel picker (Stable, recommended / Nightly, built every day from the newest code, may have rough edges); on Windows and Linux the words "Nightly preview" instead; "Check for updates automatically" checkbox, **Check Now** button, a status line ("Shotate 0.12.0 is up to date. Checked 3 minutes ago." / "Shotate 0.12.1 is available." + **Install Update** + "What's new" link).
-- Menu bar / tray menu: **Check for Updates…** always; when an update is known, **Update to Shotate 0.12.1…** near the top.
+- Settings › General › **Updates**: on macOS a channel picker (Stable, recommended / Nightly, built every day from the newest code, may have rough edges); on Windows and Linux the words "Nightly preview" instead; "Check for updates automatically" checkbox, **Check Now** button, a status line ("Yapshot 0.12.0 is up to date. Checked 3 minutes ago." / "Yapshot 0.12.1 is available." + **Install Update** + "What's new" link).
+- Menu bar / tray menu: **Check for Updates…** always; when an update is known, **Update to Yapshot 0.12.1…** near the top.
 - Manual check result or menu click: a dialog with version, "What's new" link, **Install Update** / **Later**.
 - About shows version, channel and short commit.
 
 ## Installers
-- `install.sh`: `SHOTATE_CHANNEL=nightly` (or `bash -s -- --nightly`) picks nightly. macOS stable clones the latest `v*` tag (from the `releases/latest` redirect), nightly clones `main`. Linux always installs from `releases/tags/nightly` (re-installing the same package version in place), whatever channel is asked for.
+- `install.sh`: `YAPSHOT_CHANNEL=nightly` (or `bash -s -- --nightly`) picks nightly. macOS stable clones the latest `v*` tag (from the `releases/latest` redirect), nightly clones `main`. Linux always installs from `releases/tags/nightly` (re-installing the same package version in place), whatever channel is asked for.
 - `install.ps1`: always installs the nightly preview. On Linux, `install.sh` does the same whatever channel is asked for.
 - Re-running the installer is always a valid update.

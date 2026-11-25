@@ -24,7 +24,7 @@ cp Resources/yapshot "$APP/Contents/Resources/bin/yapshot"
 chmod +x "$APP/Contents/Resources/bin/yapshot"
 # `shotate`, the old name, works the same.
 ln -s yapshot "$APP/Contents/Resources/bin/shotate"
-cp -R ../skills/shotate "$APP/Contents/Resources/skills/yapshot"
+cp -R ../skills/yapshot "$APP/Contents/Resources/skills/yapshot"
 # What this build is, for the update check (docs/updates.md): the commit, the channel (stable when
 # built from the release tag, otherwise nightly) and when it was built.
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Turn a Shotate click timeline (<video>.clicks.json) into turn-NNNNN/action.json folders.
+"""Turn a Yapshot click timeline (<video>.clicks.json) into turn-NNNNN/action.json folders.
 
 The app-demo-video skill's zoom_from_clicks.py reads Cua recording turns; this lets it zoom a
-Shotate recording to every click too. Points are already video pixels, so run the zoom with
+Yapshot recording to every click too. Points are already video pixels, so run the zoom with
 --scale 1 --window-origin 0,0 --offset <printed offset>.
 
     python3 clicks_to_turns.py "Rec.clicks.json" /tmp/turns

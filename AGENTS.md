@@ -1,8 +1,10 @@
-# Shotate: notes for coding agents
+# Yapshot: notes for coding agents
 
-The product is Shotate (repo baney75/shotate). Snapmark is the retired name (renamed in 0.12.0); the
-local folder `~/Projects/snapmark` and bundle ID `com.baney.snapmark` keep it only as paths. Never call
-the app Snapmark in prose, PRs or commits.
+The product is Yapshot (repo baney75/yapshot), formerly Shotate (renamed in this release) and
+Snapmark before that (renamed in 0.12.0). The bundle ID `com.baney.snapmark`, the local folders
+`~/Projects/snapmark` and `~/Projects/shotate`, the Swift targets and folders `ShotateCore` and
+`Shotate`, the `shotate` command alias and a few internal identifiers keep the old names only as
+code. Never call the app Snapmark or Shotate in prose, PRs or commits.
 
 ## Checks
 
@@ -16,11 +18,11 @@ Tests and CI prove the logic only. For a capture, cursor, panel, shortcut or pas
 user's exact gesture live on the installed build (through Cua) and read the result back before
 calling it fixed. If the person is using the Mac, don't send keys to the front app: a stray Return
 can run a command in their terminal. Ask them to try it, and say "untested live" until then.
-`screencapture -C` doesn't reliably draw the pointer over Shotate's overlay; don't use it as proof.
+`screencapture -C` doesn't reliably draw the pointer over Yapshot's overlay; don't use it as proof.
 
 ## Permissions
 
-Setup (Welcome.swift) states, for each macOS permission, what it's for, what Shotate never does
+Setup (Welcome.swift) states, for each macOS permission, what it's for, what Yapshot never does
 with it, and its live status. Keep every sentence there true: before changing a claim, grep the
 sources (`AXUIElement`, event taps, `SCStream`, `URLSession`) to confirm it. A new permission or
 network call gets its own plain line in setup before it ships.
