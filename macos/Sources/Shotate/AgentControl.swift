@@ -48,6 +48,8 @@ final class AgentControl: NSObject {
     private func handle(_ id: String, _ command: String, _ r: [String: Any]) {
         guard let app else { return }
         if command == "status" { return reply(id, status()) }
+        // Only shows text from the Scripts folder, so it works with agent control off (MCP send_script).
+        if command == "script" { return showScript(id, r["path"] as? String, voiceFolder: app.settings.voiceFolder) }
         guard app.settings.agentControl else {
             return fail(id, "Agent control is off. Turn on \"Let Agents Control Shotate\" in the menu bar icon's menu, "
                 + "or set \"agentControl\": true in ~/.config/shotate/config.json.")
@@ -71,6 +73,18 @@ final class AgentControl: NSObject {
             reply(id, ["opened": path])
         default: fail(id, "Unknown command \(command).")
         }
+    }
+
+    private func showScript(_ id: String, _ path: String?, voiceFolder: URL) {
+        guard let path else { return fail(id, "script needs a path.") }
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard url.deletingLastPathComponent().resolvingSymlinksInPath().path
+                == Scripts.folder(in: voiceFolder).resolvingSymlinksInPath().standardizedFileURL.path,
+              FileManager.default.fileExists(atPath: url.path) else {
+            return fail(id, "Shotate shows scripts from \(Scripts.folder(in: voiceFolder).path) only.")
+        }
+        Teleprompter.shared.show(url)
+        reply(id, ["shown": url.path])
     }
 
     private func status() -> [String: Any] {

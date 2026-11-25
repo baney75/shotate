@@ -378,6 +378,19 @@ struct VoiceNotesView: View {
                         .buttonStyle(.borderless)
                         .help("Open \((store.dir.path as NSString).abbreviatingWithTildeInPath) in Finder")
                     Spacer()
+                    Menu {
+                        let scripts = Scripts.list(in: store.dir)
+                        ForEach(scripts, id: \.url) { s in Button(s.name) { Teleprompter.shared.show(s.url) } }
+                        if scripts.isEmpty { Text("No scripts yet") }
+                        Divider()
+                        Button("Show Scripts Folder") {
+                            let dir = Scripts.folder(in: store.dir)
+                            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                            NSWorkspace.shared.open(dir)
+                        }
+                    } label: { Label("Scripts", systemImage: "text.alignleft") }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .help("Read a script in the teleprompter while you record")
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
             }

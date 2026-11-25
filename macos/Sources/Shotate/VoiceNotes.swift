@@ -48,6 +48,8 @@ extension VoiceQuality {
     private var recognizers: [URL: SFSpeechRecognizer] = [:]
     /// Callers waiting on a transcript. They get the text, or nil with the reason.
     private var waiters: [URL: [(String?, String?) -> Void]] = [:]
+    /// Notes waiting on speech authorization, so a second caller in that gap doesn't start a second task.
+    private var authorizing: Set<URL> = []
 
     /// True when transcription runs on this Mac. Otherwise macOS may send the audio to Apple.
     static var transcribesOnDevice: Bool { SFSpeechRecognizer()?.supportsOnDeviceRecognition ?? false }
@@ -125,13 +127,15 @@ extension VoiceQuality {
     /// completion, errors go to it instead of an alert.
     func transcribe(_ u: URL, completion: ((_ text: String?, _ failure: String?) -> Void)? = nil) {
         if let completion { waiters[u, default: []].append(completion) }
-        guard !transcribing.contains(u) else { return }
+        guard !transcribing.contains(u), !authorizing.contains(u) else { return }
+        authorizing.insert(u)
         SFSpeechRecognizer.requestAuthorization { status in
             Task { @MainActor in VoiceStore.shared.startTranscription(u, status: status) }
         }
     }
 
     private func startTranscription(_ u: URL, status: SFSpeechRecognizerAuthorizationStatus) {
+        authorizing.remove(u)
         guard status == .authorized else {
             fail(u, "Speech recognition is off for Shotate. Turn it on in System Settings > Privacy & Security > Speech Recognition.")
             return
@@ -219,6 +223,8 @@ extension VoiceQuality {
     private var recorder: AVAudioRecorder?
     private var timer: Timer?
     private var url: URL?
+    /// Posted with the file's URL when a voice note is saved.
+    static let saved = Notification.Name("ShotateVoiceNoteSaved")
     static let deniedText = "Shotate can't use the microphone. Allow it in System Settings > Privacy & Security > Microphone."
 
     var inputName: String { AVCaptureDevice.default(for: .audio)?.localizedName ?? "No microphone found" }
@@ -307,6 +313,7 @@ extension VoiceQuality {
         store.saveMeta(m, for: u)
         store.reload()
         store.selection = u
+        NotificationCenter.default.post(name: Self.saved, object: u)
         return u
     }
 }
