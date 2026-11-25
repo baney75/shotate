@@ -174,7 +174,10 @@ struct RecorderPanel: View {
                 }
                 .disabled(!rec.isRecording).keyboardShortcut("r", modifiers: [.command, .option])
                 .help("Pause or resume (Option-Command-R)")
-                Button { rec.toggle() } label: { RecordGlyph(recording: rec.isRecording) }
+                Button {
+                    // A note started with the shortcut finishes the same way: transcribe, copy, close its badge.
+                    if QuickVoiceNote.shared.phase == .recording { QuickVoiceNote.shared.finish() } else { rec.toggle() }
+                } label: { RecordGlyph(recording: rec.isRecording) }
                     .buttonStyle(.plain).keyboardShortcut("r")
                     .help(rec.isRecording ? "Stop (Command-R)" : "Record (Command-R)")
             }
@@ -261,14 +264,14 @@ struct PlayerPanel: View {
                 Spacer()
                 Button { player.skip(-15) } label: { Image(systemName: "gobackward.15") }
                     .buttonStyle(TransportButtonStyle())
-                    .keyboardShortcut(.leftArrow, modifiers: .command).help("Back 15 seconds (Command-Left)")
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option]).help("Back 15 seconds (Option-Command-Left)")
                 Button { player.toggle() } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").offset(x: player.isPlaying ? 0 : 1.5)
                 }
                 .buttonStyle(PlayButtonStyle()).keyboardShortcut("p").help("Play or pause (Command-P)")
                 Button { player.skip(15) } label: { Image(systemName: "goforward.15") }
                     .buttonStyle(TransportButtonStyle())
-                    .keyboardShortcut(.rightArrow, modifiers: .command).help("Forward 15 seconds (Command-Right)")
+                    .keyboardShortcut(.rightArrow, modifiers: [.command, .option]).help("Forward 15 seconds (Option-Command-Right)")
                 Spacer()
                 Color.clear.frame(width: 72, height: 1)
             }
