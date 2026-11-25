@@ -34,8 +34,8 @@ jobs:
       - name: Build the app (universal)
         run: scripts/bundle.sh
         env:
-          YAPSHOT_ADHOC: 1
-          YAPSHOT_CHANNEL: ${{ inputs.channel }}
+          SHOTATE_ADHOC: 1
+          SHOTATE_CHANNEL: ${{ inputs.channel }}
       # Inputs reach scripts through the environment, never spliced into the script text.
       - name: Upload
         env:
@@ -43,7 +43,7 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           zip="Shotate-${TAG#v}-macOS.zip"
-          ditto -c -k --keepParent build/Yapshot.app "$zip"
+          ditto -c -k --keepParent build/Shotate.app "$zip"
           gh release upload "$TAG" "$zip" --clobber
 
   desktop:
