@@ -499,6 +499,8 @@ final class RecordingIndicator {
         dot.layer?.masksToBounds = false
         dot.widthAnchor.constraint(equalToConstant: 10).isActive = true
         dot.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        dot.setAccessibilityElement(true)  // a plain view is skipped by VoiceOver otherwise
+        dot.setAccessibilityRole(.image)
         dot.setAccessibilityLabel("Recording")
         Pulse.add(to: dot.layer!, color: Brand.red)
         clock.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
