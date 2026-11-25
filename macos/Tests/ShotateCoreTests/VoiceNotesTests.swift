@@ -3,7 +3,7 @@ import XCTest
 
 final class VoiceNotesTests: XCTestCase {
     private func load(_ json: String) throws -> Settings {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-\(UUID().uuidString)/config.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(json.utf8).write(to: url)
         return try Settings.load(from: url)
@@ -56,7 +56,7 @@ final class VoiceNotesTests: XCTestCase {
     /// entries this build can't read, stays. Later loads don't migrate, so editing the clash away
     /// doesn't move area recording after all.
     func testMigrationWritesOnlyItsKeysAndIsNotDecidedAgain() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-\(UUID().uuidString)/config.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"shortcuts": {"recordArea": "cmd+shift+r", "captureScreen": "cmd+option+shift+r", "recordScreen": "hyper+r"}, "commands": {"cmd+shift+f13": "~/bin/x"}, "future": 1}"#.utf8).write(to: url)
         let (first, migrated) = try Settings.loadReporting(from: url)
@@ -106,7 +106,7 @@ final class VoiceNotesTests: XCTestCase {
     }
 
     func testVoiceSettingsRoundTrip() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-\(UUID().uuidString)/config.json")
         var s = Settings()
         s.voiceFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Music/Elsewhere", isDirectory: true)
         s.voiceQuality = .wav

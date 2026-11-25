@@ -27,16 +27,16 @@ public enum RecordingAlert {
         case .note: copiedText = ", and the note is copied"
         }
         if let error {
-            guard let place else { return ("Shotate couldn't save the recording", error) }
+            guard let place else { return ("Yapshot couldn't save the recording", error) }
             if partial {
-                return ("Shotate saved the video, but not everything else in time",
+                return ("Yapshot saved the video, but not everything else in time",
                         "It's at \(place)\(copiedText). "
                             + (hasFolder ? "The stills and note may still appear there. " : "") + error)
             }
-            return ("Shotate couldn't save the recording", "What was written is at \(place)\(copiedText). \(error)")
+            return ("Yapshot couldn't save the recording", "What was written is at \(place)\(copiedText). \(error)")
         }
         if let logError {
-            return ("Shotate couldn't read the app's system log",
+            return ("Yapshot couldn't read the app's system log",
                     "The video, stills and the app's own log files are saved\(copiedText). macOS said: \(logError)")
         }
         return nil

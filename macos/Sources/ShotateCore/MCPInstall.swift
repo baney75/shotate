@@ -1,11 +1,19 @@
 import Foundation
 
-/// `shotate mcp install`: registers Shotate's MCP server with the agents on this Mac. Each edit adds,
-/// updates or removes only the `shotate` entry, leaves every other entry as it was, and copies the
+/// `yapshot mcp install`: registers Yapshot's MCP server with the agents on this Mac. Each edit adds,
+/// updates or removes only the `yapshot` entry, leaves every other entry as it was, and copies the
 /// file beside itself first. A symlinked config is edited at its target, so the link stays. An
-/// existing `shotate` entry is left alone when it already runs this app.
+/// existing `yapshot` entry is left alone when it already runs this app. An entry under the old name
+/// `shotate` that runs our command is replaced, so there is one server, not two.
 public enum MCPInstall {
-    public static let serverName = "shotate"
+    public static let serverName = "yapshot"
+    /// The name before the rename to Yapshot.
+    public static let legacyServerName = "shotate"
+
+    /// Whether a server's command is this app's: the `yapshot` or `shotate` script, or the app binary.
+    public static func isOurCommand(_ command: String) -> Bool {
+        ["yapshot", "shotate"].contains((command as NSString).lastPathComponent.lowercased())
+    }
 
     public enum Client: String, CaseIterable {
         case claude, codex, cursor
@@ -20,7 +28,7 @@ public enum MCPInstall {
             }
         }
 
-        /// The config file Shotate edits, under `home`. Claude Code has none: its own command does it.
+        /// The config file Yapshot edits, under `home`. Claude Code has none: its own command does it.
         public func configURL(home: URL) -> URL? {
             switch self {
             case .claude: return nil
@@ -41,6 +49,8 @@ public enum MCPInstall {
     }
 
     public enum Outcome: String, Equatable {
+        /// Added or updated `yapshot` (or kept the one there) and removed an old `shotate` entry that ran our command.
+        case replaced
         case added, updated, alreadyThere, removed, notThere
     }
 
@@ -51,13 +61,13 @@ public enum MCPInstall {
         public var backup: URL?
     }
 
-    /// Why Shotate won't register itself from where it is running, or nil when it can. A copy macOS
+    /// Why Yapshot won't register itself from where it is running, or nil when it can. A copy macOS
     /// translocated (opened from Downloads or a disk image) or one on a read-only volume moves or goes
     /// away, and every agent would be left pointing at a path that no longer exists.
     public static func installRefusal(command: String, readOnlyVolume: Bool) -> String? {
         guard command.contains("/AppTranslocation/") || readOnlyVolume else { return nil }
-        return "Shotate is running from a temporary or read-only place (\(command)), so agents couldn't start it later. "
-            + "Move Shotate to the Applications folder, open it from there, and connect again."
+        return "Yapshot is running from a temporary or read-only place (\(command)), so agents couldn't start it later. "
+            + "Move Yapshot to the Applications folder, open it from there, and connect again."
     }
 
     /// The PATH for a child process: `current`, then the `extra` folders, then the folder `found`
@@ -80,20 +90,28 @@ public enum MCPInstall {
         var root = try readJSON(file)
         var servers = root["mcpServers"] as? [String: Any] ?? [:]
         if root["mcpServers"] != nil, !(root["mcpServers"] is [String: Any]) {
-            throw AgentError("\(url.path): mcpServers isn't an object, so Shotate left the file alone.")
+            throw AgentError("\(url.path): mcpServers isn't an object, so Yapshot left the file alone.")
         }
+        let legacy = (servers[legacyServerName] as? [String: Any])?["command"] as? String
+        let replacing = legacy.map(isOurCommand) ?? false
         var outcome = Outcome.added
         var entry: [String: Any] = [:]
+        var current = false
         if let existing = servers[serverName] {
             entry = existing as? [String: Any] ?? [:]
-            if entry["command"] as? String == command, (entry["args"] as? [String] ?? []) == args, isExecutable(command) {
-                return Change(outcome: .alreadyThere, file: url)
-            }
+            current = entry["command"] as? String == command && (entry["args"] as? [String] ?? []) == args && isExecutable(command)
+            if current, !replacing { return Change(outcome: .alreadyThere, file: url) }
             outcome = .updated
         }
-        entry["command"] = command
-        entry["args"] = args
-        servers[serverName] = entry
+        if replacing {
+            servers[legacyServerName] = nil
+            outcome = .replaced
+        }
+        if !current {
+            entry["command"] = command
+            entry["args"] = args
+            servers[serverName] = entry
+        }
         root["mcpServers"] = servers
         let backup = try backupIfPresent(file, now: now)
         try writeJSON(root, to: file)
@@ -120,7 +138,7 @@ public enum MCPInstall {
         guard let data = FileManager.default.contents(atPath: url.path),
               !String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [:] }
         guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw AgentError("\(url.path) isn't a JSON object Shotate can read, so it left the file alone.")
+            throw AgentError("\(url.path) isn't a JSON object Yapshot can read, so it left the file alone.")
         }
         return o
     }
@@ -134,38 +152,43 @@ public enum MCPInstall {
 
     // MARK: TOML (Codex)
 
-    /// Adds a `[mcp_servers.shotate]` table, or rewrites the command and args of the one there when
-    /// they differ or the command isn't executable. A `shotate` server written another way (an inline
-    /// table or dotted keys) is refused: appending a table would define it twice.
+    /// Adds a `[mcp_servers.yapshot]` table, or rewrites the command and args of the one there when
+    /// they differ or the command isn't executable. A `yapshot` server written another way (an inline
+    /// table or dotted keys) is refused: appending a table would define it twice. A
+    /// `[mcp_servers.shotate]` table that runs our command is removed with its subtables; an old
+    /// `shotate` server written another way is refused too, since it can't be removed cleanly.
     public static func addTOML(at url: URL, command: String, args: [String], now: Date = Date(),
                                isExecutable: (String) -> Bool = FileManager.default.isExecutableFile) throws -> Change {
         let file = url.resolvingSymlinksInPath()
         var text = ""
         if FileManager.default.fileExists(atPath: file.path) {
             guard let read = try? String(contentsOf: file, encoding: .utf8) else {
-                throw AgentError("\(url.path) isn't readable UTF-8 text, so Shotate left the file alone.")
+                throw AgentError("\(url.path) isn't readable UTF-8 text, so Yapshot left the file alone.")
             }
             text = read
         }
         let lines = tomlLines(text)
-        let found = tomlFind(lines)
-        if let other = found.other {
-            throw AgentError("\(url.path) \(other), so Shotate left the file alone. "
-                + "Remove it, or write it as a [mcp_servers.shotate] table, and connect again.")
+        for name in [serverName, legacyServerName] {
+            if let other = tomlFind(lines, name: name).other {
+                throw AgentError("\(url.path) \(other), so Yapshot left the file alone. "
+                    + "Remove it, or write it as a [mcp_servers.\(name)] table, and connect again.")
+            }
         }
-        let out: String
-        let outcome: Outcome
+        let found = tomlFind(lines)
+        let replacing = tomlServerCommand(lines, name: legacyServerName).command.map(isOurCommand) ?? false
+        var out = replacing ? tomlRemoving(text, name: legacyServerName) : text
+        var outcome: Outcome
         if found.table {
             let current = tomlServerCommand(lines)
-            if current.command == command, current.args == args, isExecutable(command) {
-                return Change(outcome: .alreadyThere, file: url)
-            }
-            out = tomlUpdating(text, command: command, args: args)
+            let upToDate = current.command == command && current.args == args && isExecutable(command)
+            if upToDate, !replacing { return Change(outcome: .alreadyThere, file: url) }
+            if !upToDate { out = tomlUpdating(out, command: command, args: args) }
             outcome = .updated
         } else {
-            out = tomlAdding(text, command: command, args: args)
+            out = tomlAdding(out, command: command, args: args)
             outcome = .added
         }
+        if replacing { outcome = .replaced }
         let backup = try backupIfPresent(file, now: now)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(out.utf8).write(to: file, options: .atomic)
@@ -177,7 +200,7 @@ public enum MCPInstall {
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return Change(outcome: .notThere, file: url) }
         let found = tomlFind(tomlLines(text))
         if let other = found.other {
-            throw AgentError("\(url.path) \(other), so Shotate left the file alone. Remove it there by hand.")
+            throw AgentError("\(url.path) \(other), so Yapshot left the file alone. Remove it there by hand.")
         }
         guard found.table || found.subtables else { return Change(outcome: .notThere, file: url) }
         let backup = try backupIfPresent(file, now: now)
@@ -331,24 +354,25 @@ public enum MCPInstall {
         }
     }
 
-    private static func isShotate(_ keys: [String]) -> Bool {
-        keys.count >= 2 && keys[0] == "mcp_servers" && keys[1] == serverName
+    private static func isServer(_ keys: [String], _ name: String) -> Bool {
+        keys.count >= 2 && keys[0] == "mcp_servers" && keys[1] == name
     }
 
-    /// How the file defines the `shotate` server: as a `[mcp_servers.shotate]` table, by subtables
-    /// of it, or some other way that Shotate won't edit (`other` says which).
-    static func tomlFind(_ lines: [TOMLLine]) -> (table: Bool, subtables: Bool, other: String?) {
+    /// How the file defines the `name` server (`yapshot` unless told otherwise): as a
+    /// `[mcp_servers.<name>]` table, by subtables of it, or some other way that Yapshot won't edit
+    /// (`other` says which).
+    static func tomlFind(_ lines: [TOMLLine], name: String = serverName) -> (table: Bool, subtables: Bool, other: String?) {
         var table = false, subtables = false
         var other: String?
         for l in lines {
             switch l.kind {
-            case let .header(k) where isShotate(k): if k.count == 2 { table = true } else { subtables = true }
-            case let .arrayHeader(k) where isShotate(k): subtables = true
+            case let .header(k) where isServer(k, name): if k.count == 2 { table = true } else { subtables = true }
+            case let .arrayHeader(k) where isServer(k, name): subtables = true
             case let .key(k):
-                if l.table == ["mcp_servers"], k.first == serverName {
-                    other = other ?? "defines shotate inside [mcp_servers] (\(l.text.trimmingCharacters(in: .whitespaces)))"
-                } else if l.table.isEmpty, isShotate(k) {
-                    other = other ?? "defines shotate with dotted keys (\(l.text.trimmingCharacters(in: .whitespaces)))"
+                if l.table == ["mcp_servers"], k.first == name {
+                    other = other ?? "defines \(name) inside [mcp_servers] (\(l.text.trimmingCharacters(in: .whitespaces)))"
+                } else if l.table.isEmpty, isServer(k, name) {
+                    other = other ?? "defines \(name) with dotted keys (\(l.text.trimmingCharacters(in: .whitespaces)))"
                 } else if l.table.isEmpty, k == ["mcp_servers"] {
                     other = other ?? "has mcp_servers as an inline table"
                 }
@@ -358,22 +382,22 @@ public enum MCPInstall {
         return (table, subtables, other)
     }
 
-    /// Whether the file defines a `shotate` server in any form.
-    public static func tomlHasServer(_ text: String) -> Bool {
-        let f = tomlFind(tomlLines(text))
+    /// Whether the file defines a `name` server in any form.
+    public static func tomlHasServer(_ text: String, name: String = serverName) -> Bool {
+        let f = tomlFind(tomlLines(text), name: name)
         return f.table || f.subtables || f.other != nil
     }
 
-    /// The line range of the `[mcp_servers.shotate]` table itself (header included), not its subtables.
-    private static func mainTable(_ lines: [TOMLLine]) -> Range<Int>? {
-        guard let start = lines.firstIndex(where: { $0.kind == .header(["mcp_servers", serverName]) }) else { return nil }
+    /// The line range of the `[mcp_servers.<name>]` table itself (header included), not its subtables.
+    private static func mainTable(_ lines: [TOMLLine], name: String = serverName) -> Range<Int>? {
+        guard let start = lines.firstIndex(where: { $0.kind == .header(["mcp_servers", name]) }) else { return nil }
         let end = lines[(start + 1)...].firstIndex { $0.headerKeys != nil } ?? lines.count
         return start..<end
     }
 
-    /// The command and args the `[mcp_servers.shotate]` table has now.
-    static func tomlServerCommand(_ lines: [TOMLLine]) -> (command: String?, args: [String]?) {
-        guard let range = mainTable(lines) else { return (nil, nil) }
+    /// The command and args the `[mcp_servers.<name>]` table has now.
+    static func tomlServerCommand(_ lines: [TOMLLine], name: String = serverName) -> (command: String?, args: [String]?) {
+        guard let range = mainTable(lines, name: name) else { return (nil, nil) }
         var command: String?, args: [String]?
         var i = range.lowerBound
         while i < range.upperBound {
@@ -387,6 +411,11 @@ public enum MCPInstall {
             i += 1
         }
         return (command, args)
+    }
+
+    /// The `command` string of the `[mcp_servers.<name>]` table, if it has one.
+    public static func tomlCommand(_ text: String, name: String) -> String? {
+        tomlServerCommand(tomlLines(text), name: name).command
     }
 
     /// The single-line strings in a value, unescaped: enough for `command` and `args`.
@@ -433,7 +462,7 @@ public enum MCPInstall {
         ["command = \(tomlString(command))", "args = [\(args.map(tomlString).joined(separator: ", "))]"]
     }
 
-    /// Replaces the `command` and `args` lines of the `[mcp_servers.shotate]` table, keeping the
+    /// Replaces the `command` and `args` lines of the `[mcp_servers.yapshot]` table, keeping the
     /// table's other keys and every other line of the file.
     public static func tomlUpdating(_ text: String, command: String, args: [String]) -> String {
         let lines = tomlLines(text)
@@ -454,10 +483,10 @@ public enum MCPInstall {
         return (Array(texts[..<range.lowerBound]) + new + Array(texts[range.upperBound...])).joined(separator: "\n")
     }
 
-    /// Drops only the lines of the `shotate` table and its subtables. Comment lines right above the
-    /// next table belong to that table and stay. Blank lines are evened out only where the table was
-    /// cut out; the rest of the file is left byte for byte.
-    public static func tomlRemoving(_ text: String) -> String {
+    /// Drops only the lines of the `name` table (`yapshot` unless told otherwise) and its subtables.
+    /// Comment lines right above the next table belong to that table and stay. Blank lines are evened
+    /// out only where the table was cut out; the rest of the file is left byte for byte.
+    public static func tomlRemoving(_ text: String, name: String = serverName) -> String {
         var lines = tomlLines(text)
         let endsWithNewline = text.hasSuffix("\n")
         if endsWithNewline { lines.removeLast() }
@@ -465,7 +494,7 @@ public enum MCPInstall {
         var seam = false
         var i = 0
         while i < lines.count {
-            guard let k = lines[i].headerKeys, isShotate(k) else {
+            guard let k = lines[i].headerKeys, isServer(k, name) else {
                 if seam {
                     if lines[i].kind == .blank { i += 1; continue }
                     if !out.isEmpty { out.append("") }
@@ -477,7 +506,7 @@ public enum MCPInstall {
             }
             var end = i + 1
             while end < lines.count {
-                if let next = lines[end].headerKeys, !isShotate(next) { break }
+                if let next = lines[end].headerKeys, !isServer(next, name) { break }
                 end += 1
             }
             if end < lines.count {
@@ -503,17 +532,28 @@ public enum MCPInstall {
     }
 
     public static let claudeRemoveArguments = ["mcp", "remove", "--scope", "user", serverName]
+    public static let claudeRemoveLegacyArguments = ["mcp", "remove", "--scope", "user", legacyServerName]
+    public static let claudeGetLegacyArguments = ["mcp", "get", legacyServerName]
 
-    /// Copies an existing file to `<file>.shotate-backup-<yyyyMMdd-HHmmss>` beside it.
+    /// The `Command:` line of `claude mcp get <name>` output.
+    public static func claudeCommand(fromGetOutput output: String) -> String? {
+        for line in output.components(separatedBy: "\n") {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("Command:") { return t.dropFirst("Command:".count).trimmingCharacters(in: .whitespaces) }
+        }
+        return nil
+    }
+
+    /// Copies an existing file to `<file>.yapshot-backup-<yyyyMMdd-HHmmss>` beside it.
     public static func backupIfPresent(_ url: URL, now: Date) throws -> URL? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyyMMdd-HHmmss"
-        var backup = URL(fileURLWithPath: url.path + ".shotate-backup-" + f.string(from: now))
+        var backup = URL(fileURLWithPath: url.path + ".yapshot-backup-" + f.string(from: now))
         var n = 2
         while FileManager.default.fileExists(atPath: backup.path) {
-            backup = URL(fileURLWithPath: url.path + ".shotate-backup-" + f.string(from: now) + "-\(n)")
+            backup = URL(fileURLWithPath: url.path + ".yapshot-backup-" + f.string(from: now) + "-\(n)")
             n += 1
         }
         try FileManager.default.copyItem(at: url, to: backup)

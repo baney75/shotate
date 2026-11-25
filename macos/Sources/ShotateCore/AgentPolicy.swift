@@ -1,6 +1,6 @@
 import Foundation
 
-/// The rules the `shotate` command and the app follow when an agent drives a recording, kept apart
+/// The rules the `yapshot` command and the app follow when an agent drives a recording, kept apart
 /// so tests pin them: how long `--for` may be, what a yes/no flag means, and what `stop` does.
 public enum AgentPolicy {
     /// The longest `record --for`.
@@ -27,7 +27,7 @@ public enum AgentPolicy {
         }
     }
 
-    /// `shotate stop`'s arguments: nothing, `--any`, or `--any=<yes/no>`. Anything else is an error,
+    /// `yapshot stop`'s arguments: nothing, `--any`, or `--any=<yes/no>`. Anything else is an error,
     /// so `--any false` (with a space) can't read as a bare `--any`.
     public static func stopArguments(_ args: [String]) -> Result<Bool, AgentError> {
         if args.isEmpty { return .success(false) }

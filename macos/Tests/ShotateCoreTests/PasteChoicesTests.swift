@@ -83,7 +83,7 @@ final class PasteChoicesTests: XCTestCase {
 
 final class ChoosePasteSettingTests: XCTestCase {
     func testOffByDefaultAndRoundTrips() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-paste-\(UUID().uuidString).json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-paste-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }
         var s = Settings()
         XCTAssertFalse(s.choosePaste)

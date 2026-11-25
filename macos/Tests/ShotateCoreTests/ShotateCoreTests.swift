@@ -178,7 +178,7 @@ final class ShotateCoreTests: XCTestCase {
         let s = Settings(saveFolder: dir)
         let date = Date(timeIntervalSince1970: 1_800_000_000)
         let first = s.newRecordingURL(date: date)
-        XCTAssertTrue(first.lastPathComponent.hasPrefix("Shotate Recording "))
+        XCTAssertTrue(first.lastPathComponent.hasPrefix("Yapshot Recording "))
         XCTAssertEqual(first.pathExtension, "mp4")
         FileManager.default.createFile(atPath: first.path, contents: Data())
         XCTAssertTrue(s.newRecordingURL(date: date).lastPathComponent.hasSuffix(" 2.mp4"))
@@ -219,7 +219,7 @@ final class ShotateCoreTests: XCTestCase {
 
     /// Settings carried over from before the config file get the same protection.
     func testMigratedSettingsYieldNewDefaults() {
-        let d = UserDefaults(suiteName: "shotate-test-\(UUID().uuidString)")!
+        let d = UserDefaults(suiteName: "yapshot-test-\(UUID().uuidString)")!
         d.set("cmd+shift+r", forKey: "captureShortcut")
         d.set(["cmd+shift+d": "/usr/bin/true"], forKey: "commandHotkeys")
         let s = Settings.migrated(from: d)
@@ -231,12 +231,12 @@ final class ShotateCoreTests: XCTestCase {
     }
 
     func tempConfig() -> URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
+        FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-\(UUID().uuidString)/config.json")
     }
 
     func testConfigFileRoundTrips() throws {
         let url = tempConfig()
-        var s = Settings(saveFolder: URL(fileURLWithPath: "/tmp/shotate-\(UUID().uuidString)-missing", isDirectory: true))
+        var s = Settings(saveFolder: URL(fileURLWithPath: "/tmp/yapshot-\(UUID().uuidString)-missing", isDirectory: true))
         s.copyOnCapture = false
         s.commandHotkeys = ["cmd+shift+a": "/usr/bin/true"]
         s.shortcuts["captureWindow"] = "ctrl+shift+2"
@@ -324,7 +324,7 @@ final class ShotateCoreTests: XCTestCase {
     }
 
     func testMigratesOldDefaults() {
-        let d = UserDefaults(suiteName: "shotate-test-\(UUID().uuidString)")!
+        let d = UserDefaults(suiteName: "yapshot-test-\(UUID().uuidString)")!
         d.set(false, forKey: "captureHotkeyEnabled")
         d.set(["cmd+shift+a": "x"], forKey: "commandHotkeys")
         let s = Settings.migrated(from: d)
@@ -336,7 +336,7 @@ final class ShotateCoreTests: XCTestCase {
     /// Captures are read from a temp file that is deleted right away. The image must not depend on
     /// that file afterwards, or saving and copying fail with "No IDATs written".
     func testLoadedDocumentSurvivesSourceFileDeletion() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-test-\(UUID().uuidString).png")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-test-\(UUID().uuidString).png")
         try XCTUnwrap(Renderer.pngData(solidImage(gray: 0.2), dpi: 144)).write(to: url)
         let doc = try XCTUnwrap(Renderer.loadDocument(at: url))
         try FileManager.default.removeItem(at: url)
@@ -548,17 +548,34 @@ final class ShotateCoreTests: XCTestCase {
 
     /// Settings from the Snapmark days carry over once and are never overwritten after that.
     func testAdoptsSnapmarkConfigOnce() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-adopt-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-adopt-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
-        let old = dir.appendingPathComponent("snapmark/config.json"), new = dir.appendingPathComponent("shotate/config.json")
-        XCTAssertFalse(Settings.adoptLegacyConfig(from: old, to: new), "nothing to adopt")
+        let old = dir.appendingPathComponent("snapmark/config.json"), new = dir.appendingPathComponent("yapshot/config.json")
+        XCTAssertFalse(Settings.adoptLegacyConfig(from: [old], to: new), "nothing to adopt")
         try FileManager.default.createDirectory(at: old.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"saveFolder": "~/Desktop"}"#.utf8).write(to: old)
-        XCTAssertTrue(Settings.adoptLegacyConfig(from: old, to: new))
+        XCTAssertTrue(Settings.adoptLegacyConfig(from: [old], to: new))
         XCTAssertEqual(try Settings.load(from: new).saveFolder.path, NSHomeDirectory() + "/Desktop")
         try Data(#"{"saveFolder": "~/Documents"}"#.utf8).write(to: new)
-        XCTAssertFalse(Settings.adoptLegacyConfig(from: old, to: new), "an existing Shotate config wins")
+        XCTAssertFalse(Settings.adoptLegacyConfig(from: [old], to: new), "an existing Yapshot config wins")
         XCTAssertTrue(FileManager.default.fileExists(atPath: old.path), "the old file stays")
+    }
+
+    /// The Shotate config carries over to Yapshot once, and beats an older Snapmark one.
+    func testAdoptsShotateConfigBeforeSnapmark() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-adopt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let shotate = dir.appendingPathComponent("shotate/config.json"), snapmark = dir.appendingPathComponent("snapmark/config.json")
+        let new = dir.appendingPathComponent("yapshot/config.json")
+        for (url, folder) in [(shotate, "~/Pictures"), (snapmark, "~/Desktop")] {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(#"{"saveFolder": "\#(folder)"}"#.utf8).write(to: url)
+        }
+        XCTAssertTrue(Settings.adoptLegacyConfig(from: [shotate, snapmark], to: new))
+        XCTAssertEqual(try Settings.load(from: new).saveFolder.path, NSHomeDirectory() + "/Pictures")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: shotate.path), "the Shotate file stays")
+        XCTAssertFalse(Settings.adoptLegacyConfig(from: [shotate, snapmark], to: new), "only the first time")
+        XCTAssertEqual(Settings.legacyConfigURLs.map { $0.deletingLastPathComponent().lastPathComponent }, ["shotate", "snapmark"])
     }
 
     func testArrowsBendFromTheirMiddleHandle() throws {

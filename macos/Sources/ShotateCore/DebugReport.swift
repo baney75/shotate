@@ -209,7 +209,7 @@ public struct DebugReport {
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm:ss ZZZZZ"
         var head = "# \(appName): screen recording with debug logs\n\n"
-        head += "Recorded \(f.string(from: started)) for \(Self.clock(duration)) with Shotate. "
+        head += "Recorded \(f.string(from: started)) for \(Self.clock(duration)) with Yapshot. "
             + "Watch the video (or look at the stills) for what happened on screen; the logs below are what the app wrote meanwhile.\n\n"
         let id = [bundleID, version.map { "version \($0)" }, "pid \(pid)"].compactMap { $0 }.joined(separator: ", ")
         head += "- App: \(appName) (\(id)), macOS \(macOS)\n"
@@ -228,15 +228,15 @@ public struct DebugReport {
             crashes += crashReports.map { "- `\($0)`" }.joined(separator: "\n") + "\n"
         }
         let hint = appLogs.isEmpty
-            ? "\nThe app wrote no log files Shotate could find. If it logs somewhere else, name the folder in "
-                + "`appLogs` in ~/.config/shotate/config.json.\n"
+            ? "\nThe app wrote no log files Yapshot could find. If it logs somewhere else, name the folder in "
+                + "`appLogs` in ~/.config/yapshot/config.json.\n"
             : ""
         // Each section gets its share up front, so busy app logs can't push the system log's errors
         // out of the note: the system log up to a third, the app's log files the rest.
         let room = max(0, limit - head.count - crashes.count - hint.count - 400)
         var system = ""
         if let systemLogError {
-            system += "\n## System log\n\nmacOS wouldn't give Shotate the log: \(systemLogError)\n"
+            system += "\n## System log\n\nmacOS wouldn't give Yapshot the log: \(systemLogError)\n"
         } else if let digest {
             system += "\n## System log, filtered\n\n"
             let dropped = digest.total - digest.kept

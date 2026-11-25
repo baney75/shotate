@@ -5,7 +5,7 @@ import XCTest
 final class DebugReportTests: XCTestCase {
     /// A trimmed copy of a real ⇧⌘D log of T3 Code (2026-10-31): almost all of it macOS housekeeping.
     let log = """
-    # Log of T3 Code (Nightly) (com.t3tools.t3code, pid 53933) while Shotate recorded it, from 2026-10-31T14:16:33-04:00.
+    # Log of T3 Code (Nightly) (com.t3tools.t3code, pid 53933) while Yapshot recorded it, from 2026-10-31T14:16:33-04:00.
     Filtering the log data using "processImagePath BEGINSWITH "/Applications/T3 Code (Nightly).app/""
     Timestamp               Ty Process[PID:TID]
     2026-10-31 14:16:33.813 I  T3 Code (Nightly)[53933:33fdcc6] [com.apple.AppKit:WindowSharing] Window ea7c selective sharing changed
@@ -75,8 +75,8 @@ final class DebugReportTests: XCTestCase {
         r.appLogs = []
         r.systemLogError = "Must be admin to run 'stream' command"
         let failed = r.markdown()
-        XCTAssertTrue(failed.contains("macOS wouldn't give Shotate the log: Must be admin"))
-        XCTAssertTrue(failed.contains("`appLogs` in ~/.config/shotate/config.json"))
+        XCTAssertTrue(failed.contains("macOS wouldn't give Yapshot the log: Must be admin"))
+        XCTAssertTrue(failed.contains("`appLogs` in ~/.config/yapshot/config.json"))
         XCTAssertLessThanOrEqual(r.markdown(limit: 300).count, 360)
     }
 
@@ -126,7 +126,7 @@ final class DebugReportTests: XCTestCase {
     }
 
     func testAgentSettingsRoundTrip() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-\(UUID().uuidString)/config.json")
         var s = Settings()
         XCTAssertFalse(s.agentControl, "off unless the user turns it on")
         s.agentControl = true

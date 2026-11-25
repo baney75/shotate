@@ -28,7 +28,7 @@ public struct VoiceMarker: Codable, Hashable {
     public init(time: Double, label: String) { self.time = time; self.label = label }
 }
 
-/// What Shotate knows about a voice note beyond the audio: kept in `.meta/<file>.json` beside it.
+/// What Yapshot knows about a voice note beyond the audio: kept in `.meta/<file>.json` beside it.
 public struct VoiceMeta: Codable, Hashable {
     public var markers: [VoiceMarker] = []
     public var transcript: String?
