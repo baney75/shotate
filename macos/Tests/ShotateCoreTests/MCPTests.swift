@@ -237,7 +237,7 @@ final class MCPTests: XCTestCase {
     func testJSONReplacesOurOldShotateEntry() throws {
         let dir = try tempFolder()
         let file = dir.appendingPathComponent("mcp.json")
-        let ours = #"{"mcpServers": {"shotate": {"command": "/A/Shotate.app/Contents/Resources/bin/shotate", "args": ["mcp"]}, "github": {"command": "gh"}}}"#
+        let ours = #"{"mcpServers": {"shotate": {"command": "/A/Shotate.app/Contents/Resources/bin/shotate", "args": ["mcp"], "env": {"K": "1"}}, "github": {"command": "gh"}}}"#
         try Data(ours.utf8).write(to: file)
         let change = try MCPInstall.addJSON(at: file, command: "/A/Yapshot.app/Contents/Resources/bin/yapshot", args: ["mcp"], now: now)
         XCTAssertEqual(change.outcome, .replaced)
@@ -245,6 +245,7 @@ final class MCPTests: XCTestCase {
         let servers = try XCTUnwrap((JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])?["mcpServers"] as? [String: Any])
         XCTAssertEqual(servers.keys.sorted(), ["github", "yapshot"])
         XCTAssertEqual((servers["yapshot"] as? [String: Any])?["command"] as? String, "/A/Yapshot.app/Contents/Resources/bin/yapshot")
+        XCTAssertEqual((servers["yapshot"] as? [String: Any])?["env"] as? [String: String], ["K": "1"])
         XCTAssertEqual(try MCPInstall.addJSON(at: file, command: "/A/Yapshot.app/Contents/Resources/bin/yapshot", args: ["mcp"], now: now,
                                               isExecutable: { _ in true }).outcome, .alreadyThere)
 

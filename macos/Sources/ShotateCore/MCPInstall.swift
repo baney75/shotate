@@ -95,7 +95,8 @@ public enum MCPInstall {
         let legacy = (servers[legacyServerName] as? [String: Any])?["command"] as? String
         let replacing = legacy.map(isOurCommand) ?? false
         var outcome = Outcome.added
-        var entry: [String: Any] = [:]
+        // A replaced old entry hands over its other keys (env, timeouts) when there is no new one yet.
+        var entry: [String: Any] = replacing ? (servers[legacyServerName] as? [String: Any] ?? [:]) : [:]
         var current = false
         if let existing = servers[serverName] {
             entry = existing as? [String: Any] ?? [:]

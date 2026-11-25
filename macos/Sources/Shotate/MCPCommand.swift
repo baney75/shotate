@@ -191,15 +191,18 @@ enum MCPSetup {
             return (p.terminationStatus, output)
         }
         // An entry under the old name that runs our command goes, so the agent sees one server.
-        var replaced = false
+        // It is removed only after yapshot is in, so a failed add never leaves neither.
+        var hasLegacy = false
         if install, let got = runClaude(MCPInstall.claudeGetLegacyArguments), got.status == 0,
            let old = MCPInstall.claudeCommand(fromGetOutput: got.output), MCPInstall.isOurCommand(old) {
-            replaced = runClaude(MCPInstall.claudeRemoveLegacyArguments)?.status == 0
+            hasLegacy = true
         }
+        func dropLegacy() -> Bool { hasLegacy && runClaude(MCPInstall.claudeRemoveLegacyArguments)?.status == 0 }
         guard let (status, output) = runClaude(argv) else {
             return Result(client: .claude, outcome: "error", detail: "Couldn't run \(claude).")
         }
         if status == 0 {
+            let replaced = install && dropLegacy()
             return Result(client: .claude, outcome: install ? (replaced ? "replaced" : "added") : "removed",
                           detail: install ? (replaced ? "Replaced the old shotate server with yapshot in Claude Code's user config."
                                                       : "Ran claude mcp add: yapshot is in Claude Code's user config.")
@@ -208,6 +211,7 @@ enum MCPSetup {
         let lower = output.lowercased()
         if install, lower.contains("already exists") {
             if runClaude(MCPInstall.claudeRemoveArguments)?.status == 0, let again = runClaude(argv), again.status == 0 {
+                let replaced = dropLegacy()
                 return Result(client: .claude, outcome: replaced ? "replaced" : "updated",
                               detail: replaced ? "Replaced the old shotate server with yapshot in Claude Code's user config."
                                                : "Updated yapshot in Claude Code's user config to run this copy of Yapshot.")
