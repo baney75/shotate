@@ -2,7 +2,7 @@ import AppKit
 import ShotateCore
 
 /// The log files a recorded app writes while it is recorded, beyond the system log: Electron and
-/// Node apps (T3 Code, Claude, Proton) never send their own output to the system log. Shotate notes
+/// Node apps (T3 Code, Claude, Proton) never send their own output to the system log. Yapshot notes
 /// each candidate file's size when recording starts and, when it stops, copies what was added.
 ///
 /// Candidates: files the app's processes hold open for writing (`lsof`), and log files in

@@ -2,8 +2,8 @@ import AppKit
 import ShotateCore
 import SwiftUI
 
-/// `Shotate --render-ui <folder> [--appearance light|dark] [--sample image.png] [--icon icon.png]` draws each window
-/// Shotate shows and saves a PNG of it, for checking how the app looks without using it. Each window
+/// `Yapshot --render-ui <folder> [--appearance light|dark] [--sample image.png] [--icon icon.png]` draws each window
+/// Yapshot shows and saves a PNG of it, for checking how the app looks without using it. Each window
 /// goes behind every other window (it never takes focus or the keyboard) and is captured with
 /// `screencapture -l`, so the process that runs this needs Screen Recording. The capture overlay is
 /// drawn straight to an image. Nothing is saved, copied or registered; no shortcuts are claimed.
@@ -38,7 +38,7 @@ final class UISnapshots {
     /// Surfaces that weren't written; any makes the run exit 1.
     private(set) var failures = 0
     private let image: CGImage
-    private let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-render-ui", isDirectory: true)
+    private let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-render-ui", isDirectory: true)
 
     private init(out: URL, image: CGImage) {
         self.out = out
@@ -173,7 +173,7 @@ final class UISnapshots {
             (.recording, "voice-badge-recording"), (.transcribing, "voice-badge-transcribing"),
             (.copied("Ship the voice notes split today. Check the recording bar in light and dark."), "voice-badge-copied"),
             (.failed("No speech found. The audio file is on the clipboard."), "voice-badge-failed"),
-            (.failed("Speech recognition is off for Shotate. Turn it on in System Settings > Privacy & Security > "
+            (.failed("Speech recognition is off for Yapshot. Turn it on in System Settings > Privacy & Security > "
                      + "Speech Recognition. The audio file is on the clipboard."), "voice-badge-failed-long"),
         ]
         for (phase, name) in states {
@@ -193,13 +193,13 @@ final class UISnapshots {
     private func teleprompter() {
         let t = Teleprompter.shared
         t.load(name: "Launch video intro", text: """
-            Hi, this is Shotate: screenshots, recordings and voice notes from the menu bar.
+            Hi, this is Yapshot: screenshots, recordings and voice notes from the menu bar.
 
             Press Shift-Command-S, drag over what you want, and it's on your clipboard, ready to paste.
 
             Add an arrow, a box or a numbered step, then drag the image straight into a document or a chat.
 
-            When you need to explain something out loud, press Shift-Command-R and just talk. Shotate writes it down for you.
+            When you need to explain something out loud, press Shift-Command-R and just talk. Yapshot writes it down for you.
             """)
         for (elapsed, name) in [(nil, "teleprompter"), (83.0, "teleprompter-recording")] as [(Double?, String)] {
             let p = t.makePanel(sampleElapsed: elapsed)

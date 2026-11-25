@@ -2,7 +2,7 @@ import AppKit
 import ScreenCaptureKit
 import ShotateCore
 
-/// Shotate's own capture. On recent macOS the screencapture tool takes 0.4–3 s to write even a small
+/// Yapshot's own capture. On recent macOS the screencapture tool takes 0.4 to 3 s to write even a small
 /// region, while ScreenCaptureKit returns a screen in milliseconds. Area and window capture freeze
 /// every screen when the shortcut is pressed, so letting go of the mouse only crops.
 @available(macOS 14.0, *)
@@ -46,13 +46,13 @@ enum NativeCapture {
                             let (image, scale) = try await capture(w.window)
                             completion(.image(image, dpi: 72 * scale))
                         } catch {
-                            NSLog("Shotate: window capture: %@", error.localizedDescription)
+                            NSLog("Yapshot: window capture: %@", error.localizedDescription)
                             completion(.cancelled)
                         }
                     }
                 }
             } catch {
-                NSLog("Shotate: ScreenCaptureKit: %@", error.localizedDescription)
+                NSLog("Yapshot: ScreenCaptureKit: %@", error.localizedDescription)
                 completion(.failed)
             }
         }
@@ -91,7 +91,7 @@ enum NativeCapture {
                     completion(rect.width >= 2 && rect.height >= 2 ? .chosen(.area(rect, screen)) : .cancelled)
                 }
             } catch {
-                NSLog("Shotate: ScreenCaptureKit: %@", error.localizedDescription)
+                NSLog("Yapshot: ScreenCaptureKit: %@", error.localizedDescription)
                 completion(.failed)
             }
         }
@@ -195,7 +195,7 @@ enum BackgroundCursor {
     private typealias DefaultConnection = @convention(c) () -> Int32
     private typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
 
-    /// On while the picker is up, so the crosshair shows at once; off again after, so Shotate
+    /// On while the picker is up, so the crosshair shows at once; off again after, so Yapshot
     /// never sets the cursor over the app you're using.
     static func set(_ on: Bool) {
         guard let conn = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_CGSDefaultConnection"),
@@ -203,7 +203,7 @@ enum BackgroundCursor {
         let cid = unsafeBitCast(conn, to: DefaultConnection.self)()
         let err = unsafeBitCast(prop, to: SetProperty.self)(cid, cid, "SetsCursorInBackground" as CFString,
                                                            on ? kCFBooleanTrue : kCFBooleanFalse)
-        if err != 0 { NSLog("Shotate: SetsCursorInBackground %d failed: %d", on ? 1 : 0, err) }
+        if err != 0 { NSLog("Yapshot: SetsCursorInBackground %d failed: %d", on ? 1 : 0, err) }
     }
 }
 
@@ -239,14 +239,14 @@ final class Picker {
         current = p
         p.screens = shots.map(\.0)
         p.overlays = shots.map { PickerWindow(screen: $0.0, image: $0.1, picker: p) }
-        // The overlays take keys without activating Shotate, so the app being captured keeps its
+        // The overlays take keys without activating Yapshot, so the app being captured keeps its
         // active look and its focus comes back on Esc.
         let mouse = NSEvent.mouseLocation
         for w in p.overlays { w.orderFrontRegardless() }
         (p.overlays.first { $0.frame.contains(mouse) } ?? p.overlays[0]).makeKey()
         p.hover(at: mouse)
         p.refresh()
-        // Shotate stays in the background while you pick, and macOS ignores a background app's
+        // Yapshot stays in the background while you pick, and macOS ignores a background app's
         // cursor until the mouse moves, so the pointer stayed an arrow and nothing said to drag.
         // The window server lets an app opt in to setting it from the background.
         BackgroundCursor.set(true)

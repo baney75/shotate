@@ -7,7 +7,7 @@ enum CaptureMode: String {
 
     /// screencapture flags: -i interactive (drag, or Space to switch to window picking), -o no window
     /// shadow, -x no shutter sound, -t png even when the user set another screenshot format, since
-    /// Shotate keeps the file as it is.
+    /// Yapshot keeps the file as it is.
     var arguments: [String] {
         switch self {
         case .area: ["-i", "-o", "-x", "-t", "png"]
@@ -66,7 +66,7 @@ enum Capture {
             }
             p.waitUntilExit()
             let message = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            if !message.isEmpty { NSLog("Shotate: screencapture: %@", message) }
+            if !message.isEmpty { NSLog("Yapshot: screencapture: %@", message) }
             var shot: Shot?
             if let png = try? Data(contentsOf: tmp), let doc = Renderer.loadDocument(data: png) {
                 shot = Shot(doc: doc, png: png, file: tmp)

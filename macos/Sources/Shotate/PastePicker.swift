@@ -5,7 +5,7 @@ import ShotateCore
 import SwiftUI
 
 /// With "Choose which screenshot to paste" on, ⌘V asks which one when several were copied lately:
-/// a panel in the middle of the screen shows them newest first, numbered 1–9. Shotate claims ⌘V
+/// a panel in the middle of the screen shows them newest first, numbered 1 to 9. Yapshot claims ⌘V
 /// only while the clipboard still holds its own screenshot, so anything copied since pastes as usual.
 final class PastePicker {
     private let hotkeys: Hotkeys
@@ -15,7 +15,7 @@ final class PastePicker {
     /// read from its file only when chosen.
     private var sizes: [URL: CGSize] = [:]
     private var thumbnails: [URL: NSImage] = [:]
-    /// The pasteboard's change count right after Shotate last wrote it.
+    /// The pasteboard's change count right after Yapshot last wrote it.
     private var ourChangeCount = -1
     /// ⌘V stays unclaimed until then: while the chosen screenshot is being pasted, or, without
     /// Accessibility, so the next ⌘V pastes it.
@@ -76,9 +76,9 @@ final class PastePicker {
         sizes = sizes.filter { kept.contains($0.key) }
         thumbnails = thumbnails.filter { kept.contains($0.key) }
         let ours = NSPasteboard.general.changeCount == ourChangeCount
-        // In Shotate's own windows ⌘V is theirs; while the chooser is up, ⌘V pastes its choice.
+        // In Yapshot's own windows ⌘V is theirs; while the chooser is up, ⌘V pastes its choice.
         // Without Accessibility a pick could only copy, and a claimed ⌘V can't be passed on, so
-        // ⌘V stays the app's own until Shotate is allowed (setup and the menu say so).
+        // ⌘V stays the app's own until Yapshot is allowed (setup and the menu say so).
         let ask = choices.shouldAsk(enabled: true, clipboardIsOurs: ours) && Date() >= holdOffUntil && AXIsProcessTrusted()
             && (!NSApp.isActive || chooser != nil)
         if ask != hotkeys.pasteClaimed { hotkeys.claimPaste(ask) }
@@ -165,7 +165,7 @@ final class PastePicker {
 }
 
 /// The panel that asks which screenshot to paste. It takes the keyboard without activating
-/// Shotate, so the app being pasted into stays in front and gets the paste.
+/// Yapshot, so the app being pasted into stays in front and gets the paste.
 final class PasteChooser {
     struct Item: Identifiable {
         let id: URL
@@ -271,7 +271,7 @@ final class PasteChooser {
     /// ← → (and Tab) move, 1–9 pick, Return pastes, Esc cancels.
     private func key(_ e: NSEvent) -> Bool {
         let n = model.items.count
-        // ⌘V pastes the highlighted one, also after the switch below released Shotate's claim on it.
+        // ⌘V pastes the highlighted one, also after the switch below released Yapshot's claim on it.
         if e.modifierFlags.contains(.command), e.charactersIgnoringModifiers?.lowercased() == "v" {
             chooseSelected()
             return true
@@ -292,7 +292,7 @@ final class PasteChooser {
     }
 }
 
-/// A click on a card picks it at once. Shotate isn't the active app, and without this the first
+/// A click on a card picks it at once. Yapshot isn't the active app, and without this the first
 /// click would only bring the panel forward.
 private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -322,7 +322,7 @@ private final class ChooserPanel: NSPanel {
         super.sendEvent(e)
     }
 
-    /// Shotate's menu shortcuts (⌘Q, ⌘,) would reach the app ahead of `sendEvent`; while choosing,
+    /// Yapshot's menu shortcuts (⌘Q, ⌘,) would reach the app ahead of `sendEvent`; while choosing,
     /// the panel's keys are the only ones that act.
     override func performKeyEquivalent(with e: NSEvent) -> Bool {
         _ = onKey(e)
@@ -346,7 +346,7 @@ private struct ChooserView: View {
                 // Without Accessibility a pick can only copy. Say so plainly, with the fix one click away.
                 HStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
-                    Text("Shotate needs Accessibility to paste into the field for you.")
+                    Text("Yapshot needs Accessibility to paste into the field for you.")
                         .font(.system(size: 12))
                     Spacer(minLength: 12)
                     Button("Allow Pasting…") {
@@ -435,7 +435,7 @@ private struct ChooserView: View {
         }
     }
 
-    /// A switch that reads as on even though Shotate isn't the active app (the system one turns
+    /// A switch that reads as on even though Yapshot isn't the active app (the system one turns
     /// gray then): the accent color when on, gray when off.
     private struct AccentSwitch: ToggleStyle {
         func makeBody(configuration c: Configuration) -> some View {

@@ -183,7 +183,7 @@ private final class PrompterPanel: NSPanel {
     override func close() { onClose(); orderOut(nil) }
 }
 
-/// Shotate is never the active app, so the first click has to work.
+/// Yapshot is never the active app, so the first click has to work.
 private final class FirstClickHosting<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
