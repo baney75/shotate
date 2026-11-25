@@ -64,16 +64,17 @@ if [ "${1:-}" = "--install" ]; then
     exit 1
   fi
   rm -rf "$DEST"
+  mkdir -p "$HOME/Applications"
+  cp -R "$APP" "$DEST"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$PWD/$APP" 2>/dev/null || true
+  # The old app goes only once Yapshot.app is in place, so a failed copy leaves a working app.
   for LEGACY in "$HOME/Applications/Shotate.app" "/Applications/Shotate.app" \
                 "$HOME/Applications/Snapmark.app" "/Applications/Snapmark.app"; do
     [ -d "$LEGACY" ] || continue
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$LEGACY" 2>/dev/null || true
     if rm -rf "$LEGACY" 2>/dev/null; then echo "removed the old $LEGACY"; else echo "remove the old $LEGACY yourself (it needs an administrator)" >&2; fi
   done
-  mkdir -p "$HOME/Applications"
-  cp -R "$APP" "$DEST"
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$PWD/$APP" 2>/dev/null || true
   open "$DEST"
   echo "installed $DEST"
   # `yapshot` (and `shotate`, the old name) on the PATH, and the skill where coding agents look, as
