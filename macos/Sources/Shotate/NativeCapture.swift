@@ -132,7 +132,7 @@ enum NativeCapture {
     /// The whole display at full resolution, without the cursor, and without the bar and outline of
     /// a recording in progress.
     static func capture(_ display: SCDisplay, in content: SCShareableContent) async throws -> CGImage {
-        let overlay = Recording.overlayWindowIDs
+        let overlay = await MainActor.run { Recording.overlayWindowIDs }
         let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { overlay.contains($0.windowID) })
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration(for: filter))
     }

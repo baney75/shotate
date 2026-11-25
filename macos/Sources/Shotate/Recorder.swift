@@ -76,11 +76,12 @@ enum Recording {
     }
 
     /// The bar and outline of the recording in progress, which a screenshot leaves out.
-    static var overlayWindowIDs: Set<CGWindowID> {
+    @MainActor static var overlayWindowIDs: Set<CGWindowID> {
+        let badge = Set([QuickVoiceNote.shared.badgeWindowID].compactMap { $0 })
         #if compiler(>=6.0)
-        if #available(macOS 15.0, *) { return Set(Recorder.current?.overlayWindowIDs ?? []) }
+        if #available(macOS 15.0, *) { return badge.union(Recorder.current?.overlayWindowIDs ?? []) }
         #endif
-        return []
+        return badge
     }
 }
 
@@ -170,7 +171,7 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         guard let display = NativeCapture.display(for: screen, in: content) else {
             throw Self.error("That screen isn't available to record.")
         }
-        let ours = Set(indicator?.windowIDs ?? [])
+        let ours = Set((indicator?.windowIDs ?? []) + [QuickVoiceNote.shared.badgeWindowID].compactMap { $0 })
         let notOurs = content.windows.filter { ours.contains($0.windowID) }
         let config = SCStreamConfiguration()
         let filter: SCContentFilter

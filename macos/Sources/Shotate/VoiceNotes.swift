@@ -152,6 +152,19 @@ extension VoiceQuality {
             let err = error?.localizedDescription
             Task { @MainActor in VoiceStore.shared.finishTranscription(u, text: text, isFinal: isFinal, error: err) }
         }
+        // A stalled speech service must not leave the note "Transcribing" forever: give up after a
+        // minute plus twice the note's length, which hands the audio file to whoever is waiting.
+        let task = speechTasks[u]
+        let length = (try? AVAudioPlayer(contentsOf: u))?.duration ?? 60
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60 + 2 * length) {
+            MainActor.assumeIsolated {
+                let store = VoiceStore.shared
+                guard store.transcribing.contains(u), let task, store.speechTasks[u] === task else { return }
+                task.cancel()
+                store.endTranscription(u)
+                store.fail(u, "Transcription took too long.")
+            }
+        }
     }
 
     private func finishTranscription(_ u: URL, text: String?, isFinal: Bool, error: String?) {
@@ -431,6 +444,12 @@ extension VoiceQuality {
         }
     }
 
+    /// The badge's window while it is on screen, which captures and recordings leave out.
+    var badgeWindowID: CGWindowID? {
+        guard let panel, panel.isVisible else { return nil }
+        return CGWindowID(panel.windowNumber)
+    }
+
     private func makePanel() -> NSPanel {
         let p = BadgePanel(contentRect: NSRect(origin: .zero, size: QuickVoiceBadge.size),
                            styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
@@ -442,6 +461,8 @@ extension VoiceQuality {
         p.hasShadow = true
         p.hidesOnDeactivate = false
         p.ignoresMouseEvents = true
+        // Keep the badge (and the transcript it shows) out of screenshots and screen recordings.
+        p.sharingType = .none
         let host = NSHostingView(rootView: QuickVoiceBadge())
         host.frame = p.contentRect(forFrameRect: p.frame)
         p.contentView = host
