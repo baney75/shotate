@@ -601,6 +601,7 @@ final class AdvancedPane: SettingsPane {
         urls.rowSpacing = 4
         urls.columnSpacing = 24
 
+        let connect = NSButton(title: "Connect to AI Agents…", target: self, action: #selector(connectAgents))
         let permissions = NSButton(title: "Set Up Screen Recording…", target: self, action: #selector(welcome))
         let relaunch = NSButton(title: "Relaunch Shotate", target: self, action: #selector(relaunchApp))
         return [
@@ -611,6 +612,11 @@ final class AdvancedPane: SettingsPane {
             separator(),
             heading("Automation"),
             urls,
+            separator(),
+            heading("AI agents"),
+            note("Adds Shotate's MCP server to Claude Code, Codex, Cursor and Claude Desktop, so they can send you a script "
+                 + "to read aloud and read your voice note transcripts. It runs on this Mac only. Each config file is backed up first."),
+            connect,
             separator(),
             heading("Troubleshooting"),
             NSStackView(views: [permissions, relaunch]),
@@ -624,5 +630,21 @@ final class AdvancedPane: SettingsPane {
     }
     @objc private func reloadConfig() { app?.reloadConfig() }
     @objc private func welcome() { app?.showWelcome() }
+
+    /// Runs `shotate mcp install` for every client off the main thread, then says what it did.
+    @objc private func connectAgents(_ sender: NSButton) {
+        sender.isEnabled = false
+        DispatchQueue.global(qos: .userInitiated).async {
+            let results = MCPSetup.run(install: true, clients: MCPInstall.Client.allCases)
+            DispatchQueue.main.async {
+                sender.isEnabled = true
+                let alert = NSAlert()
+                alert.messageText = results.contains { $0.outcome == "error" } ? "Some agents weren't connected" : "Connected to AI agents"
+                alert.informativeText = results.map { "\($0.client.title): \($0.detail)" }.joined(separator: "\n\n")
+                    + "\n\nRestart an agent that is open to pick it up. To undo: shotate mcp uninstall"
+                if let w = sender.window { alert.beginSheetModal(for: w) } else { alert.runModal() }
+            }
+        }
+    }
     @objc private func relaunchApp() { ScreenRecording.relaunch() }
 }
