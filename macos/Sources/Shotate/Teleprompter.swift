@@ -78,7 +78,10 @@ import SwiftUI
     /// Record starts a voice note from the top of the script; Stop saves and transcribes it.
     func toggleRecord() {
         let rec = VoiceRecorder.shared
-        if rec.isRecording {
+        if QuickVoiceNote.shared.phase == .recording {
+            // A note started with the shortcut finishes the same way: transcribe, copy, close its badge.
+            QuickVoiceNote.shared.finish()
+        } else if rec.isRecording {
             rec.stop()
         } else {
             scrollToTop()
