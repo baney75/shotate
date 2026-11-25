@@ -52,22 +52,28 @@ final class VoiceNotesTests: XCTestCase {
         XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+r"))
     }
 
-    /// The move is decided once: load reports it, the app saves, and the saved file reloads as is
-    /// even after the clash that blocked it is edited away.
-    func testMigrationIsSavedAndNotDecidedAgain() throws {
+    /// The move is decided once and written as just two keys: everything else in the file, even
+    /// entries this build can't read, stays. Later loads don't migrate, so editing the clash away
+    /// doesn't move area recording after all.
+    func testMigrationWritesOnlyItsKeysAndIsNotDecidedAgain() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(#"{"shortcuts": {"recordArea": "cmd+shift+r", "captureScreen": "cmd+option+shift+r"}}"#.utf8).write(to: url)
+        try Data(#"{"shortcuts": {"recordArea": "cmd+shift+r", "captureScreen": "cmd+option+shift+r", "recordScreen": "hyper+r"}, "commands": {"cmd+shift+f13": "~/bin/x"}, "future": 1}"#.utf8).write(to: url)
         let (first, migrated) = try Settings.loadReporting(from: url)
         XCTAssertTrue(migrated)
-        try first.save(to: url)
-        var edited = try Settings.load(from: url)
-        edited.shortcuts["captureScreen"] = "cmd+ctrl+shift+s"
-        try edited.save(to: url)
-        let (again, migratedAgain) = try Settings.loadReporting(from: url)
-        XCTAssertFalse(migratedAgain)
-        XCTAssertEqual(again.shortcut("recordArea"), Shortcut("cmd+shift+r"))
-        XCTAssertNil(again.shortcut("voiceNote"))
+        try first.writeVoiceNoteShortcuts(to: url)
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+        let keys = raw["shortcuts"] as! [String: String]
+        XCTAssertEqual(keys["recordScreen"], "hyper+r")
+        XCTAssertEqual(keys["recordArea"], "cmd+shift+r")
+        XCTAssertEqual(keys["voiceNote"], "")
+        XCTAssertEqual(raw["commands"] as? [String: String], ["cmd+shift+f13": "~/bin/x"])
+        XCTAssertEqual(raw["future"] as? Int, 1)
+        // A hand edit that drops voiceNote again isn't re-migrated once the caller stops passing migrate.
+        try Data(#"{"shortcuts": {"recordArea": "cmd+shift+r"}}"#.utf8).write(to: url)
+        let (later, again) = try Settings.loadReporting(from: url, migrate: false)
+        XCTAssertFalse(again)
+        XCTAssertEqual(later.shortcut("recordArea"), Shortcut("cmd+shift+r"))
     }
 
     /// voiceNote's default never takes keys the file uses for something else.

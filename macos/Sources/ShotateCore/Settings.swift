@@ -137,9 +137,11 @@ public struct Settings: Equatable {
         try loadReporting(from: url).settings
     }
 
-    /// `load`, and whether the file predates voice notes. When it does, the caller saves the settings
-    /// right away so the shortcut move is written down and never re-decided on a later load.
-    public static func loadReporting(from url: URL = Settings.configURL) throws -> (settings: Settings, migrated: Bool) {
+    /// `load`, and whether this load decided the voice note shortcut move (only with `migrate`, and
+    /// only for a file without `voiceNote`). The caller then records the decision with
+    /// `writeVoiceNoteShortcuts` and stops passing `migrate`, so a later hand edit never re-decides it.
+    public static func loadReporting(from url: URL = Settings.configURL,
+                                     migrate: Bool = true) throws -> (settings: Settings, migrated: Bool) {
         let data = try Data(contentsOf: url)
         guard let o = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CocoaError(.propertyListReadCorrupt,
@@ -156,7 +158,7 @@ public struct Settings: Equatable {
         }
         if let m = o["commands"] as? [String: String] { s.commandHotkeys = m.filter { Shortcut($0.key) != nil } }
         let written = Set((o["shortcuts"] as? [String: Any] ?? [:]).keys)
-        s.moveRecordAreaForVoiceNote(written: written)
+        if migrate { s.moveRecordAreaForVoiceNote(written: written) }
         s.yieldNewDefaults(written: written)
         if let m = o["toolKeys"] as? [String: String] { s.toolKeys = m.mapValues { $0.lowercased() } }
         if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
@@ -171,7 +173,22 @@ public struct Settings: Equatable {
         }
         if let q = (o["voiceQuality"] as? String).flatMap({ VoiceQuality(rawValue: $0.lowercased()) }) { s.voiceQuality = q }
         if let b = o["voiceStereo"] as? Bool { s.voiceStereo = b }
-        return (s, !written.contains("voiceNote"))
+        return (s, migrate && !written.contains("voiceNote"))
+    }
+
+    /// Writes only `shortcuts.recordArea` and `shortcuts.voiceNote` into the file and keeps every other
+    /// key exactly as it was, including entries this build can't read.
+    public func writeVoiceNoteShortcuts(to url: URL = Settings.configURL) throws {
+        guard var o = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any] else {
+            throw CocoaError(.propertyListReadCorrupt,
+                             userInfo: [NSLocalizedDescriptionKey: "The config file must be a JSON object."])
+        }
+        var keys = o["shortcuts"] as? [String: Any] ?? [:]
+        keys["recordArea"] = shortcuts["recordArea"] ?? ""
+        keys["voiceNote"] = shortcuts["voiceNote"] ?? ""
+        o["shortcuts"] = keys
+        let data = try JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        try data.write(to: url, options: .atomic)
     }
 
     /// The file as Shotate writes it: every setting spelled out, with a pointer to the docs.
