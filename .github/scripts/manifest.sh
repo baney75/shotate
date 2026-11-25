@@ -3,7 +3,7 @@
 #   manifest.sh <tag> <stable|nightly> <version> <commit> [<version in installer names>]
 set -euo pipefail
 tag=$1 channel=$2 version=$3 commit=$4 filever=${5:-$3}
-repo=${GITHUB_REPOSITORY:-baney75/shotate}
+repo=${GITHUB_REPOSITORY:-baney75/yapshot}
 dir=$(mktemp -d)
 gh release download "$tag" --repo "$repo" --dir "$dir" \
   --pattern '*-setup.exe' --pattern '*.deb' --pattern '*.rpm' --pattern '*.AppImage' || true

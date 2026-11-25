@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Renamed
+- **Shotate is now Yapshot.** The app, the menus, the `yapshot` command, `yapshot://` links, the
+  MCP server and the agent skill all carry the new name; the repo moves to baney75/yapshot (old links
+  redirect). Nothing to redo: the app keeps its identity, so permissions, settings and Open at login
+  carry over, and the config is copied from `~/.config/shotate` (or `%APPDATA%\shotate`) the first
+  time. Updating installs Yapshot and removes Shotate. `shotate`, `shotate://` links and a `shotate`
+  MCP entry keep working; `yapshot mcp install` swaps that entry for `yapshot`. Saved files are
+  named "Yapshot ..." from now on; files and voice notes already saved stay where they are.
+
 ### Fixed
 - Recording an app (⇧⌘D) no longer puts the time-and-Stop bar in the video.
 - Tool letters (V, A, P, R…) work right after a capture. macOS often left the app you were in

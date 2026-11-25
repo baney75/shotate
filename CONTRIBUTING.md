@@ -1,6 +1,6 @@
-# Contributing to Shotate
+# Contributing to Yapshot
 
-Thanks for helping. Shotate stays small on purpose: fast capture, the annotations people actually
+Thanks for helping. Yapshot stays small on purpose: fast capture, the annotations people actually
 use, and nothing that phones home.
 
 ## Before you start

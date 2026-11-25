@@ -1,4 +1,4 @@
-; Yapshot was called Shotate (0.12) and Snapmark before that, each with its own install folder and
+; Yapshot was called Shotate, and Snapmark before that, each with its own install folder and
 ; uninstall entry. Carry over Open at login, then remove the old app so only one copy runs. An
 ; update from Shotate runs this installer silently and can't start the new app itself, so the
 ; installer starts it.
