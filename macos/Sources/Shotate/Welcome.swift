@@ -9,14 +9,14 @@ import Speech
 /// macOS stores a grant together with the code signature of the build that asked. If that signature
 /// changes (older builds, as Snapmark, were signed ad hoc, so every build had a new one), the switch in
 /// System Settings can show "on" while macOS still refuses this build, and flipping it doesn't help.
-/// `request()` therefore clears Shotate's own entry before asking, so macOS records this build.
+/// `request()` therefore clears Yapshot's own entry before asking, so macOS records this build.
 enum ScreenRecording {
     static var isGranted: Bool { CGPreflightScreenCaptureAccess() }
 
     static let askedKey = "askedScreenRecording"
     static var hasAsked: Bool { UserDefaults.standard.bool(forKey: askedKey) }
 
-    /// Shows the system prompt, which also adds Shotate to the list in System Settings.
+    /// Shows the system prompt, which also adds Yapshot to the list in System Settings.
     ///
     /// The stale-entry reset runs at most once per installed build. A second click must never wipe a
     /// grant the user just made in System Settings, which this process can't see until it relaunches.
@@ -43,7 +43,7 @@ enum ScreenRecording {
         return "\(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "")-\(date?.timeIntervalSince1970 ?? 0)"
     }
 
-    /// Removes only Shotate's Screen Recording entry (never another app's), so macOS asks again.
+    /// Removes only Yapshot's Screen Recording entry (never another app's), so macOS asks again.
     @discardableResult
     static func resetOwnEntry() -> Bool {
         let p = Process()
@@ -61,7 +61,7 @@ enum ScreenRecording {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
     }
 
-    /// Quits and reopens Shotate so it picks up a permission granted in System Settings.
+    /// Quits and reopens Yapshot so it picks up a permission granted in System Settings.
     /// macOS ends an app's helper processes with it, so a helper can't do the reopening. Instead
     /// LaunchServices starts a second copy, which waits for this one to exit (see main.swift) and
     /// then opens the welcome window so the user sees the result.
@@ -77,7 +77,7 @@ enum ScreenRecording {
             guard let error else { return }
             DispatchQueue.main.async {
                 failed = true
-                Alerts.show("Shotate couldn't relaunch itself", "Quit it from the menu bar and open it again.\n\n"
+                Alerts.show("Yapshot couldn't relaunch itself", "Quit it from the menu bar and open it again.\n\n"
                             + error.localizedDescription)
             }
         }
@@ -105,7 +105,7 @@ enum Alerts {
     }
 }
 
-/// First launch and missing permission: one window that gets Shotate ready to use.
+/// First launch and missing permission: one window that gets Yapshot ready to use.
 final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private weak var app: AppDelegate?
     private let statusLabel = NSTextField(labelWithString: "")
@@ -114,7 +114,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let relaunchButton = NSButton(title: "Relaunch", target: nil, action: nil)
     private let settingsLink = NSButton(title: "Open System Settings", target: nil, action: nil)
     private let shortcutLabel = NSTextField(labelWithString: "")
-    private let loginBox = NSButton(checkboxWithTitle: "Open Shotate when I log in", target: nil, action: nil)
+    private let loginBox = NSButton(checkboxWithTitle: "Open Yapshot when I log in", target: nil, action: nil)
     private let pasteBox = NSButton(checkboxWithTitle: "Ask which screenshot to paste with ⌘V", target: nil, action: nil)
     private let axLabel = NSTextField(wrappingLabelWithString: "")
     private let axStatusIcon = NSImageView()
@@ -152,7 +152,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.collectionBehavior.insert(.moveToActiveSpace)  // open on the Space the user is looking at
-        window.title = "Welcome to Shotate"
+        window.title = "Welcome to Yapshot"
         super.init(window: window)
         window.delegate = self
         build()
@@ -175,7 +175,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let icon = NSImageView(image: NSApp.applicationIconImage ?? NSImage())
         icon.widthAnchor.constraint(equalToConstant: 64).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 64).isActive = true
-        let title = NSTextField(labelWithString: "Welcome to Shotate")
+        let title = NSTextField(labelWithString: "Welcome to Yapshot")
         title.font = .systemFont(ofSize: 22, weight: .bold)
         let subtitle = NSTextField(labelWithString: "Capture, mark up, and paste in a few seconds.")
         subtitle.textColor = .secondaryLabelColor
@@ -204,7 +204,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         permissionsTitle.font = .systemFont(ofSize: 13, weight: .bold)
         let permissionsIntro = NSTextField(wrappingLabelWithString:
             "macOS asks you to approve anything that can see your screen or press keys. Here is exactly "
-            + "what Shotate uses each permission for, and what it never does. Change them anytime in "
+            + "what Yapshot uses each permission for, and what it never does. Change them anytime in "
             + "System Settings › Privacy & Security.")
         permissionsIntro.font = .systemFont(ofSize: 12)
         permissionsIntro.textColor = .secondaryLabelColor
@@ -284,7 +284,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         card.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.06).cgColor
 
         let privacy = NSTextField(wrappingLabelWithString:
-            "Your screenshots never leave your Mac. Shotate has no analytics and no account. On its own it goes "
+            "Your screenshots never leave your Mac. Yapshot has no analytics and no account. On its own it goes "
             + "online only to check for updates, when it starts and once a day. You can turn that off in Settings. "
             + "Transcribing a voice note on a Mac without on-device speech recognition uses Apple's speech service.")
         privacy.font = .systemFont(ofSize: 11)
@@ -375,21 +375,21 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         settingsLink.isHidden = granted || !openedSettings
         let records = app?.canRecord == true
         let agents = app?.settings.agentControl == true
-            ? " Agent control is on: programs you run on this Mac (the shotate command, coding agents) can "
+            ? " Agent control is on: programs you run on this Mac (the yapshot command, coding agents) can "
                 + "take captures" + (records ? " and start and stop recordings (yours only if they pass --any)" : "") + " without a click."
                 + (records ? " The recording bar still shows." : "")
                 + " The switch guards against accidents, not against a harmful program running as you."
             : ""
         let what = (records
-            ? "Lets Shotate see your screen only at the moment you take a capture, or while a recording you "
+            ? "Lets Yapshot see your screen only at the moment you take a capture, or while a recording you "
                 + "started is running. It doesn't watch in the background, and captures and recordings stay on your "
                 + "Mac. Recording an app (⇧⌘D) also saves what that app writes meanwhile to the system log and to "
-                + "its own log files, and any crash report it leaves; Shotate reads no other logs. While any "
-                + "recording runs, Shotate notes where you click (time and position, never keys) beside the video."
-            : "Lets Shotate see your screen only at the moment you take a capture. It doesn't record video or "
+                + "its own log files, and any crash report it leaves; Yapshot reads no other logs. While any "
+                + "recording runs, Yapshot notes where you click (time and position, never keys) beside the video."
+            : "Lets Yapshot see your screen only at the moment you take a capture. It doesn't record video or "
                 + "watch in the background, and captures stay on your Mac.") + agents
         statusLabel.stringValue = granted ? what + "\nAllowed."
-            : openedSettings ? what + "\nTurn Shotate on when macOS asks (or in System Settings), then click Relaunch."
+            : openedSettings ? what + "\nTurn Yapshot on when macOS asks (or in System Settings), then click Relaunch."
             : what + "\nNot allowed yet. Click Allow."
         let s = app?.settings
         if let keys = s?.captureShortcut?.displayString {
@@ -406,29 +406,29 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         pasteBox.state = pasteOn ? .on : .off
         axStatusIcon.isHidden = !ax
         axAllowButton.isHidden = ax
-        let axWhat = "Only for the option below. After you pick a screenshot, Shotate presses ⌘V for you in "
+        let axWhat = "Only for the option below. After you pick a screenshot, Yapshot presses ⌘V for you in "
             + "the app you were using, so it pastes into your field. It doesn't read what you type or "
             + "what's in other apps."
         axLabel.stringValue = axWhat + (ax ? "\nAllowed."
-            : pasteOn ? "\nNeeded for the option below. Click Allow, then turn Shotate on in System Settings."
+            : pasteOn ? "\nNeeded for the option below. Click Allow, then turn Yapshot on in System Settings."
             : "\nNot allowed, and not needed unless you turn the option on.")
         let mic = AVCaptureDevice.authorizationStatus(for: .audio)
         micStatusIcon.isHidden = mic != .authorized
         micAllowButton.isHidden = mic == .authorized
         micLabel.stringValue = "Records your voice only while a voice note you started is recording, and stops when "
-            + "you stop it. Shotate never listens in the background, and screen recordings have no sound. "
+            + "you stop it. Yapshot never listens in the background, and screen recordings have no sound. "
             + "Voice notes are saved as audio files in your voice notes folder."
             + (mic == .authorized ? "\nAllowed." : mic == .notDetermined ? "\nNot asked yet. macOS asks when you start your first voice note."
-               : "\nNot allowed. Click Allow, then turn Shotate on in System Settings.")
+               : "\nNot allowed. Click Allow, then turn Yapshot on in System Settings.")
         let speech = SFSpeechRecognizer.authorizationStatus()
         speechStatusIcon.isHidden = speech != .authorized
         speechAllowButton.isHidden = speech == .authorized
         speechLabel.stringValue = "Turns a voice note into text when you ask: Transcribe in Voice Notes, or the "
             + "second press of the voice note shortcut. When this Mac supports on-device speech recognition, "
             + "transcription runs on this Mac. Otherwise macOS sends the audio to Apple to transcribe it. "
-            + "Shotate transcribes nothing else."
+            + "Yapshot transcribes nothing else."
             + (speech == .authorized ? "\nAllowed." : speech == .notDetermined ? "\nNot asked yet. macOS asks the first time you transcribe."
-               : "\nNot allowed. Click Allow, then turn Shotate on in System Settings.")
+               : "\nNot allowed. Click Allow, then turn Yapshot on in System Settings.")
         micLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [micAllowButton], check: micStatusIcon)
         speechLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [speechAllowButton], check: speechStatusIcon)
         statusLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [allowButton, relaunchButton], check: statusIcon)
@@ -465,10 +465,10 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         refresh()
     }
 
-    /// Shows macOS's prompt (which also adds Shotate to the list), then the pane to turn it on.
+    /// Shows macOS's prompt (which also adds Yapshot to the list), then the pane to turn it on.
     @objc private func allowAccessibility() {
         // An entry left by an earlier build can show "on" while macOS refuses this one; clear only
-        // Shotate's own, so the switch in System Settings means what it says.
+        // Yapshot's own, so the switch in System Settings means what it says.
         let reset = Process()
         reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
         reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.baney.snapmark"]

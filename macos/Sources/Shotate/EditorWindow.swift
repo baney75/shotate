@@ -2,12 +2,12 @@ import AppKit
 import ShotateCore
 
 /// One screenshot's editor. A capture is already on disk and on the clipboard before this opens.
-/// Edits are written back into Shotate's own captures; an image opened from elsewhere is never
+/// Edits are written back into Yapshot's own captures; an image opened from elsewhere is never
 /// overwritten, its edits go to a "… (edited).png" copy next to it.
 final class EditorWindowController: NSWindowController, NSWindowDelegate {
     let doc: Document
     let fileURL: URL
-    /// True for Shotate's own captures, false for images opened from Finder or the Open panel.
+    /// True for Yapshot's own captures, false for images opened from Finder or the Open panel.
     let ownsFile: Bool
     let canvas: CanvasView
     var onClose: ((EditorWindowController) -> Void)?
@@ -47,7 +47,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         let window = EditorWindow(contentRect: CGRect(origin: .zero, size: size),
                                   styleMask: [.titled, .closable, .resizable, .miniaturizable, .nonactivatingPanel],
                                   backing: .buffered, defer: false)
-        // macOS may decline to activate Shotate when a capture ends (the shortcut and the capture
+        // macOS may decline to activate Yapshot when a capture ends (the shortcut and the capture
         // overlay leave the other app active), and keys would go to that app. A nonactivating panel
         // takes keys as the key window either way, like the capture overlay and the paste chooser.
         window.becomesKeyOnlyIfNeeded = false
@@ -198,7 +198,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Shows the hovered tool's key under it, then after another second its name too. System tooltips
-    /// only appear while Shotate is the active app, which it may not be when an editor opens over
+    /// only appear while Yapshot is the active app, which it may not be when an editor opens over
     /// another app, so the editor draws its own.
     private func showToolTip(_ i: Int?, named: Bool = false) {
         nameTimer?.invalidate()
@@ -357,7 +357,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         canvas.commitText()
         guard doc.revision != savedRevision else { return savedCopy ?? fileURL }
         guard let image = flattened() else {
-            Alerts.show("Shotate couldn't render this image", "Your edits are still open. Try Save a Copy (⌘S).",
+            Alerts.show("Yapshot couldn't render this image", "Your edits are still open. Try Save a Copy (⌘S).",
                         in: window)
             return nil
         }
@@ -371,7 +371,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
                 try Output.write(image, to: fallback, dpi: doc.dpi)
                 url = fallback
             } catch {
-                Alerts.show("Shotate couldn't save this image", error: error, in: window)
+                Alerts.show("Yapshot couldn't save this image", error: error, in: window)
                 return nil
             }
         }
@@ -387,7 +387,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         finished = true
         if copyImage, !copy(savedAt: url) {
             finished = false
-            Alerts.show("Shotate couldn't copy the image", "It is saved at \(url.path).", in: window)
+            Alerts.show("Yapshot couldn't copy the image", "It is saved at \(url.path).", in: window)
             return
         }
         if copyPath { Output.copyPath(url) }
@@ -395,7 +395,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Copies the image `saveEdits` just saved at `url` without rendering and encoding it again: an
-    /// unedited capture copies the bytes it was captured with, and a PNG Shotate saved copies that
+    /// unedited capture copies the bytes it was captured with, and a PNG Yapshot saved copies that
     /// file. An opened original may be another format, so it is rendered.
     private func copy(savedAt url: URL) -> Bool {
         if savedRevision == 0, let png = capturePNG { return Output.copy(png: png, fileURL: url) }
@@ -435,7 +435,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// ⌘⌫: a capture you didn't want goes to the Trash (recoverable). An opened image is never trashed;
-    /// only Shotate's edited copy of it is.
+    /// only Yapshot's edited copy of it is.
     func trashCapture() {
         canvas.commitText()
         guard let window else { return }
@@ -450,7 +450,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             guard let self, r == .alertFirstButtonReturn else { return }
             if let target {
                 do { try FileManager.default.trashItem(at: target, resultingItemURL: nil) } catch {
-                    Alerts.show("Shotate couldn't move \(target.lastPathComponent) to the Trash", error: error, in: window)
+                    Alerts.show("Yapshot couldn't move \(target.lastPathComponent) to the Trash", error: error, in: window)
                     return
                 }
             }
@@ -467,7 +467,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         panel.beginSheetModal(for: window) { [doc] r in
             guard r == .OK, let url = panel.url else { return }
             do { try Output.write(image, to: url, dpi: doc.dpi) } catch {
-                Alerts.show("Shotate couldn't save \(url.lastPathComponent)", error: error, in: window)
+                Alerts.show("Yapshot couldn't save \(url.lastPathComponent)", error: error, in: window)
             }
         }
     }

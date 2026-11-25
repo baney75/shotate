@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Quitting waits for the recording to be saved.
     private var quitAfterRecording = false
     private var configSource: DispatchSourceFileSystemObject?
-    /// True while the config file has a JSON error. Shotate then never writes it, so a typo
+    /// True while the config file has a JSON error. Yapshot then never writes it, so a typo
     /// can't cost someone their settings.
     private(set) var configBroken = false
     /// Shortcuts that registered (or failed) last time, so a conflict is reported once, not on every change.
@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }()
 
     private var agent: AgentControl?
-    /// The recording in progress was started by `shotate record`: its result goes to the agent,
+    /// The recording in progress was started by `yapshot record`: its result goes to the agent,
     /// not the clipboard.
     private(set) var recordingByAgent = false
 
@@ -111,16 +111,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return false
     }
 
-    /// Finder "Open With › Shotate" and dropping images on the app icon.
+    /// Finder "Open With › Yapshot" and dropping images on the app icon.
     func application(_ application: NSApplication, open urls: [URL]) {
         urls.filter(\.isFileURL).forEach(open)
     }
 
-    /// shotate://capture, shotate://capture/window, shotate://capture/screen, shotate://record (pick an
-    /// area and record it, or stop the recording), shotate://record/screen, shotate://record/app,
-    /// shotate://record/stop, shotate://open?path=/x.png,
-    /// shotate://settings, shotate://config (open the config file), shotate://reload, shotate://welcome,
-    /// shotate://update (check for updates now)
+    /// yapshot://capture, yapshot://capture/window, yapshot://capture/screen, yapshot://record (pick an
+    /// area and record it, or stop the recording), yapshot://record/screen, yapshot://record/app,
+    /// yapshot://record/stop, yapshot://open?path=/x.png,
+    /// yapshot://settings, yapshot://config (open the config file), yapshot://reload, yapshot://welcome,
+    /// yapshot://update (check for updates now). The old shotate:// and snapmark:// links work the same.
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URLComponents(string: s) else { return }
@@ -179,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     if migrated { try s.writeVoiceNoteShortcuts(to: url) }
                     UserDefaults.standard.set(true, forKey: Self.voiceNoteMoveKey)
                 } catch {
-                    Alerts.show("Shotate couldn't update its config file",
+                    Alerts.show("Yapshot couldn't update its config file",
                                 "It moved area recording to make room for voice notes but couldn't write that to "
                                 + "\((url.path as NSString).abbreviatingWithTildeInPath): \(error.localizedDescription)")
                 }
@@ -187,15 +187,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return s
         } catch {
             configBroken = true
-            Alerts.show("Shotate couldn't read its config file",
+            Alerts.show("Yapshot couldn't read its config file",
                         "\((url.path as NSString).abbreviatingWithTildeInPath): \(error.localizedDescription)\n\n"
-                        + "Shotate keeps its current settings and won't change the file until it is fixed.")
+                        + "Yapshot keeps its current settings and won't change the file until it is fixed.")
             return nil
         }
     }
 
-    /// Reloads when the file changes, whoever changed it: a text editor, an agent, `shotate://reload`.
-    /// A kernel file event wakes Shotate even while macOS naps it (a timer would stall). Editors that
+    /// Reloads when the file changes, whoever changed it: a text editor, an agent, `yapshot://reload`.
+    /// A kernel file event wakes Yapshot even while macOS naps it (a timer would stall). Editors that
     /// save by replacing the file end the watch, so it re-arms on the new file.
     private func watchConfig() {
         configSource?.cancel()
@@ -272,12 +272,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if save, configBroken {
             Alerts.show("Fix the config file first",
-                        "\((Settings.configURL.path as NSString).abbreviatingWithTildeInPath) has an error, so Shotate "
+                        "\((Settings.configURL.path as NSString).abbreviatingWithTildeInPath) has an error, so Yapshot "
                         + "won't overwrite it. Fix or delete the file; your change applies to this session only.")
         } else if save {
             settings.normalize()
             do { try settings.save() } catch {
-                Alerts.show("Shotate couldn't save its settings", error: error)
+                Alerts.show("Yapshot couldn't save its settings", error: error)
             }
         }
         hotkeys.removeAll()
@@ -298,11 +298,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         func report(_ id: String, _ s: Shortcut) {
             if reported.insert(id).inserted { taken.append(s.displayString) }
         }
-        // Which Shotate action or command already has each shortcut, to name it when two share one.
+        // Which Yapshot action or command already has each shortcut, to name it when two share one.
         var mine: [Shortcut: String] = [:]
         for name in Settings.actions {
             guard let keys = settings.shortcuts[name], let s = Shortcut(keys), let action = actions[name] else { continue }
-            // Recording shortcuts stay free for other apps where Shotate can't record.
+            // Recording shortcuts stay free for other apps where Yapshot can't record.
             if Settings.recordActions.contains(name), !canRecord { continue }
             let changed = lastShortcuts[name] != keys
             if let other = mine[s] {
@@ -315,7 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         lastShortcuts = settings.shortcuts
         for (keys, command) in settings.commandHotkeys.sorted(by: { $0.key < $1.key }) {
-            guard let s = Shortcut(keys) else { NSLog("Shotate: bad shortcut %@", keys); continue }
+            guard let s = Shortcut(keys) else { NSLog("Yapshot: bad shortcut %@", keys); continue }
             let changed = lastCommands[keys] != command
             if let other = mine[s] {
                 if changed { clashes.append("\(s.displayString) is set for both \(other) and the command “\(command)”") }
@@ -329,11 +329,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UserDefaults.standard.set(reported.sorted(), forKey: "reportedTakenShortcuts")
         if !taken.isEmpty {
             Alerts.show("\(taken.joined(separator: ", ")) \(taken.count == 1 ? "is" : "are") already in use",
-                        "Another app owns that shortcut. Pick a different one in Shotate Settings.")
+                        "Another app owns that shortcut. Pick a different one in Yapshot Settings.")
         }
         if !clashes.isEmpty {
-            Alerts.show("Two Shotate shortcuts use the same keys",
-                        clashes.joined(separator: ".\n") + ". Only the first works. Change one in Shotate Settings.")
+            Alerts.show("Two Yapshot shortcuts use the same keys",
+                        clashes.joined(separator: ".\n") + ". Only the first works. Change one in Yapshot Settings.")
         }
         if settings.showMenuBarIcon { installStatusItem() } else if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
@@ -364,12 +364,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             defer { try? FileManager.default.removeItem(at: shot.file) }  // gone already once moved
             let url = self.settings.newCaptureURL()
             do { try Output.place(shot.file, at: url) } catch {
-                Alerts.show("Shotate couldn't save the capture to \(url.deletingLastPathComponent().path)",
+                Alerts.show("Yapshot couldn't save the capture to \(url.deletingLastPathComponent().path)",
                             error: error)
                 return
             }
             if self.settings.copyOnCapture, !Output.copy(png: shot.png, fileURL: url) {
-                Alerts.show("Shotate couldn't copy the capture", "It is saved at \(url.path).")
+                Alerts.show("Yapshot couldn't copy the capture", "It is saved at \(url.path).")
             }
             self.edit(shot.doc, fileURL: url, ownsFile: true, capturePNG: shot.png)
         }
@@ -397,7 +397,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !Recording.isSaving else { return NSSound.beep() }
         guard #available(macOS 14.0, *), canRecord else {
             return Alerts.show("Recording needs macOS 15 or later", "Screenshots work as before on this Mac. "
-                               + "On macOS 15, updating Shotate with Xcode 16 or later installed turns recording on.")
+                               + "On macOS 15, updating Yapshot with Xcode 16 or later installed turns recording on.")
         }
         guard ScreenRecording.isGranted else { showWelcome(); return }
         if kind == .screen {
@@ -413,7 +413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.capturing = false
             switch pick {
             case .cancelled: break
-            case .failed: Alerts.show("Shotate couldn't start recording", "macOS didn't let it see the screen. Try again.")
+            case .failed: Alerts.show("Yapshot couldn't start recording", "macOS didn't let it see the screen. Try again.")
             case let .chosen(target): self.startRecording(target)
             }
         }
@@ -422,7 +422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func confirmLinkRecording() -> Bool {
         let a = NSAlert()
         a.messageText = "Record your whole screen?"
-        a.informativeText = "A link asked Shotate to start recording the screen. Only allow it if you opened that link."
+        a.informativeText = "A link asked Yapshot to start recording the screen. Only allow it if you opened that link."
         a.addButton(withTitle: "Record")
         a.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)
@@ -435,7 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func startRecording(_ target: RecordTarget, to file: URL? = nil, byAgent: Bool = false) -> Bool {
         guard !isRecording, !Recording.isSaving else {
             if !byAgent {
-                Alerts.show(isRecording ? "Shotate is already recording" : "Shotate is still saving the last recording",
+                Alerts.show(isRecording ? "Yapshot is already recording" : "Yapshot is still saving the last recording",
                             isRecording ? "Stop that recording first." : "Try again in a moment.")
             }
             return false
@@ -481,13 +481,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func open(_ url: URL) {
         guard let doc = Renderer.loadDocument(at: url) else {
-            Alerts.show("Shotate can't open \(url.lastPathComponent)", "It isn't an image Shotate can read.")
+            Alerts.show("Yapshot can't open \(url.lastPathComponent)", "It isn't an image Yapshot can read.")
             return
         }
         edit(doc, fileURL: url, ownsFile: false)
     }
 
-    /// Shotate lives in the menu bar only: no Dock icon, even while an editor is open. The editor
+    /// Yapshot lives in the menu bar only: no Dock icon, even while an editor is open. The editor
     /// window activates the app to take keyboard focus, and the hidden main menu still routes ⌘V,
     /// ⌘A and friends to text labels.
     private func edit(_ doc: Document, fileURL: URL, ownsFile: Bool, capturePNG: Data? = nil) {
@@ -502,7 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editor.present()
     }
 
-    /// Shotate has no Dock icon, so once the last editor closes nothing of it is left to use, yet
+    /// Yapshot has no Dock icon, so once the last editor closes nothing of it is left to use, yet
     /// it stays the active app and keys go nowhere. Hand focus back to the app you came from.
     private func returnFocusIfDone() {
         guard editors.isEmpty else { return }
@@ -551,7 +551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "Shotate"
+        image.accessibilityDescription = "Yapshot"
         return image
     }()
 
@@ -568,7 +568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// A stop button while recording, so the menu bar says how to end it.
     private func updateStatusIcon() {
         statusItem?.button?.image = isRecording
-            ? NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Shotate is recording")
+            ? NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Yapshot is recording")
             : Self.menuBarIcon
     }
 
@@ -637,10 +637,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","),
                   NSMenuItem(title: "Edit Config File…", action: #selector(openConfig), keyEquivalent: ""),
                   .separator(),
-                  NSMenuItem(title: "About Shotate", action: #selector(showAbout), keyEquivalent: ""),
+                  NSMenuItem(title: "About Yapshot", action: #selector(showAbout), keyEquivalent: ""),
                   NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: ""),
                   .separator(),
-                  NSMenuItem(title: "Quit Shotate", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
+                  NSMenuItem(title: "Quit Yapshot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")] {
             if i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
             menu.addItem(i)
         }
@@ -690,11 +690,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleChoosePaste() { setChoosePaste(!settings.choosePaste) }
 
-    /// Lets the `shotate` command and coding agents capture and record without a click.
+    /// Lets the `yapshot` command and coding agents capture and record without a click.
     private func agentControlItem() -> NSMenuItem {
-        let i = NSMenuItem(title: "Let Agents Control Shotate", action: #selector(toggleAgentControl), keyEquivalent: "")
+        let i = NSMenuItem(title: "Let Agents Control Yapshot", action: #selector(toggleAgentControl), keyEquivalent: "")
         i.state = settings.agentControl ? .on : .off
-        i.toolTip = "Programs you run on this Mac (the shotate command, coding agents) can take screenshots"
+        i.toolTip = "Programs you run on this Mac (the yapshot command, coding agents) can take screenshots"
             + (canRecord ? " and start and stop recordings without a click. The recording bar still shows." : " without a click.")
         return i
     }
@@ -746,15 +746,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case let .available(offer):
             confirmInstall(offer)
         case let .failed(why):
-            Alerts.show("Shotate couldn't update", why)
+            Alerts.show("Yapshot couldn't update", why)
         case .installing:
-            Alerts.show("Shotate is updating", "The update is building and Shotate restarts by itself when it's done.")
+            Alerts.show("Yapshot is updating", "The update is building and Yapshot restarts by itself when it's done.")
         case .idle, .checking:
             break
         case .upToDate:
             let a = NSAlert()
-            a.messageText = "Shotate is up to date"
-            a.informativeText = "You have Shotate \(updater.build.version) on the \(updater.channel) channel. "
+            a.messageText = "Yapshot is up to date"
+            a.informativeText = "You have Yapshot \(updater.build.version) on the \(updater.channel) channel. "
                 + "Change channels in Settings."
             a.runModal()
         }
@@ -767,7 +767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switch offer {
         case .update:
             a.messageText = "\(Updater.name(of: m)) is available"
-            a.informativeText = "You have \(updater.build.version). Shotate builds the update on this Mac, "
+            a.informativeText = "You have \(updater.build.version). Yapshot builds the update on this Mac, "
                 + "which takes a minute or two, then restarts. Your settings and permission stay as they are."
         case .switchToStable:
             a.messageText = "Switch to \(Updater.name(of: m))?"
@@ -796,10 +796,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Launch at login
 
-    /// Open at login was registered for Snapmark.app. Registering again once points it at Shotate.app;
+    /// Open at login was registered for Snapmark.app or Shotate.app. Registering again once points it at Yapshot.app;
     /// macOS keeps the old path otherwise, and the item stops working once that app is gone.
     private func moveLoginItem() {
-        let key = "loginItemMovedToShotate"
+        let key = "loginItemMovedToYapshot"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         guard launchAtLogin else { return UserDefaults.standard.set(true, forKey: key) }
         do {
@@ -807,7 +807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try SMAppService.mainApp.register()
             UserDefaults.standard.set(true, forKey: key)
         } catch {
-            NSLog("Shotate: moving the login item: %@", error.localizedDescription)
+            NSLog("Yapshot: moving the login item: %@", error.localizedDescription)
         }
     }
 
@@ -817,7 +817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             } catch {
-                NSLog("Shotate: launch at login: %@", error.localizedDescription)
+                NSLog("Yapshot: launch at login: %@", error.localizedDescription)
             }
         }
     }
