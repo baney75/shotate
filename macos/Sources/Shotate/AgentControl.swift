@@ -19,6 +19,8 @@ enum AgentProtocol {
     }
 }
 
+/// Main actor like AppDelegate: distributed notifications arrive on the main run loop, where it registered.
+@MainActor
 final class AgentControl: NSObject {
     private weak var app: AppDelegate?
     /// Requests waiting for the recording to be saved.

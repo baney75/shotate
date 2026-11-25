@@ -76,18 +76,19 @@ enum Recording {
     }
 
     /// The bar and outline of the recording in progress, which a screenshot leaves out.
-    static var overlayWindowIDs: Set<CGWindowID> {
+    @MainActor static var overlayWindowIDs: Set<CGWindowID> {
+        let badge = Set([QuickVoiceNote.shared.badgeWindowID].compactMap { $0 })
         #if compiler(>=6.0)
-        if #available(macOS 15.0, *) { return Set(Recorder.current?.overlayWindowIDs ?? []) }
+        if #available(macOS 15.0, *) { return badge.union(Recorder.current?.overlayWindowIDs ?? []) }
         #endif
-        return []
+        return badge
     }
 }
 
 #if compiler(>=6.0)
 /// Records an area, a screen or an app to an MP4 with ScreenCaptureKit, from `start` until `stop()`.
 /// A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is
-/// in the video. No sound: Shotate never asks for the microphone.
+/// in the video. No sound: screen recordings never use the microphone (voice notes are separate).
 @available(macOS 15.0, *)
 final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private(set) static var current: Recorder?
@@ -170,7 +171,7 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         guard let display = NativeCapture.display(for: screen, in: content) else {
             throw Self.error("That screen isn't available to record.")
         }
-        let ours = Set(indicator?.windowIDs ?? [])
+        let ours = Set((indicator?.windowIDs ?? []) + [QuickVoiceNote.shared.badgeWindowID].compactMap { $0 })
         let notOurs = content.windows.filter { ours.contains($0.windowID) }
         let config = SCStreamConfiguration()
         let filter: SCContentFilter

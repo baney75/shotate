@@ -14,6 +14,8 @@
   <key>LSUIElement</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Shotate records your voice only while a voice note you started is recording. Screen recordings have no sound.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Shotate turns a voice note into text when you ask. It runs on this Mac when the Mac supports on-device speech recognition.</string>
   <key>NSHumanReadableCopyright</key><string>© 2026 Donovan Baney (@baney75). MIT License.</string>
   <key>CFBundleURLTypes</key>
   <array><dict>

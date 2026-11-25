@@ -5,6 +5,7 @@ import ShotateCore
 
 private let log = Logger(subsystem: "com.baney.snapmark", category: "config")
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var editors: [EditorWindowController] = []
     /// The last other app you were in, to get focus back when the last editor closes.
@@ -26,7 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastCommands: [String: String] = [:]
     static let actionTitles = ["captureArea": "Capture Area", "captureWindow": "Capture Window",
                                "captureScreen": "Capture Full Screen", "recordArea": "Record Area",
-                               "recordScreen": "Record Full Screen", "recordApp": "Record App"]
+                               "recordScreen": "Record Full Screen", "recordApp": "Record App",
+                               "voiceNote": "Quick Voice Note"]
     var settings = Settings()
     private(set) lazy var updater = Updater { [weak self] in self?.settings ?? Settings() }
     private lazy var pastePicker: PastePicker = {
@@ -57,6 +59,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ShortcutRecorder.onRecordingChange = { [weak self] recording in
             if recording { self?.hotkeys.removeAll() } else { self?.applySettings(save: false) }
         }
+        // Quality and stereo picked in the Voice Notes window are saved in the config file.
+        VoiceRecorder.shared.onSettingsChange = { [weak self] in
+            guard let self else { return }
+            self.settings.voiceQuality = VoiceRecorder.shared.quality
+            self.settings.voiceStereo = VoiceRecorder.shared.stereo
+            self.applySettings()
+        }
+        VoiceRecorder.shared.newFileURL = { [weak self] quality in
+            var s = self?.settings ?? Settings()
+            s.voiceQuality = quality
+            return s.newVoiceNoteURL()
+        }
         Settings.adoptLegacyConfig()
         moveLoginItem()
         settings = loadConfig() ?? settings
@@ -84,6 +98,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         quitAfterRecording = true
         stopRecording()
         return .terminateLater
+    }
+
+    /// A voice note is cut off at quit: finish its file so it plays.
+    func applicationWillTerminate(_ notification: Notification) {
+        VoiceRecorder.shared.stop()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -246,6 +265,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         defer {
             updater.settingsChanged()
             for e in editors { e.settings = settings }
+            VoiceStore.shared.setFolder(settings.voiceFolder)
+            VoiceRecorder.shared.adopt(quality: settings.voiceQuality, stereo: settings.voiceStereo)
+            QuickVoiceNote.shared.shortcut = settings.shortcut("voiceNote")?.displayString
         }
         if save, configBroken {
             Alerts.show("Fix the config file first",
@@ -265,6 +287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "recordArea": { [weak self] in self?.toggleRecording(.area) },
             "recordScreen": { [weak self] in self?.toggleRecording(.screen) },
             "recordApp": { [weak self] in self?.toggleRecording(.app) },
+            // Independent of screen recording: both can run at once.
+            "voiceNote": { QuickVoiceNote.shared.toggle() },
         ]
         var taken: [String] = [], clashes: [String] = []
         // Another app's shortcut is reported once, not at every launch: the person may never have
@@ -564,6 +588,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(stop)
             menu.addItem(.separator())
         }
+        if VoiceRecorder.shared.isRecording {
+            let stop = NSMenuItem(title: "Stop Voice Note", action: #selector(stopVoiceNote), keyEquivalent: "")
+            stop.target = self
+            stop.image = NSImage(systemSymbolName: "mic.circle.fill", accessibilityDescription: nil)
+            stop.toolTip = "Saves it, transcribes it and copies the text"
+            menu.addItem(stop)
+            menu.addItem(.separator())
+        }
         if let offer = updater.available {
             let update = NSMenuItem(title: Updater.menuTitle(offer), action: #selector(installUpdate), keyEquivalent: "")
             update.target = self
@@ -646,6 +678,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func showAbout() { Credits.showAbout() }
+
+    @objc func stopVoiceNote() { QuickVoiceNote.shared.finish() }
 
     // MARK: Updates
 
