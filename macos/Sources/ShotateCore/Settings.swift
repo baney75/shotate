@@ -25,17 +25,27 @@ public struct Settings: Equatable {
     /// Extra folders to read an app's log files from while it is recorded (⇧⌘D), by bundle ID or app
     /// name: ["com.t3tools.t3code": ["~/.t3/userdata/logs"]].
     public var appLogs: [String: [String]] = [:]
+    /// Where voice notes are saved, with their `.meta` sidecars.
+    public var voiceFolder: URL = Settings.defaultVoiceFolder
+    public var voiceQuality: VoiceQuality = .aac
+    /// Record two channels. Off suits the built-in microphone.
+    public var voiceStereo = false
 
     // Always a directory URL, so it compares equal whether or not the folder exists yet.
     public static let defaultFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Pictures/Screenshots",
                                           isDirectory: true)
+    public static let defaultVoiceFolder = URL(fileURLWithPath: NSHomeDirectory() + "/Music/Voice Notes", isDirectory: true)
     public static let defaultShortcut = "cmd+shift+s"
-    public static let actions = ["captureArea", "captureWindow", "captureScreen", "recordArea", "recordScreen", "recordApp"]
+    public static let actions = ["captureArea", "captureWindow", "captureScreen", "recordArea", "recordScreen", "recordApp",
+                                 "voiceNote"]
     /// The record actions: pressed again while recording, any of them stops it.
     public static let recordActions: Set<String> = ["recordArea", "recordScreen", "recordApp"]
     public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "",
-                                          "captureScreen": "cmd+ctrl+shift+s", "recordArea": "cmd+shift+r",
-                                          "recordScreen": "cmd+ctrl+shift+r", "recordApp": "cmd+shift+d"]
+                                          "captureScreen": "cmd+ctrl+shift+s", "recordArea": "cmd+option+shift+r",
+                                          "recordScreen": "cmd+ctrl+shift+r", "recordApp": "cmd+shift+d",
+                                          "voiceNote": "cmd+shift+r"]
+    /// recordArea's default before voice notes took ⇧⌘R.
+    static let oldRecordAreaShortcut = "cmd+shift+r"
     public static let channels = ["stable", "nightly"]
     public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/shotate/config.json")
     /// Where the app kept its config when it was called Snapmark.
@@ -139,7 +149,9 @@ public struct Settings: Equatable {
             for a in actions { if let v = m[a] { s.shortcuts[a] = Shortcut(v) != nil ? v.lowercased() : "" } }
         }
         if let m = o["commands"] as? [String: String] { s.commandHotkeys = m.filter { Shortcut($0.key) != nil } }
-        s.yieldNewDefaults(written: Set((o["shortcuts"] as? [String: Any] ?? [:]).keys))
+        let written = Set((o["shortcuts"] as? [String: Any] ?? [:]).keys)
+        s.moveRecordAreaForVoiceNote(written: written)
+        s.yieldNewDefaults(written: written)
         if let m = o["toolKeys"] as? [String: String] { s.toolKeys = m.mapValues { $0.lowercased() } }
         if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
         if let b = o["checkForUpdates"] as? Bool { s.checkForUpdates = b }
@@ -148,19 +160,24 @@ public struct Settings: Equatable {
         if let m = o["appLogs"] as? [String: Any] {
             s.appLogs = m.compactMapValues { ($0 as? [String]) ?? ($0 as? String).map { [$0] } }
         }
+        if let path = o["voiceFolder"] as? String, !path.isEmpty {
+            s.voiceFolder = URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+        }
+        if let q = (o["voiceQuality"] as? String).flatMap({ VoiceQuality(rawValue: $0.lowercased()) }) { s.voiceQuality = q }
+        if let b = o["voiceStereo"] as? Bool { s.voiceStereo = b }
         return s
     }
 
     /// The file as Shotate writes it: every setting spelled out, with a pointer to the docs.
     public func json() -> Data {
         let home = NSHomeDirectory()
-        let folder = saveFolder.path.hasPrefix(home + "/") ? "~" + saveFolder.path.dropFirst(home.count) : saveFolder.path
+        func tilde(_ u: URL) -> String { u.path.hasPrefix(home + "/") ? "~" + u.path.dropFirst(home.count) : u.path }
         var tools: [String: String] = [:]
         for (t, k) in resolvedToolKeys { tools[t.title.lowercased()] = k }
         var o: [String: Any] = [
             "_help": "Shotate settings. Edit and save; Shotate reloads right away. "
                 + "Docs: https://github.com/baney75/shotate#configuration",
-            "saveFolder": folder,
+            "saveFolder": tilde(saveFolder),
             "copyOnCapture": copyOnCapture,
             "showMenuBarIcon": showMenuBarIcon,
             "shortcuts": shortcuts,
@@ -170,6 +187,9 @@ public struct Settings: Equatable {
             "choosePaste": choosePaste,
             "agentControl": agentControl,
             "appLogs": appLogs,
+            "voiceFolder": tilde(voiceFolder),
+            "voiceQuality": voiceQuality.rawValue,
+            "voiceStereo": voiceStereo,
         ]
         if let updateChannel { o["updateChannel"] = updateChannel }
         return (try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]))
@@ -198,6 +218,21 @@ public struct Settings: Equatable {
         return s
     }
 
+    /// Before voice notes, ⇧⌘R recorded an area. A file that still has that and no `voiceNote` gets the
+    /// new layout once: recordArea moves to ⌥⇧⌘R and ⇧⌘R starts a voice note. If ⌥⇧⌘R is already
+    /// used for something else, nothing moves (voiceNote then starts off). Any other recordArea is the
+    /// person's own choice and stays. voiceNote keeps its default, which `yieldNewDefaults` still turns
+    /// off if another shortcut uses ⇧⌘R.
+    mutating func moveRecordAreaForVoiceNote(written: Set<String>) {
+        guard written.contains("recordArea"), !written.contains("voiceNote"),
+              let old = shortcut("recordArea"), old == Shortcut(Settings.oldRecordAreaShortcut),
+              let moved = Settings.defaultShortcuts["recordArea"], let target = Shortcut(moved) else { return }
+        let taken = Settings.actions.contains { $0 != "recordArea" && written.contains($0) && shortcut($0) == target }
+            || commandHotkeys.keys.contains { Shortcut($0) == target }
+        guard !taken else { return }
+        shortcuts["recordArea"] = moved
+    }
+
     /// An action the saved settings don't mention (`written` lists those they do) gets its default
     /// keys only if they aren't already used for something else, so an upgrade never takes over
     /// someone's own shortcut.
@@ -216,7 +251,11 @@ public struct Settings: Equatable {
     /// "Shotate Recording 2026-10-10 at 14.03.22.mp4" in the save folder; adds " 2", " 3" on a clash.
     public func newRecordingURL(date: Date = Date()) -> URL { newURL("Shotate Recording", "mp4", date) }
 
-    private func newURL(_ name: String, _ ext: String, _ date: Date) -> URL {
+    /// "Voice Note 2026-10-10 at 14.03.22.m4a" in the voice notes folder; adds " 2", " 3" on a clash.
+    public func newVoiceNoteURL(date: Date = Date()) -> URL { newURL("Voice Note", voiceQuality.ext, date, in: voiceFolder) }
+
+    private func newURL(_ name: String, _ ext: String, _ date: Date, in folder: URL? = nil) -> URL {
+        let saveFolder = folder ?? saveFolder
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
