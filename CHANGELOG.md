@@ -16,15 +16,15 @@
 - Tool letters (V, A, P, R…) work right after a capture. macOS often left the app you were in
   active, so the letters went there instead of the editor.
 - A tool key changed in Settings works in editors that are already open.
-- Closing the last editor gives focus back to the app you were in. Shotate used to stay in
+- Closing the last editor gives focus back to the app you were in. Yapshot used to stay in
   front with no window, so your next keys went nowhere.
-- A recording whose video may be incomplete is an error again (`shotate` exits 1, with the video
+- A recording whose video may be incomplete is an error again (`yapshot` exits 1, with the video
   and folder still in the reply), and its alert says where what was written is. Only a save that
   ran past 90 s is a warning. The alert says the note is copied, not the video, when the note is
   what was copied.
 - `--copy=false`, `--edit=0`, `--gif=no` and `--mp4=false` are off, not on; any other value is an
   error.
-- `shotate stop --any` on a recording you are saving drops an older agent result nobody collected,
+- `yapshot stop --any` on a recording you are saving drops an older agent result nobody collected,
   so a later `stop` can't return it as fresh.
 
 ### Changed
@@ -32,21 +32,21 @@
   longer smears across the new space. Where an edge has no clear background, such as a photo, the
   new space continues its colors softly, and corners match the edges that meet there.
 - **Setup explains every permission.** A Permissions section says what Screen Recording (required)
-  and Accessibility (optional, only for choosing what to paste) are used for, what Shotate never
+  and Accessibility (optional, only for choosing what to paste) are used for, what Yapshot never
   does with them, and whether each is allowed right now, with a button to allow it. It also says
-  plainly that screenshots never leave your Mac and that Shotate only goes online on its own to check
+  plainly that screenshots never leave your Mac and that Yapshot only goes online on its own to check
   for updates, at launch and once a day. The capture shortcut can be changed right there too.
 - The editor opens on Select instead of Arrow, so a click on a new screenshot never drops an
   arrow by accident. Press A for arrows.
 
 ### Added
-- **Scripts and an MCP server for AI agents.** `shotate mcp` is a local MCP server (stdio, no
+- **Scripts and an MCP server for AI agents.** `yapshot mcp` is a local MCP server (stdio, no
   network) for Claude Code, Codex, Cursor and Claude Desktop. An agent can send you a script to
   read aloud, list and read your voice notes' transcripts, and take a screenshot. A script opens in
   a floating teleprompter that keeps the keyboard with the app you're in and scrolls while you
   record a voice note; the note remembers which script it was. **Scripts** in the menu bar menu and
-  the Voice Notes window open saved ones. `shotate mcp install` (or **Connect to AI Agents…** in
-  Settings › Advanced) registers it, backing up each config file first; `shotate mcp uninstall`
+  the Voice Notes window open saved ones. `yapshot mcp install` (or **Connect to AI Agents…** in
+  Settings › Advanced) registers it, backing up each config file first; `yapshot mcp uninstall`
   takes it out.
 - **Voice notes.** ⇧⌘R from any app starts recording your voice, with a small badge that never
   takes focus; press it again and the text is copied, transcribed by macOS speech recognition (on
@@ -63,29 +63,29 @@
   old copied log.
 - **Every recording saves its clicks** beside the video (`.clicks.json`: time and position), so
   a demo can zoom to each click.
-- **The `shotate` command and an agent skill.** `shotate capture`, `record`, `stop`, `windows`,
+- **The `yapshot` command and an agent skill.** `yapshot capture`, `record`, `stop`, `windows`,
   `annotate` (marks from JSON, for docs) and `export` (GIF or MP4) print JSON, so coding agents
   can make screenshots, docs images and demo videos. It only works with **Let Agents Control
-  Shotate** on. Installing links `shotate` into ~/.local/bin and the skill into the agent skill
+  Yapshot** on. Installing links `yapshot` into ~/.local/bin and the skill into the agent skill
   folders that exist.
 - **Record the screen** (macOS 15 and later). ⇧⌘R records an area you drag (or press Space and
   click a window); ⌃⇧⌘R records the whole screen the pointer is on. A small bar shows the time and
   a Stop button, and a red outline marks a recorded area; neither shows up in the video. Press any
   record shortcut again or click Stop, and the MP4 is saved next to your screenshots, copied as a
   file. No Finder window opens. Quitting mid-recording saves it first. Video only, no sound.
-- **Record an app and its log.** ⇧⌘D, then click a window: Shotate records only that app's windows
+- **Record an app and its log.** ⇧⌘D, then click a window: Yapshot records only that app's windows
   and streams what it writes to the system log, debug messages included. When you stop, the log
   is on your clipboard as text and saved beside the video.
 - **⌃⇧⌘S captures the full screen** in new setups.
-- Two Shotate shortcuts set to the same keys now say so, instead of one silently not working, and a
+- Two Yapshot shortcuts set to the same keys now say so, instead of one silently not working, and a
   shortcut new in this version starts off if your config already uses its keys.
 - Point at a tool to see its key; keep pointing for a second to see its name too.
 - **Choose which screenshot to paste** (macOS, off by default). Turn it on in setup, Settings or
   the menu bar menu. Take screenshots within 3 seconds of each other and, for the next minute,
   ⌘V opens a panel of them, newest first and numbered; click one, press its number, or use the
-  arrow keys and Return, and Shotate pastes it where you were typing. A switch in the panel
+  arrow keys and Return, and Yapshot pastes it where you were typing. A switch in the panel
   turns it off. Anything else you copy pastes as
-  usual. Shotate types the paste for you, so turning it on asks for Accessibility.
+  usual. Yapshot types the paste for you, so turning it on asks for Accessibility.
 - The editor's drag-out button shows an open hand when you point at it, so it's clear the
   screenshot can be dragged into another app.
 - The crosshair shows the moment a capture starts, instead of an arrow until the mouse moves.

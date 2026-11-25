@@ -19,7 +19,9 @@ Invoke-WebRequest $asset.browser_download_url -OutFile $setup -UseBasicParsing
 Write-Host "==> Installing"
 # The setup removes Shotate and Snapmark (the old names) itself, keeps Open at login, and starts
 # Yapshot when it replaced Shotate.
-Start-Process $setup -ArgumentList "/S" -Wait
+# Wait for the setup only: -Wait would also wait for the Yapshot it starts.
+$p = Start-Process $setup -ArgumentList "/S" -PassThru
+$p.WaitForExit()
 Remove-Item $setup -ErrorAction SilentlyContinue
 $exe = Join-Path $env:LOCALAPPDATA "Yapshot\yapshot.exe"
 if ((Test-Path $exe) -and -not (Get-Process yapshot -ErrorAction SilentlyContinue)) { Start-Process $exe }

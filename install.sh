@@ -40,10 +40,14 @@ install_macos() {
   trap 'rm -rf "$WORK"' EXIT
   step "Downloading Yapshot ($CHANNEL, $REF)"
   git clone --quiet --depth 1 --branch "$REF" "$REPO_URL" "$WORK/yapshot"
+  # A release tagged before the rename builds Shotate.app, which updates itself to Yapshot later.
+  NAME=Yapshot
+  [ -f "$WORK/yapshot/macos/Resources/yapshot" ] || NAME=Shotate
+  [ "$NAME" = Yapshot ] || echo "The newest $CHANNEL release is from before the rename, so this installs it as Shotate. It updates to Yapshot with the next release."
   step "Building (about a minute the first time)"
-  YAPSHOT_CHANNEL="$CHANNEL" "$WORK/yapshot/macos/scripts/bundle.sh" --install 2>&1 | sed "s/^/${dim}    /;s/\$/${reset}/" | tail -4
+  YAPSHOT_CHANNEL="$CHANNEL" SHOTATE_CHANNEL="$CHANNEL" "$WORK/yapshot/macos/scripts/bundle.sh" --install 2>&1 | sed "s/^/${dim}    /;s/\$/${reset}/" | tail -4
   echo
-  printf '%sYapshot is installed.%s It is in your menu bar now.\n' "$bold" "$reset"
+  printf '%s%s is installed.%s It is in your menu bar now.\n' "$bold" "$NAME" "$reset"
   echo "A welcome window will ask for Screen Recording permission. After that, press ⇧⌘S to capture."
 }
 
