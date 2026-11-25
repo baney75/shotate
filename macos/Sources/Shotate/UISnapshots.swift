@@ -1,5 +1,6 @@
 import AppKit
 import ShotateCore
+import SwiftUI
 
 /// `Shotate --render-ui <folder> [--appearance light|dark] [--sample image.png] [--icon icon.png]` draws each window
 /// Shotate shows and saves a PNG of it, for checking how the app looks without using it. Each window
@@ -52,6 +53,8 @@ final class UISnapshots {
         welcome()
         pasteChooser()
         recordingBar()
+        voiceNotes()
+        voiceBadge()
         overlay()
         menuBarMenu()
     }
@@ -83,7 +86,7 @@ final class UISnapshots {
         let app = AppDelegate()
         let c = SettingsWindowController(app: app)
         guard let tabs = c.window?.contentViewController as? NSTabViewController else { return }
-        for (i, name) in ["general", "shortcuts", "commands", "advanced"].enumerated() {
+        for (i, name) in ["general", "shortcuts", "commands", "voice-notes", "advanced"].enumerated() {
             c.reload()
             tabs.selectedTabViewItemIndex = i
             capture(c.window, "settings-\(name)", settle: 0.8)
@@ -120,6 +123,68 @@ final class UISnapshots {
             r.show(elapsed: seconds)
             capture(r.barWindow, name)
             r.close()
+        }
+    }
+
+    /// The library with three notes in a scratch folder: silent audio files with markers and transcripts.
+    private func voiceNotes() {
+        let dir = scratch.appendingPathComponent("Voice Notes", isDirectory: true)
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let notes: [(String, Double, String?, [VoiceMarker])] = [
+            ("Standup notes", 94, "Ship the voice notes split today. Check the recording bar in light and dark, "
+                + "then ask for review on all three branches.", [VoiceMarker(time: 21, label: "Marker 1"),
+                                                                 VoiceMarker(time: 63, label: "Marker 2")]),
+            ("Bug repro for the paste chooser", 37, nil, []),
+            ("Voice Note 2026-11-24 at 09.12.40", 312, "Call the printer shop about the order.", []),
+        ]
+        let store = VoiceStore.shared
+        for (i, (name, duration, transcript, markers)) in notes.enumerated() {
+            let url = dir.appendingPathComponent(name).appendingPathExtension("wav")
+            try? Self.silentWAV(seconds: duration).write(to: url)
+            try? FileManager.default.setAttributes([.creationDate: Date().addingTimeInterval(Double(-i) * 86_400)],
+                                                   ofItemAtPath: url.path)
+            store.saveMeta(VoiceMeta(markers: markers, transcript: transcript, duration: duration), for: url)
+        }
+        store.setFolder(dir)
+        store.reload()
+        store.selection = store.notes.first?.url
+        let c = VoiceNotesWindowController()
+        c.window?.setContentSize(CGSize(width: 900, height: 600))
+        capture(c.window, "voice-notes", settle: 0.8)
+        c.window?.close()
+    }
+
+    /// `seconds` of 8 kHz mono silence, so the player shows the note's real length.
+    private static func silentWAV(seconds: Double) -> Data {
+        let bytes = Int(seconds * 8000) * 2
+        func le<T: FixedWidthInteger>(_ v: T) -> Data { withUnsafeBytes(of: v.littleEndian) { Data($0) } }
+        var d = Data("RIFF".utf8) + le(UInt32(36 + bytes)) + Data("WAVEfmt ".utf8)
+        d += le(UInt32(16)) + le(UInt16(1)) + le(UInt16(1)) + le(UInt32(8000)) + le(UInt32(16000))
+        d += le(UInt16(2)) + le(UInt16(16)) + Data("data".utf8) + le(UInt32(bytes)) + Data(count: bytes)
+        return d
+    }
+
+    private func voiceBadge() {
+        QuickVoiceNote.shared.shortcut = Settings().shortcut("voiceNote")?.displayString
+        let levels: [Float] = (0..<18).map { Float(0.25 + 0.6 * abs(sin(Double($0) * 0.9))) }
+        let states: [(QuickVoiceNote.Phase, String)] = [
+            (.recording, "voice-badge-recording"), (.transcribing, "voice-badge-transcribing"),
+            (.copied("Ship the voice notes split today. Check the recording bar in light and dark."), "voice-badge-copied"),
+            (.failed("No speech found. The audio file is on the clipboard."), "voice-badge-failed"),
+            (.failed("Speech recognition is off for Shotate. Turn it on in System Settings > Privacy & Security > "
+                     + "Speech Recognition. The audio file is on the clipboard."), "voice-badge-failed-long"),
+        ]
+        for (phase, name) in states {
+            let p = NSPanel(contentRect: NSRect(origin: .zero, size: QuickVoiceBadge.size),
+                            styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+            p.backgroundColor = .clear
+            p.isOpaque = false
+            let host = NSHostingView(rootView: QuickVoiceBadge(sample: (phase, 47, levels)))
+            p.contentView = host
+            p.setContentSize(host.fittingSize)
+            capture(p, name)
+            p.orderOut(nil)
         }
     }
 

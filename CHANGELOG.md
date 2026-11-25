@@ -31,6 +31,13 @@
   arrow by accident. Press A for arrows.
 
 ### Added
+- **Voice notes.** ⇧⌘R from any app starts recording your voice, with a small badge that never
+  takes focus; press it again and the text is copied, transcribed by macOS speech recognition (on
+  this Mac when it supports that). With no text, the audio file is copied instead. **Voice Notes…**
+  in the menu bar keeps them all: record with pause and markers, search names and transcripts, play
+  at 0.5x to 2x, rename, drag out as a file. A Voice Notes pane in Settings picks the folder,
+  quality and stereo, and setup explains the Microphone and Speech Recognition permissions.
+  Recording an area moves to ⌥⇧⌘R; a config that still has it on ⇧⌘R is moved once.
 - **⇧⌘D records a demo and a bug report at once.** Recording an app saves a folder: the MP4,
   stills (the first and last frames, and up to 6 more, one 0.6 s after each click, skipped when it would land within 0.8 s of an earlier still, so a click within 0.8 s of the previous click with a still, or in the first half second, gets none; with no clicks, a few evenly spaced ones),
   the app's system log, the new lines in the app's own log files (Electron and Node apps never use
