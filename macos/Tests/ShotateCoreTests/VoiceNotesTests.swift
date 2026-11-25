@@ -38,6 +38,38 @@ final class VoiceNotesTests: XCTestCase {
         XCTAssertNil(s.shortcut("voiceNote"))
     }
 
+    /// A file that never wrote recordArea had it on the old ⇧⌘R default. If ⌥⇧⌘R is taken, area
+    /// recording keeps ⇧⌘R instead of losing its shortcut, and voiceNote starts off.
+    func testUnwrittenRecordAreaCountsAsTheOldDefault() throws {
+        var s = try load(#"{"shortcuts": {"captureArea": "cmd+option+shift+r"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(s.shortcut("voiceNote"))
+        s = try load(#"{"commands": {"cmd+option+shift+r": "/usr/bin/true"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(s.shortcut("voiceNote"))
+        s = try load(#"{"copyOnCapture": true}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+option+shift+r"))
+        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+r"))
+    }
+
+    /// The move is decided once: load reports it, the app saves, and the saved file reloads as is
+    /// even after the clash that blocked it is edited away.
+    func testMigrationIsSavedAndNotDecidedAgain() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-\(UUID().uuidString)/config.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"shortcuts": {"recordArea": "cmd+shift+r", "captureScreen": "cmd+option+shift+r"}}"#.utf8).write(to: url)
+        let (first, migrated) = try Settings.loadReporting(from: url)
+        XCTAssertTrue(migrated)
+        try first.save(to: url)
+        var edited = try Settings.load(from: url)
+        edited.shortcuts["captureScreen"] = "cmd+ctrl+shift+s"
+        try edited.save(to: url)
+        let (again, migratedAgain) = try Settings.loadReporting(from: url)
+        XCTAssertFalse(migratedAgain)
+        XCTAssertEqual(again.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(again.shortcut("voiceNote"))
+    }
+
     /// voiceNote's default never takes keys the file uses for something else.
     func testVoiceNoteDefaultYieldsOnClash() throws {
         var s = try load(#"{"shortcuts": {"recordArea": "cmd+ctrl+r", "captureWindow": "shift+cmd+r"}}"#)

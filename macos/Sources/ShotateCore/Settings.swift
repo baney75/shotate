@@ -134,6 +134,12 @@ public struct Settings: Equatable {
     /// Reads a config file. Missing keys keep their defaults and unknown keys are ignored, so a
     /// hand-edited file with only one setting in it works. Throws when the JSON itself is broken.
     public static func load(from url: URL = Settings.configURL) throws -> Settings {
+        try loadReporting(from: url).settings
+    }
+
+    /// `load`, and whether the file predates voice notes. When it does, the caller saves the settings
+    /// right away so the shortcut move is written down and never re-decided on a later load.
+    public static func loadReporting(from url: URL = Settings.configURL) throws -> (settings: Settings, migrated: Bool) {
         let data = try Data(contentsOf: url)
         guard let o = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CocoaError(.propertyListReadCorrupt,
@@ -165,7 +171,7 @@ public struct Settings: Equatable {
         }
         if let q = (o["voiceQuality"] as? String).flatMap({ VoiceQuality(rawValue: $0.lowercased()) }) { s.voiceQuality = q }
         if let b = o["voiceStereo"] as? Bool { s.voiceStereo = b }
-        return s
+        return (s, !written.contains("voiceNote"))
     }
 
     /// The file as Shotate writes it: every setting spelled out, with a pointer to the docs.
@@ -223,14 +229,21 @@ public struct Settings: Equatable {
     /// used for something else, nothing moves (voiceNote then starts off). Any other recordArea is the
     /// person's own choice and stays. voiceNote keeps its default, which `yieldNewDefaults` still turns
     /// off if another shortcut uses ⇧⌘R.
+    /// A file without recordArea had it on the old default, so it counts as ⇧⌘R here.
     mutating func moveRecordAreaForVoiceNote(written: Set<String>) {
-        guard written.contains("recordArea"), !written.contains("voiceNote"),
-              let old = shortcut("recordArea"), old == Shortcut(Settings.oldRecordAreaShortcut),
+        let old = Settings.oldRecordAreaShortcut
+        let had = written.contains("recordArea") ? shortcut("recordArea") : Shortcut(old)
+        guard !written.contains("voiceNote"), had == Shortcut(old),
               let moved = Settings.defaultShortcuts["recordArea"], let target = Shortcut(moved) else { return }
         let taken = Settings.actions.contains { $0 != "recordArea" && written.contains($0) && shortcut($0) == target }
             || commandHotkeys.keys.contains { Shortcut($0) == target }
-        guard !taken else { return }
-        shortcuts["recordArea"] = moved
+        if taken {
+            // Keep area recording where it was; voice notes start off rather than take its keys.
+            shortcuts["recordArea"] = old
+            shortcuts["voiceNote"] = ""
+        } else {
+            shortcuts["recordArea"] = moved
+        }
     }
 
     /// An action the saved settings don't mention (`written` lists those they do) gets its default

@@ -148,8 +148,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return Settings.migrated(from: .standard)
         }
         do {
-            let s = try Settings.load(from: url)
+            let (s, migrated) = try Settings.loadReporting(from: url)
             configBroken = false
+            // Write the voice note shortcut move down once, so a later edit can't re-run it.
+            if migrated { try? s.save(to: url) }
             return s
         } catch {
             configBroken = true
