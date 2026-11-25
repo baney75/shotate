@@ -1,20 +1,20 @@
 //! Bakes what this build knows about itself into the binary, for the updater and About:
-//! SHOTATE_COMMIT, SHOTATE_CHANNEL and SHOTATE_BUILD_DATE. CI sets them; a local build reads git.
+//! YAPSHOT_COMMIT, YAPSHOT_CHANNEL and YAPSHOT_BUILD_DATE. CI sets them; a local build reads git.
 
 use std::process::Command;
 
 fn main() {
-    let commit = env("SHOTATE_COMMIT")
+    let commit = env("YAPSHOT_COMMIT")
         .or_else(|| git(&["rev-parse", "HEAD"]))
         .unwrap_or_else(|| "unknown".into());
     // Windows and Linux builds are nightly previews; stable releases are macOS only for now.
-    let channel = env("SHOTATE_CHANNEL").unwrap_or_else(|| "nightly".into());
-    let date = env("SHOTATE_BUILD_DATE").unwrap_or_else(now_utc);
+    let channel = env("YAPSHOT_CHANNEL").unwrap_or_else(|| "nightly".into());
+    let date = env("YAPSHOT_BUILD_DATE").unwrap_or_else(now_utc);
 
-    println!("cargo:rustc-env=SHOTATE_COMMIT={commit}");
-    println!("cargo:rustc-env=SHOTATE_CHANNEL={channel}");
-    println!("cargo:rustc-env=SHOTATE_BUILD_DATE={date}");
-    for var in ["SHOTATE_COMMIT", "SHOTATE_CHANNEL", "SHOTATE_BUILD_DATE"] {
+    println!("cargo:rustc-env=YAPSHOT_COMMIT={commit}");
+    println!("cargo:rustc-env=YAPSHOT_CHANNEL={channel}");
+    println!("cargo:rustc-env=YAPSHOT_BUILD_DATE={date}");
+    for var in ["YAPSHOT_COMMIT", "YAPSHOT_CHANNEL", "YAPSHOT_BUILD_DATE"] {
         println!("cargo:rerun-if-env-changed={var}");
     }
     // A new commit or tag rebuilds the metadata.

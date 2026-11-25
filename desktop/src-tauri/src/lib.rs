@@ -1,4 +1,4 @@
-//! Shotate for Windows and Linux: a tray app that captures the screen, opens the annotation
+//! Yapshot for Windows and Linux: a tray app that captures the screen, opens the annotation
 //! editor, and copies the result. The editor and settings UI live in the web view (../src); this
 //! side owns capture, files, the clipboard, global shortcuts, the tray and the config file.
 
@@ -32,7 +32,7 @@ struct Pending {
 #[derive(Default)]
 struct State {
     config: Mutex<Config>,
-    /// True while the config file has a JSON error; Shotate then never writes it.
+    /// True while the config file has a JSON error; Yapshot then never writes it.
     broken: Mutex<bool>,
     pending: Mutex<Option<Pending>>,
     /// Kept alive for the whole run: on Linux the clipboard empties when its owner goes away.
@@ -58,7 +58,7 @@ fn capture(app: &AppHandle, mode: &'static str) {
     // Off the main thread: grabbing a screen can take a moment, and on Wayland a portal may ask.
     std::thread::spawn(move || {
         if let Err(e) = capture_inner(&app, mode) {
-            error(&app, "Shotate couldn't capture the screen", &e);
+            error(&app, "Yapshot couldn't capture the screen", &e);
         }
     });
 }
@@ -123,7 +123,7 @@ fn capture_inner(app: &AppHandle, mode: &'static str) -> Result<(), String> {
             "overlay",
             WebviewUrl::App("index.html?view=overlay".into()),
         )
-        .title("Shotate")
+        .title("Yapshot")
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
@@ -139,7 +139,7 @@ fn capture_inner(app: &AppHandle, mode: &'static str) -> Result<(), String> {
             }
             Err(e) => error(
                 &handle,
-                "Shotate couldn't show the capture overlay",
+                "Yapshot couldn't show the capture overlay",
                 &e.to_string(),
             ),
         }
@@ -154,7 +154,7 @@ fn linux_tool_capture() -> Option<RgbaImage> {
         return None;
     }
     // A private (0700) folder, not a guessable name in shared /tmp.
-    let dir = tempfile::Builder::new().prefix("shotate-").tempdir().ok()?;
+    let dir = tempfile::Builder::new().prefix("yapshot-").tempdir().ok()?;
     let out = dir.path().join("screen.png");
     let o = out.to_string_lossy().into_owned();
     let tools: [(&str, Vec<&str>); 3] = [
@@ -181,7 +181,7 @@ fn linux_tool_capture() -> Option<RgbaImage> {
 fn wayland_hint(e: String) -> String {
     if platform() == "linux-wayland" {
         format!(
-            "{e}\n\nOn Wayland, Shotate captures through your desktop's screenshot portal. \
+            "{e}\n\nOn Wayland, Yapshot captures through your desktop's screenshot portal. \
                  Make sure xdg-desktop-portal and your desktop's portal backend are installed, \
                  or install grim (Sway, Hyprland) or gnome-screenshot."
         )
@@ -203,7 +203,7 @@ fn finish(app: &AppHandle, image: RgbaImage) -> Result<(), String> {
         if let Err(e) = copy_rgba(app, &image) {
             error(
                 app,
-                "Shotate couldn't copy the capture",
+                "Yapshot couldn't copy the capture",
                 &format!("It is saved at {}.\n\n{e}", path.display()),
             );
         }
@@ -420,7 +420,7 @@ fn set_config(app: AppHandle, config: Config) -> Result<(), String> {
     c.normalize();
     if *app.state::<State>().broken.lock().unwrap() {
         return Err(format!(
-            "{} has an error, so Shotate won't overwrite it. Fix or delete the file first.",
+            "{} has an error, so Yapshot won't overwrite it. Fix or delete the file first.",
             config::path().display()
         ));
     }
@@ -465,8 +465,8 @@ fn reload(app: &AppHandle, at_launch: bool) {
         Err(e) => {
             let was = std::mem::replace(&mut *app.state::<State>().broken.lock().unwrap(), true);
             if !was {
-                error(app, "Shotate couldn't read its config file",
-                      &format!("{e}\n\nShotate keeps its current settings and won't change the file until it is fixed."));
+                error(app, "Yapshot couldn't read its config file",
+                      &format!("{e}\n\nYapshot keeps its current settings and won't change the file until it is fixed."));
             }
             if at_launch {
                 register_shortcuts(app);
@@ -547,7 +547,7 @@ fn register_shortcuts(app: &AppHandle) {
     }
     *app.state::<State>().bindings.lock().unwrap() = bindings;
     if !taken.is_empty() {
-        eprintln!("Shotate: shortcuts already in use: {}", taken.join(", "));
+        eprintln!("Yapshot: shortcuts already in use: {}", taken.join(", "));
     }
 }
 
@@ -581,7 +581,7 @@ fn on_shortcut(app: &AppHandle, shortcut: &Shortcut) {
     }
 }
 
-/// Runs a user-configured command through the shell, detached from Shotate.
+/// Runs a user-configured command through the shell, detached from Yapshot.
 fn run_command(command: &str) {
     #[cfg(windows)]
     let result = std::process::Command::new("cmd")
@@ -593,7 +593,7 @@ fn run_command(command: &str) {
             .args(["-lc", command])
             .spawn();
     if let Err(e) = result {
-        eprintln!("Shotate: couldn't run {command}: {e}");
+        eprintln!("Yapshot: couldn't run {command}: {e}");
     }
 }
 
@@ -618,7 +618,7 @@ fn open_editor(app: &AppHandle, file: &Path, owns: bool) {
     let title = file
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Shotate".into());
+        .unwrap_or_else(|| "Yapshot".into());
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let (w, h) = editor_size(&handle);
@@ -633,7 +633,7 @@ fn open_editor(app: &AppHandle, file: &Path, owns: bool) {
             Ok(win) => {
                 let _ = win.set_focus();
             }
-            Err(e) => error(&handle, "Shotate couldn't open the editor", &e.to_string()),
+            Err(e) => error(&handle, "Yapshot couldn't open the editor", &e.to_string()),
         }
     });
 }
@@ -723,9 +723,9 @@ fn autostart(app: AppHandle, enable: Option<bool>) -> bool {
     manager.is_enabled().unwrap_or(false)
 }
 
-/// Shotate was called Snapmark before 0.12. On Linux its Open at login entry is a desktop file named
-/// after the app; this turns on Shotate's own and removes the old one. (On Windows the installer
-/// carries the setting over, because removing Snapmark deletes its entry.)
+/// Yapshot was called Shotate, and Snapmark before 0.12. On Linux the Open at login entry is a
+/// desktop file named after the app; this turns on Yapshot's own and removes the old ones. (On
+/// Windows the installer carries the setting over, because removing the old app deletes its entry.)
 fn adopt_legacy_autostart(app: &AppHandle) {
     if !cfg!(target_os = "linux") {
         return;
@@ -733,7 +733,7 @@ fn adopt_legacy_autostart(app: &AppHandle) {
     let Some(dir) = dirs::config_dir().map(|d| d.join("autostart")) else {
         return;
     };
-    let old: Vec<_> = ["Snapmark.desktop", "snapmark.desktop"]
+    let old: Vec<_> = ["Shotate.desktop", "shotate.desktop", "Snapmark.desktop", "snapmark.desktop"]
         .iter()
         .map(|n| dir.join(n))
         .filter(|p| p.exists())
@@ -763,7 +763,7 @@ fn platform() -> &'static str {
 }
 
 fn error(app: &AppHandle, title: &str, detail: &str) {
-    eprintln!("Shotate: {title}: {detail}");
+    eprintln!("Yapshot: {title}: {detail}");
     app.dialog()
         .message(detail)
         .title(title)
@@ -785,10 +785,10 @@ struct UpdateState {
     error: Option<String>,
 }
 
-/// "Update to Shotate 0.12.1…" or "Switch to Stable 0.12.0…" for an available update.
+/// "Update to Yapshot 0.12.1…" or "Switch to Stable 0.12.0…" for an available update.
 fn update_label(m: &updates::Manifest, offer: updates::Offer) -> String {
     match offer {
-        updates::Offer::Update => format!("Update to Shotate {}…", m.version),
+        updates::Offer::Update => format!("Update to Yapshot {}…", m.version),
         updates::Offer::SwitchToStable => format!("Switch to Stable {}…", m.version),
     }
 }
@@ -852,7 +852,7 @@ fn run_check(app: &AppHandle, manual: bool) -> Result<(), String> {
                 Ok(())
             }
             Err(e) => {
-                eprintln!("Shotate: update check failed: {e}");
+                eprintln!("Yapshot: update check failed: {e}");
                 if manual {
                     u.error = Some(e.clone());
                 }
@@ -892,7 +892,7 @@ fn schedule_checks(app: &AppHandle) {
     });
 }
 
-/// Downloads and installs the available update. On success Shotate quits (the new one starts on
+/// Downloads and installs the available update. On success Yapshot quits (the new one starts on
 /// its own) or, where it can't update itself, opens the release page.
 fn install_available(app: &AppHandle) -> Result<(), String> {
     let manifest = {
@@ -938,7 +938,7 @@ fn prompt_update(app: &AppHandle) {
     let install = app
         .dialog()
         .message(format!(
-            "Shotate {} is available. You have {current}.\n\nWhat's new: {}",
+            "Yapshot {} is available. You have {current}.\n\nWhat's new: {}",
             m.version,
             m.notes_url()
         ))
@@ -950,7 +950,7 @@ fn prompt_update(app: &AppHandle) {
         .blocking_show();
     if install {
         if let Err(e) = install_available(app) {
-            error(app, "Shotate couldn't install the update", &e);
+            error(app, "Yapshot couldn't install the update", &e);
         }
     }
 }
@@ -961,7 +961,7 @@ fn check_from_tray(app: &AppHandle) {
     std::thread::spawn(move || {
         // Waits for any check already in flight, then reports this check's own result.
         if let Err(e) = run_check(&app, true) {
-            error(&app, "Shotate couldn't check for updates", &e);
+            error(&app, "Yapshot couldn't check for updates", &e);
             return;
         }
         let found = app
@@ -977,11 +977,11 @@ fn check_from_tray(app: &AppHandle) {
             let b = updates::Build::current();
             app.dialog()
                 .message(format!(
-                    "Shotate {} is the newest version on the {} channel.",
+                    "Yapshot {} is the newest version on the {} channel.",
                     b.version,
                     updates::CHANNEL
                 ))
-                .title("Shotate is up to date")
+                .title("Yapshot is up to date")
                 .blocking_show();
         }
     });
@@ -1048,9 +1048,9 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &item("settings", "Settings…")?,
         &item("config", "Edit Config File…")?,
         &item("check", "Check for Updates…")?,
-        &item("about", "About Shotate")?,
+        &item("about", "About Yapshot")?,
         &PredefinedMenuItem::separator(app)?,
-        &item("quit", "Quit Shotate")?,
+        &item("quit", "Quit Yapshot")?,
     ])?;
     Ok(menu)
 }
@@ -1069,13 +1069,13 @@ fn refresh_tray_menu(app: &AppHandle) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
     let menu = tray_menu(app)?;
-    TrayIconBuilder::with_id("shotate")
+    TrayIconBuilder::with_id("yapshot")
         .icon(
             app.default_window_icon()
                 .cloned()
                 .ok_or(tauri::Error::InvalidIcon(std::io::Error::other("no icon")))?,
         )
-        .tooltip("Shotate")
+        .tooltip("Yapshot")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -1088,7 +1088,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
                 let _ = std::fs::create_dir_all(&dir);
                 let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
             }
-            "settings" => show_view(app, "settings", "Shotate Settings", (620.0, 560.0)),
+            "settings" => show_view(app, "settings", "Yapshot Settings", (620.0, 560.0)),
             "config" => {
                 let _ = open_config(app.clone());
             }
@@ -1097,7 +1097,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
                 let handle = app.clone();
                 std::thread::spawn(move || prompt_update(&handle));
             }
-            "about" => show_view(app, "welcome", "About Shotate", (560.0, 600.0)),
+            "about" => show_view(app, "welcome", "About Yapshot", (560.0, 600.0)),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -1120,7 +1120,7 @@ fn open_image_dialog(app: &AppHandle) {
 
 // MARK: - Command line
 
-/// `shotate --capture` and friends. On Wayland, bind these to keys in your desktop's settings.
+/// `yapshot --capture` and friends. On Wayland, bind these to keys in your desktop's settings.
 fn handle_args(app: &AppHandle, args: &[String], first_run: bool) {
     let has = |flag: &str| args.iter().any(|a| a == flag);
     if has("--capture") || has("--capture-area") {
@@ -1134,16 +1134,16 @@ fn handle_args(app: &AppHandle, args: &[String], first_run: bool) {
             open_editor(app, Path::new(p), false);
         }
     } else if has("--settings") {
-        show_view(app, "settings", "Shotate Settings", (620.0, 560.0));
+        show_view(app, "settings", "Yapshot Settings", (620.0, 560.0));
     } else if let Some(p) = args
         .iter()
         .skip(1)
         .find(|a| !a.starts_with("--") && Path::new(a).is_file())
     {
-        // "Open with Shotate" from a file manager.
+        // "Open with Yapshot" from a file manager.
         open_editor(app, Path::new(p), false);
     } else if first_run {
-        show_view(app, "welcome", "Welcome to Shotate", (560.0, 600.0));
+        show_view(app, "welcome", "Welcome to Yapshot", (560.0, 600.0));
     }
 }
 
@@ -1164,7 +1164,7 @@ pub fn run() {
                 .collect();
             // A second launch hands its arguments to the running copy; a plain relaunch opens Settings.
             if args.len() <= 1 {
-                show_view(app, "settings", "Shotate Settings", (620.0, 560.0));
+                show_view(app, "settings", "Yapshot Settings", (620.0, 560.0));
             } else {
                 handle_args(app, &args, false);
             }
@@ -1226,7 +1226,7 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            config::adopt_legacy(&config::legacy_path(), &config::path());
+            config::adopt_legacy(&config::legacy_paths(), &config::path());
             adopt_legacy_autostart(&handle);
             let first_run = !config::path().exists();
             reload(&handle, true);
@@ -1249,7 +1249,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Shotate failed to start");
+        .expect("Yapshot failed to start");
 
     app.run(|_app, event| {
         // A tray app keeps running with no windows open.

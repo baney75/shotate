@@ -1,5 +1,5 @@
-//! The config file, shared in format with the macOS app. Linux: ~/.config/shotate/config.json.
-//! Windows: %APPDATA%\shotate\config.json. People and agents edit it directly; Shotate reloads
+//! The config file, shared in format with the macOS app. Linux: ~/.config/yapshot/config.json.
+//! Windows: %APPDATA%\yapshot\config.json. People and agents edit it directly; Yapshot reloads
 //! it when it changes. Missing keys keep their defaults, unknown keys are ignored, and a file with
 //! a JSON error is reported and never overwritten.
 
@@ -23,7 +23,7 @@ pub struct Config {
     /// save so a later install from the other channel still follows its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_channel: Option<String>,
-    /// False means Shotate never checks for updates on its own (Check Now still works).
+    /// False means Yapshot never checks for updates on its own (Check Now still works).
     pub check_for_updates: bool,
 }
 
@@ -84,24 +84,27 @@ pub fn expand(path: &str) -> PathBuf {
 }
 
 pub fn path() -> PathBuf {
-    config_root().join("shotate").join("config.json")
+    config_root().join("yapshot").join("config.json")
 }
 
-/// Where the app kept its config when it was called Snapmark.
-pub fn legacy_path() -> PathBuf {
-    config_root().join("snapmark").join("config.json")
+/// Where the app kept its config before it was Yapshot, newest name first: Shotate, then Snapmark.
+pub fn legacy_paths() -> [PathBuf; 2] {
+    ["shotate", "snapmark"].map(|name| config_root().join(name).join("config.json"))
 }
 
 fn config_root() -> PathBuf {
     dirs::config_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
 }
 
-/// Copies the Snapmark-era config into place the first time Shotate runs, so shortcuts and folders
-/// carry over. The old file is left where it was. Returns true when it copied.
-pub fn adopt_legacy(old: &Path, new: &Path) -> bool {
-    if new.exists() || !old.exists() {
+/// Copies the config from an older name into place the first time Yapshot runs, so shortcuts and
+/// folders carry over. The newest old file wins and is left where it was. Returns true when it copied.
+pub fn adopt_legacy(olds: &[PathBuf], new: &Path) -> bool {
+    if new.exists() {
         return false;
     }
+    let Some(old) = olds.iter().find(|p| p.exists()) else {
+        return false;
+    };
     new.parent().map_or(Ok(()), std::fs::create_dir_all).is_ok() && std::fs::copy(old, new).is_ok()
 }
 
@@ -141,8 +144,8 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
 
 pub fn save(path: &Path, c: &Config) -> Result<(), String> {
     let mut value = serde_json::to_value(c).map_err(|e| e.to_string())?;
-    value["_help"] = "Shotate settings. Edit and save; Shotate reloads right away. \
-                      Docs: https://github.com/baney75/shotate#configuration"
+    value["_help"] = "Yapshot settings. Edit and save; Yapshot reloads right away. \
+                      Docs: https://github.com/baney75/yapshot#configuration"
         .into();
     let text = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
     if let Some(dir) = path.parent() {
@@ -187,10 +190,10 @@ impl Config {
         expand(&self.save_folder)
     }
 
-    /// "Shotate 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
+    /// "Yapshot 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
     pub fn new_capture_path(&self) -> PathBuf {
         let base = format!(
-            "Shotate {}",
+            "Yapshot {}",
             chrono::Local::now().format("%Y-%m-%d at %H.%M.%S")
         );
         unique(&self.save_dir(), &base)
@@ -302,7 +305,7 @@ mod tests {
 
     #[test]
     fn partial_files_keep_defaults_and_round_trip() {
-        let dir = std::env::temp_dir().join(format!("shotate-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("yapshot-test-{}", std::process::id()));
         let file = dir.join("config.json");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(&file, r#"{"shortcuts": {"captureScreen": "CTRL+SHIFT+9", "captureWindow": "nonsense"}, "extra": 1}"#).unwrap();
@@ -324,7 +327,7 @@ mod tests {
 
     #[test]
     fn update_keys_round_trip_and_stay_absent_by_default() {
-        let dir = std::env::temp_dir().join(format!("shotate-upd-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("yapshot-upd-{}", std::process::id()));
         let file = dir.join("config.json");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(&file, "{}").unwrap();
@@ -376,25 +379,44 @@ mod tests {
 
     #[test]
     fn adopts_the_snapmark_config_once() {
-        let dir = std::env::temp_dir().join(format!("shotate-adopt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("yapshot-adopt-{}", std::process::id()));
         let (old, new) = (
             dir.join("snapmark/config.json"),
-            dir.join("shotate/config.json"),
+            dir.join("yapshot/config.json"),
         );
-        assert!(!adopt_legacy(&old, &new), "nothing to adopt");
+        let olds = [old.clone()];
+        assert!(!adopt_legacy(&olds, &new), "nothing to adopt");
         std::fs::create_dir_all(old.parent().unwrap()).unwrap();
         std::fs::write(&old, r#"{"copyOnCapture": false}"#).unwrap();
-        assert!(adopt_legacy(&old, &new));
+        assert!(adopt_legacy(&olds, &new));
         assert!(!load(&new).unwrap().unwrap().copy_on_capture);
         std::fs::write(&new, "{}").unwrap();
-        assert!(!adopt_legacy(&old, &new), "an existing Shotate config wins");
+        assert!(!adopt_legacy(&olds, &new), "an existing Yapshot config wins");
         assert!(old.exists(), "the old file stays");
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
+    fn adopts_the_shotate_config_before_snapmark() {
+        let dir = std::env::temp_dir().join(format!("yapshot-adopt2-{}", std::process::id()));
+        let olds = [dir.join("shotate/config.json"), dir.join("snapmark/config.json")];
+        let new = dir.join("yapshot/config.json");
+        for (p, copy) in olds.iter().zip([false, true]) {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, format!(r#"{{"copyOnCapture": {copy}}}"#)).unwrap();
+        }
+        assert!(adopt_legacy(&olds, &new));
+        assert!(!load(&new).unwrap().unwrap().copy_on_capture, "Shotate's file, not Snapmark's");
+        assert!(olds[0].exists(), "the Shotate file stays");
+        assert!(!adopt_legacy(&olds, &new), "only the first time");
+        assert!(legacy_paths()[0].ends_with("shotate/config.json"));
+        assert!(legacy_paths()[1].ends_with("snapmark/config.json"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn opened_images_are_never_overwritten() {
-        let dir = std::env::temp_dir().join(format!("shotate-out-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("yapshot-out-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let shot = dir.join("shot.png");
         assert_eq!(output_path(&shot, true), shot);

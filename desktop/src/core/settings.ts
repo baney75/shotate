@@ -1,5 +1,5 @@
-// The config file format, shared with the macOS app: ~/.config/shotate/config.json on Linux,
-// %APPDATA%\shotate\config.json on Windows. The Rust side owns reading, writing and watching it;
+// The config file format, shared with the macOS app: ~/.config/yapshot/config.json on Linux,
+// %APPDATA%\yapshot\config.json on Windows. The Rust side owns reading, writing and watching it;
 // this module holds the parts the editor needs.
 import { TOOLS, type Tool } from "./model";
 
@@ -51,12 +51,12 @@ export function folderChoice(saveFolder: string, presets: FolderPreset[]): Folde
   return presets.find((f) => trimSlash(f.path) === p)?.id ?? "other";
 }
 
-/** "Shotate 0.12.0 · Stable · a3cab60" for About and Settings. */
+/** "Yapshot 0.12.0 · Stable · a3cab60" for About and Settings. */
 export function buildLabel(b: BuildInfo): string {
   // Windows and Linux builds are previews: stable releases are macOS only for now.
   const channel = b.channel === "nightly" ? "Nightly preview" : "Stable";
   const commit = /^[0-9a-f]{7,}$/i.test(b.commit) ? ` · ${b.commit.slice(0, 7)}` : "";
-  return `Shotate ${b.version} · ${channel}${commit}`;
+  return `Yapshot ${b.version} · ${channel}${commit}`;
 }
 
 /** "3 minutes ago", "just now", "2 days ago". */
@@ -76,11 +76,11 @@ export function updateStatusLine(u: UpdateStatus, now: number): string {
   if (u.available) {
     return u.available.offer === "switchToStable"
       ? `Stable ${u.available.version} is available.`
-      : `Shotate ${u.available.version} is available.`;
+      : `Yapshot ${u.available.version} is available.`;
   }
   if (u.error) return u.error;
-  if (u.checkedAt === null) return `Shotate ${u.current.version}. Not checked yet.`;
-  return `Shotate ${u.current.version} is up to date. Checked ${ago(u.checkedAt, now)}.`;
+  if (u.checkedAt === null) return `Yapshot ${u.current.version}. Not checked yet.`;
+  return `Yapshot ${u.current.version} is up to date. Checked ${ago(u.checkedAt, now)}.`;
 }
 
 const isToolKey = (k: string) => /^[a-z]$/.test(k);

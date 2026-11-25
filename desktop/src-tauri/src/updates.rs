@@ -13,12 +13,12 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 pub const STABLE_MANIFEST: &str =
-    "https://github.com/baney75/shotate/releases/latest/download/manifest.json";
+    "https://github.com/baney75/yapshot/releases/latest/download/manifest.json";
 pub const NIGHTLY_MANIFEST: &str =
-    "https://github.com/baney75/shotate/releases/download/nightly/manifest.json";
-pub const RELEASES_PAGE: &str = "https://github.com/baney75/shotate/releases";
+    "https://github.com/baney75/yapshot/releases/download/nightly/manifest.json";
+pub const RELEASES_PAGE: &str = "https://github.com/baney75/yapshot/releases";
 
-/// The largest installer Shotate will download.
+/// The largest installer Yapshot will download.
 const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
 
 /// What this build knows about itself, baked in by build.rs.
@@ -34,9 +34,9 @@ impl Build {
     pub fn current() -> Build {
         Build {
             version: env!("CARGO_PKG_VERSION").into(),
-            commit: env!("SHOTATE_COMMIT").into(),
-            channel: env!("SHOTATE_CHANNEL").into(),
-            date: env!("SHOTATE_BUILD_DATE").into(),
+            commit: env!("YAPSHOT_COMMIT").into(),
+            channel: env!("YAPSHOT_CHANNEL").into(),
+            date: env!("YAPSHOT_BUILD_DATE").into(),
         }
     }
 }
@@ -189,7 +189,7 @@ pub fn compare_versions(a: &str, b: &str) -> Option<Ordering> {
 fn agent(whole: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .https_only(true)
-        .user_agent("Shotate")
+        .user_agent("Yapshot")
         .timeout_connect(Some(Duration::from_secs(20)))
         .timeout_global(Some(whole))
         .build()
@@ -258,7 +258,7 @@ pub fn download(asset: &Asset, dest: &Path) -> Result<(), String> {
         let got = hex(&hasher.finalize());
         if got != expected {
             return Err(format!(
-                "{} failed its checksum (expected {expected}, got {got}), so Shotate won't install it.",
+                "{} failed its checksum (expected {expected}, got {got}), so Yapshot won't install it.",
                 asset.name
             ));
         }
@@ -272,7 +272,7 @@ pub fn download(asset: &Asset, dest: &Path) -> Result<(), String> {
 
 // MARK: - Installing
 
-/// How this copy of Shotate was installed, which decides how it updates.
+/// How this copy of Yapshot was installed, which decides how it updates.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Route {
     WindowsSetup,
@@ -338,7 +338,7 @@ pub fn detect_route() -> Route {
 pub enum Installed {
     /// The new version is installed or installing and will start on its own: quit now.
     Quit,
-    /// Shotate can't update itself here: show this page instead.
+    /// Yapshot can't update itself here: show this page instead.
     OpenPage(String),
 }
 
@@ -453,7 +453,7 @@ pub fn package_command(route: &Route, file: &Path) -> Vec<String> {
 /// (on Windows the installer script does, after the setup has run).
 fn private_dir() -> Result<PathBuf, String> {
     tempfile::Builder::new()
-        .prefix("shotate-update-")
+        .prefix("yapshot-update-")
         .tempdir()
         .map(|d| d.keep())
         .map_err(|e| e.to_string())
@@ -472,7 +472,7 @@ fn set_executable(_: &Path) -> Result<(), String> {
 }
 
 /// Starts `exe` once this process has exited (the single-instance lock would otherwise hand the
-/// launch straight back to us). Runs in its own process group, so it outlives Shotate.
+/// launch straight back to us). Runs in its own process group, so it outlives Yapshot.
 #[cfg(unix)]
 fn relaunch_after_exit(exe: &Path) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
@@ -511,14 +511,14 @@ fn relaunch_after_exit(exe: &Path) -> Result<(), String> {
 }
 
 /// The name the Windows setup is saved under, whatever the manifest calls it.
-const WINDOWS_SETUP_NAME: &str = "Shotate-setup.exe";
+const WINDOWS_SETUP_NAME: &str = "Yapshot-setup.exe";
 
-/// The PowerShell that runs the setup silently, deletes its folder, then starts the new Shotate.
+/// The PowerShell that runs the setup silently, deletes its folder, then starts the new Yapshot.
 /// It is constant: paths reach it only through environment variables, never as script text.
 #[cfg_attr(not(windows), allow(dead_code))]
-const WINDOWS_SCRIPT: &str = "try { Start-Process -Wait -FilePath $env:SHOTATE_SETUP -ArgumentList '/S' } \
-     finally { Remove-Item -LiteralPath $env:SHOTATE_UPDATE_DIR -Recurse -Force -ErrorAction SilentlyContinue }; \
-     Start-Process -FilePath $env:SHOTATE_EXE";
+const WINDOWS_SCRIPT: &str = "try { Start-Process -Wait -FilePath $env:YAPSHOT_SETUP -ArgumentList '/S' } \
+     finally { Remove-Item -LiteralPath $env:YAPSHOT_UPDATE_DIR -Recurse -Force -ErrorAction SilentlyContinue }; \
+     Start-Process -FilePath $env:YAPSHOT_EXE";
 
 /// %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe
 fn windows_powershell() -> Option<PathBuf> {
@@ -551,9 +551,9 @@ fn spawn_windows_setup(
             "-Command",
             WINDOWS_SCRIPT,
         ])
-        .env("SHOTATE_SETUP", setup)
-        .env("SHOTATE_UPDATE_DIR", dir)
-        .env("SHOTATE_EXE", exe)
+        .env("YAPSHOT_SETUP", setup)
+        .env("YAPSHOT_UPDATE_DIR", dir)
+        .env("YAPSHOT_EXE", exe)
         .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
         .spawn()
         .map(|_| ())
@@ -584,7 +584,7 @@ mod tests {
             version: version.into(),
             commit: commit.into(),
             date: date.into(),
-            notes: "https://github.com/baney75/shotate/releases/tag/v0.12.1".into(),
+            notes: "https://github.com/baney75/yapshot/releases/tag/v0.12.1".into(),
             assets: BTreeMap::new(),
         }
     }
@@ -768,13 +768,13 @@ mod tests {
     #[test]
     fn manifest_parses_the_spec_format() {
         let text = r#"{"channel":"stable","version":"0.12.0","commit":"0123456789abcdef0123456789abcdef01234567",
-            "date":"2026-10-11T18:00:00Z","notes":"https://github.com/baney75/shotate/releases/tag/v0.12.0",
-            "assets":{"windows-x64":{"name":"Shotate_0.12.0_x64-setup.exe","url":"https://github.com/x","sha256":"ab"}}}"#;
+            "date":"2026-10-11T18:00:00Z","notes":"https://github.com/baney75/yapshot/releases/tag/v0.12.0",
+            "assets":{"windows-x64":{"name":"Yapshot_0.12.0_x64-setup.exe","url":"https://github.com/x","sha256":"ab"}}}"#;
         let m: Manifest = serde_json::from_str(text).unwrap();
-        assert_eq!(m.assets["windows-x64"].name, "Shotate_0.12.0_x64-setup.exe");
+        assert_eq!(m.assets["windows-x64"].name, "Yapshot_0.12.0_x64-setup.exe");
         assert_eq!(
             m.notes_url(),
-            "https://github.com/baney75/shotate/releases/tag/v0.12.0"
+            "https://github.com/baney75/yapshot/releases/tag/v0.12.0"
         );
         let bare = Manifest {
             notes: "javascript:alert(1)".into(),
@@ -790,7 +790,7 @@ mod tests {
             Some("windows-x64")
         );
         assert_eq!(asset_key(&Route::WindowsSetup, "aarch64"), None);
-        let appimage = Route::AppImage("/home/me/Shotate.AppImage".into());
+        let appimage = Route::AppImage("/home/me/Yapshot.AppImage".into());
         assert_eq!(
             asset_key(&appimage, "aarch64").as_deref(),
             Some("linux-arm64-appimage")
@@ -809,7 +809,7 @@ mod tests {
 
     #[test]
     fn package_commands_reinstall_and_allow_downgrades() {
-        let f = Path::new("/tmp/shotate-update-x/Shotate_0.12.0_amd64.deb");
+        let f = Path::new("/tmp/yapshot-update-x/Yapshot_0.12.0_amd64.deb");
         assert_eq!(
             package_command(&Route::Deb, f),
             [
@@ -818,10 +818,10 @@ mod tests {
                 "-y",
                 "--reinstall",
                 "--allow-downgrades",
-                "/tmp/shotate-update-x/Shotate_0.12.0_amd64.deb"
+                "/tmp/yapshot-update-x/Yapshot_0.12.0_amd64.deb"
             ]
         );
-        let r = Path::new("/tmp/s/Shotate-0.12.0-1.x86_64.rpm");
+        let r = Path::new("/tmp/s/Yapshot-0.12.0-1.x86_64.rpm");
         assert_eq!(
             package_command(&Route::Rpm, r),
             [
@@ -829,7 +829,7 @@ mod tests {
                 "-U",
                 "--oldpackage",
                 "--replacepkgs",
-                "/tmp/s/Shotate-0.12.0-1.x86_64.rpm"
+                "/tmp/s/Yapshot-0.12.0-1.x86_64.rpm"
             ]
         );
     }
@@ -839,14 +839,14 @@ mod tests {
         // Paths travel in environment variables; the script text never contains one.
         assert!(!WINDOWS_SCRIPT.contains(":\\"));
         for var in [
-            "$env:SHOTATE_SETUP",
-            "$env:SHOTATE_UPDATE_DIR",
-            "$env:SHOTATE_EXE",
+            "$env:YAPSHOT_SETUP",
+            "$env:YAPSHOT_UPDATE_DIR",
+            "$env:YAPSHOT_EXE",
         ] {
             assert!(WINDOWS_SCRIPT.contains(var), "{var}");
         }
-        assert!(WINDOWS_SCRIPT.contains("Remove-Item -LiteralPath $env:SHOTATE_UPDATE_DIR"));
-        assert_eq!(WINDOWS_SETUP_NAME, "Shotate-setup.exe");
+        assert!(WINDOWS_SCRIPT.contains("Remove-Item -LiteralPath $env:YAPSHOT_UPDATE_DIR"));
+        assert_eq!(WINDOWS_SETUP_NAME, "Yapshot-setup.exe");
     }
 
     #[test]

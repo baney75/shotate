@@ -1,0 +1,4 @@
+#!/bin/sh
+# Yapshot was called Shotate, and Snapmark before that. Installed as /usr/bin/shotate and
+# /usr/bin/snapmark, so keyboard shortcuts bound to `shotate --capture` or `snapmark --capture` keep working.
+exec yapshot "$@"

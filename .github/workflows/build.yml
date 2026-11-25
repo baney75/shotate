@@ -57,8 +57,8 @@ jobs:
       run:
         working-directory: desktop
     env:
-      SHOTATE_COMMIT: ${{ github.sha }}
-      SHOTATE_CHANNEL: ${{ inputs.channel }}
+      YAPSHOT_COMMIT: ${{ github.sha }}
+      YAPSHOT_CHANNEL: ${{ inputs.channel }}
       TAG: ${{ inputs.tag }}
       VERSION: ${{ inputs.version }}
     steps:
@@ -90,9 +90,9 @@ jobs:
       - name: Build installers
         shell: bash
         run: |
-          export SHOTATE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export YAPSHOT_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           # MSI needs a plain numeric version, so nightly builds skip it.
-          if [ "$SHOTATE_CHANNEL" = nightly ]; then
+          if [ "$YAPSHOT_CHANNEL" = nightly ]; then
             if [ "$RUNNER_OS" = Windows ]; then npx tauri build --bundles nsis; else npx tauri build --bundles deb,rpm,appimage; fi
           else
             npx tauri build

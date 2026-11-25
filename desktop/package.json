@@ -1,8 +1,8 @@
 {
-  "name": "shotate-desktop",
+  "name": "yapshot-desktop",
   "private": true,
   "version": "0.13.0",
-  "description": "Shotate for Windows and Linux",
+  "description": "Yapshot for Windows and Linux",
   "type": "module",
   "scripts": {
     "dev": "vite",

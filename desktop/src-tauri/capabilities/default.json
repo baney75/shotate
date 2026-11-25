@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Shotate's windows call its own commands and listen for config changes.",
+  "description": "Yapshot's windows call its own commands and listen for config changes.",
   "windows": [
     "*"
   ],
