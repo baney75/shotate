@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotkeys = Hotkeys()
     private var settingsWindow: SettingsWindowController?
     private var welcomeWindow: WelcomeWindowController?
+    private var voiceNotesWindow: VoiceNotesWindowController?
     /// A capture or record picker is on screen.
     private(set) var capturing = false
     /// Quitting waits for the recording to be saved.
@@ -623,6 +624,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   item("Capture Full Screen", #selector(captureScreen), shortcut: "captureScreen")]
                   + record + [
                   .separator(),
+                  NSMenuItem(title: "Voice Notes…", action: #selector(showVoiceNotes), keyEquivalent: ""),
+                  .separator(),
                   NSMenuItem(title: "Open Image…", action: #selector(openImagePanel), keyEquivalent: ""),
                   NSMenuItem(title: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: ""),
                   .separator(),
@@ -680,6 +683,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func showAbout() { Credits.showAbout() }
 
     @objc func stopVoiceNote() { QuickVoiceNote.shared.finish() }
+
+    @objc func showVoiceNotes() {
+        if voiceNotesWindow == nil {
+            let w = VoiceNotesWindowController()
+            w.onClose = { [weak self] in DispatchQueue.main.async { self?.returnFocusIfDone() } }
+            voiceNotesWindow = w
+        }
+        voiceNotesWindow?.present()
+    }
 
     // MARK: Updates
 

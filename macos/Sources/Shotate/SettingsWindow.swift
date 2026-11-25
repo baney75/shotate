@@ -10,7 +10,8 @@ final class SettingsWindowController: NSWindowController {
 
     init(app: AppDelegate) {
         self.app = app
-        panes = [GeneralPane(app: app), ShortcutsPane(app: app), CommandsPane(app: app), AdvancedPane(app: app)]
+        panes = [GeneralPane(app: app), ShortcutsPane(app: app), CommandsPane(app: app), VoiceNotesPane(app: app),
+                 AdvancedPane(app: app)]
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         tabs.canPropagateSelectedChildViewControllerTitle = false
@@ -309,7 +310,8 @@ final class ShortcutsPane: SettingsPane {
             ? [("recordArea", "Record area:"), ("recordScreen", "Record full screen:"), ("recordApp", "Record app and log:")]
             : []
         let global = form(([("captureArea", "Capture area:"), ("captureWindow", "Capture window:"),
-                            ("captureScreen", "Capture full screen:")] + record).map { name, title in
+                            ("captureScreen", "Capture full screen:")] + record
+                           + [("voiceNote", "Quick voice note:")]).map { name, title in
             let r = ShortcutRecorder(value: app?.settings.shortcuts[name] ?? "")
             r.onChange = { [weak self] v in self?.apply { $0.shortcuts[name] = v } }
             recorders[name] = r
@@ -350,7 +352,8 @@ final class ShortcutsPane: SettingsPane {
             global,
             note("Click a shortcut, then press the keys. Delete or the ✕ turns it off. These work from any app."
                  + (record.isEmpty ? "" : " Press any record shortcut again to stop and save. Recording an app "
-                    + "copies what it logged while recording, ready to paste; the video and the log are saved together.")),
+                    + "copies what it logged while recording, ready to paste; the video and the log are saved together.")
+                 + " Press the voice note shortcut once to start recording your voice, and again to stop and copy the text."),
             separator(),
             heading("Editor tool keys"),
             tools,
@@ -468,6 +471,104 @@ private final class CommandRow: NSStackView {
         removeFromSuperview()
         onRemove?()
     }
+}
+
+// MARK: - Voice Notes
+
+/// Where voice notes go and how they are recorded. The quick voice note shortcut is in Shortcuts.
+final class VoiceNotesPane: SettingsPane {
+    private let folderMenu = NSPopUpButton()
+    private let qualityMenu = NSPopUpButton()
+    private let qualityNote = NSTextField(labelWithString: "")
+    private let stereoBox = NSButton(checkboxWithTitle: "Record in stereo", target: nil, action: nil)
+
+    init(app: AppDelegate) { super.init(app: app, title: "Voice Notes", symbol: "mic") }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func build() -> [NSView] {
+        folderMenu.target = self
+        folderMenu.action = #selector(folderChosen)
+        folderMenu.widthAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
+        let folderRow = NSStackView(views: [folderMenu, NSButton(title: "Show", target: self, action: #selector(showFolder))])
+        qualityMenu.addItems(withTitles: VoiceQuality.allCases.map(\.title))
+        qualityMenu.target = self
+        qualityMenu.action = #selector(qualityChosen)
+        qualityNote.textColor = .secondaryLabelColor
+        qualityNote.font = .systemFont(ofSize: 11)
+        let quality = NSStackView(views: [qualityMenu, qualityNote])
+        quality.orientation = .vertical
+        quality.alignment = .leading
+        quality.spacing = 4
+        stereoBox.target = self
+        stereoBox.action = #selector(stereoToggled)
+        stereoBox.toolTip = "Two channels. Leave off for the built-in microphone."
+        let open = NSButton(title: "Open Voice Notes…", target: self, action: #selector(openLibrary))
+        return [
+            form([("Save voice notes to:", folderRow), ("Quality:", quality), ("Channels:", stereoBox)]),
+            separator(),
+            note("Each voice note is an audio file in this folder. Markers and transcripts are kept beside it in a "
+                 + "hidden .meta folder. Transcripts come from macOS speech recognition, which runs on this Mac when "
+                 + "it supports on-device recognition."),
+            open,
+        ]
+    }
+
+    override func reload() {
+        guard let s = app?.settings else { return }
+        folderMenu.removeAllItems()
+        let current = s.voiceFolder.standardizedFileURL
+        for (title, url) in [("Music › Voice Notes", Settings.defaultVoiceFolder.standardizedFileURL)]
+            + (current.path == Settings.defaultVoiceFolder.standardizedFileURL.path
+                ? [] : [(FileManager.default.displayName(atPath: current.path), current)]) {
+            folderMenu.addItem(withTitle: title)
+            folderMenu.lastItem?.representedObject = url
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            icon.size = NSSize(width: 16, height: 16)
+            folderMenu.lastItem?.image = icon
+        }
+        folderMenu.menu?.addItem(.separator())
+        folderMenu.addItem(withTitle: "Other Folder…")
+        folderMenu.selectItem(at: folderMenu.itemArray.firstIndex {
+            ($0.representedObject as? URL)?.path == current.path
+        } ?? 0)
+        folderMenu.toolTip = (current.path as NSString).abbreviatingWithTildeInPath
+        qualityMenu.selectItem(at: VoiceQuality.allCases.firstIndex(of: s.voiceQuality) ?? 0)
+        qualityNote.stringValue = s.voiceQuality.detail
+        stereoBox.state = s.voiceStereo ? .on : .off
+    }
+
+    @objc private func folderChosen() {
+        if let url = folderMenu.selectedItem?.representedObject as? URL { return setFolder(url) }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = app?.settings.voiceFolder
+        guard let window = view.window else { return }
+        panel.beginSheetModal(for: window) { [weak self] r in
+            if r == .OK, let url = panel.url { self?.setFolder(url) } else { self?.reload() }
+        }
+    }
+
+    private func setFolder(_ url: URL) {
+        apply { $0.voiceFolder = URL(fileURLWithPath: url.path, isDirectory: true) }
+        reload()
+    }
+
+    @objc private func showFolder() {
+        guard let dir = app?.settings.voiceFolder else { return }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(dir)
+    }
+
+    @objc private func qualityChosen() {
+        let q = VoiceQuality.allCases[max(0, qualityMenu.indexOfSelectedItem)]
+        apply { $0.voiceQuality = q }
+        reload()
+    }
+
+    @objc private func stereoToggled() { apply { $0.voiceStereo = self.stereoBox.state == .on } }
+    @objc private func openLibrary() { app?.showVoiceNotes() }
 }
 
 // MARK: - Advanced
