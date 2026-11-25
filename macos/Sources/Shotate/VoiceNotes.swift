@@ -383,6 +383,8 @@ extension VoiceQuality {
     enum Phase: Equatable {
         case idle, starting, recording, transcribing
         case copied(String)
+        /// Transcribed, but the clipboard changed meanwhile, so it was left alone.
+        case saved(String)
         case failed(String)
     }
 
@@ -409,8 +411,16 @@ extension VoiceQuality {
     func finish() {
         guard let url = VoiceRecorder.shared.stop() else { return }
         show(.transcribing)
+        // Something copied while this transcribes is newer than the note: don't overwrite it.
+        let copiedBefore = NSPasteboard.general.changeCount
         VoiceStore.shared.transcribe(url) { text, failure in
             let pb = NSPasteboard.general
+            if pb.changeCount != copiedBefore {
+                QuickVoiceNote.shared.show(.saved(text?.isEmpty == false
+                    ? "You copied something else, so the text is in Voice Notes."
+                    : "You copied something else, so the audio is in Voice Notes."))
+                return
+            }
             pb.clearContents()
             if let text, !text.isEmpty {
                 pb.setString(text, forType: .string)
@@ -432,7 +442,7 @@ extension VoiceQuality {
         position(panel)
         panel.orderFrontRegardless()
         switch p {
-        case .copied, .failed:
+        case .copied, .saved, .failed:
             let work = DispatchWorkItem {
                 let me = QuickVoiceNote.shared
                 me.panel?.orderOut(nil)
@@ -444,10 +454,13 @@ extension VoiceQuality {
         }
     }
 
-    /// The badge's window while it is on screen, which captures and recordings leave out.
+    /// The badge's window, which captures and recordings leave out.
+    /// The panel is made on first use and kept, so a screen recording started before the first voice
+    /// note can still leave it out.
     var badgeWindowID: CGWindowID? {
-        guard let panel, panel.isVisible else { return nil }
-        return CGWindowID(panel.windowNumber)
+        let panel = self.panel ?? makePanel()
+        self.panel = panel
+        return panel.windowNumber > 0 ? CGWindowID(panel.windowNumber) : nil
     }
 
     private func makePanel() -> NSPanel {
@@ -531,6 +544,8 @@ struct QuickVoiceBadge: View {
             LiveDot()
         case .transcribing, .starting:
             ProgressView().controlSize(.small).tint(.white)
+        case .saved:
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 16)).foregroundStyle(.white)
         case .copied:
             Image(systemName: "doc.on.clipboard.fill").font(.system(size: 16)).foregroundStyle(.white)
         case .failed:
@@ -545,6 +560,7 @@ struct QuickVoiceBadge: View {
         case .recording: return "Recording  \(VoiceNotes.clock(sample?.elapsed ?? rec.elapsed))"
         case .transcribing: return "Transcribing"
         case .copied: return "Copied to clipboard"
+        case .saved: return "Saved"
         case .failed: return "Couldn't transcribe"
         case .idle, .starting: return ""
         }
@@ -556,7 +572,7 @@ struct QuickVoiceBadge: View {
             return quick.shortcut.map { "Press \($0) to stop and copy the text" }
                 ?? "Stop it from the menu bar"
         case .transcribing: return VoiceStore.transcribesOnDevice ? "On this Mac" : "With Apple's speech recognition"
-        case .copied(let text): return text
+        case .copied(let text), .saved(let text): return text
         case .failed(let why): return why
         case .idle, .starting: return ""
         }
