@@ -24,7 +24,7 @@ public final class MCPServer {
     /// The tools agents see, with their input schemas.
     public static let tools: [[String: Any]] = [
         tool("send_script", "Give the user a script to read aloud. Saves it in the Scripts folder beside their voice notes "
-             + "and opens it in Shotate's teleprompter, which scrolls while they record a voice note. Sending the same "
+             + "and opens it in Yapshot's teleprompter, which scrolls while they record a voice note. Sending the same "
              + "title again replaces that script.",
              ["title": string("A short name; it becomes the file name."), "text": string("The script, as plain text.")],
              required: ["title", "text"]),
@@ -38,13 +38,13 @@ public final class MCPServer {
              ["limit": ["type": "integer", "minimum": 1, "description": "At most this many (default 20)."]]),
         tool("get_transcript", "The transcript of a voice note, with its markers.",
              ["name": string("The voice note's name, as list_voice_notes shows it.")], required: ["name"]),
-        tool("status", "Whether Shotate is running, whether agent control is on, and where voice notes are kept."),
+        tool("status", "Whether Yapshot is running, whether agent control is on, and where voice notes are kept."),
         tool("capture", "Take a screenshot through the running app and return the file path. Needs \"Let Agents Control "
-             + "Shotate\" on in the menu bar icon's menu.",
+             + "Yapshot\" on in the menu bar icon's menu.",
              ["target": ["type": "string", "enum": ["screen", "window", "area", "app"],
                          "description": "screen, a window (app or window id), an area (rect), or app (its front window)."],
               "app": string("App name or bundle ID, for window or app."),
-              "window": ["type": "integer", "description": "A window id from `shotate windows`."],
+              "window": ["type": "integer", "description": "A window id from `yapshot windows`."],
               "title": string("Only a window whose title contains this."),
               "rect": string("x,y,w,h in points from the main screen's top left, for area."),
               "out": string("Absolute path for the PNG. Default: the user's screenshots folder.")],
@@ -83,8 +83,8 @@ public final class MCPServer {
             return encode(result: [
                 "protocolVersion": Self.supportedVersions.contains(asked) ? asked : Self.protocolVersion,
                 "capabilities": ["tools": ["listChanged": false]],
-                "serverInfo": ["name": "shotate", "title": "Shotate", "version": version],
-                "instructions": "Shotate is the user's screenshot and voice notes app on this Mac. send_script puts a script "
+                "serverInfo": ["name": "yapshot", "title": "Yapshot", "version": version],
+                "instructions": "Yapshot is the user's screenshot and voice notes app on this Mac. send_script puts a script "
                     + "in its teleprompter for the user to read aloud; list_voice_notes and get_transcript read what they recorded.",
             ], id: id)
         case "ping":

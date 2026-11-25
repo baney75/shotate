@@ -1,6 +1,6 @@
 import Foundation
 
-/// Everything a user can configure. It lives in a plain JSON file, ~/.config/shotate/config.json,
+/// Everything a user can configure. It lives in a plain JSON file, ~/.config/yapshot/config.json,
 /// so people and agents can edit it directly; the app reloads it as soon as it changes, and the
 /// Settings window writes the same file.
 public struct Settings: Equatable {
@@ -15,11 +15,11 @@ public struct Settings: Equatable {
     public var toolKeys: [String: String]
     /// "stable" or "nightly"; nil follows the channel this build came from (docs/updates.md).
     public var updateChannel: String?
-    /// Look for updates on GitHub once a day. Off means Shotate makes no network request at all.
+    /// Look for updates on GitHub once a day. Off means Yapshot makes no network request at all.
     public var checkForUpdates = true
     /// With two or more screenshots copied lately, ⌘V shows a menu to choose which one to paste.
     public var choosePaste = false
-    /// Lets programs on this Mac (the `shotate` command, coding agents) take screenshots and start or
+    /// Lets programs on this Mac (the `yapshot` command, coding agents) take screenshots and start or
     /// stop recordings without a click. Off by default.
     public var agentControl = false
     /// Extra folders to read an app's log files from while it is recorded (⇧⌘D), by bundle ID or app
@@ -47,16 +47,18 @@ public struct Settings: Equatable {
     /// recordArea's default before voice notes took ⇧⌘R.
     static let oldRecordAreaShortcut = "cmd+shift+r"
     public static let channels = ["stable", "nightly"]
-    public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/shotate/config.json")
-    /// Where the app kept its config when it was called Snapmark.
-    public static let legacyConfigURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/snapmark/config.json")
+    public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/yapshot/config.json")
+    /// Where the app kept its config before it was Yapshot, newest name first: Shotate, then Snapmark.
+    public static let legacyConfigURLs = ["shotate", "snapmark"].map {
+        URL(fileURLWithPath: NSHomeDirectory() + "/.config/\($0)/config.json")
+    }
 
-    /// Copies the Snapmark-era config into place the first time Shotate runs, so shortcuts and
-    /// folders carry over. The old file is left where it was. Returns true when it copied.
+    /// Copies the config from an older name into place the first time Yapshot runs, so shortcuts and
+    /// folders carry over. The newest old file wins and is left where it was. Returns true when it copied.
     @discardableResult
-    public static func adoptLegacyConfig(from old: URL = legacyConfigURL, to new: URL = configURL) -> Bool {
+    public static func adoptLegacyConfig(from olds: [URL] = legacyConfigURLs, to new: URL = configURL) -> Bool {
         let fm = FileManager.default
-        guard !fm.fileExists(atPath: new.path), fm.fileExists(atPath: old.path) else { return false }
+        guard !fm.fileExists(atPath: new.path), let old = olds.first(where: { fm.fileExists(atPath: $0.path) }) else { return false }
         do {
             try fm.createDirectory(at: new.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fm.copyItem(at: old, to: new)
@@ -191,15 +193,15 @@ public struct Settings: Equatable {
         try data.write(to: url, options: .atomic)
     }
 
-    /// The file as Shotate writes it: every setting spelled out, with a pointer to the docs.
+    /// The file as Yapshot writes it: every setting spelled out, with a pointer to the docs.
     public func json() -> Data {
         let home = NSHomeDirectory()
         func tilde(_ u: URL) -> String { u.path.hasPrefix(home + "/") ? "~" + u.path.dropFirst(home.count) : u.path }
         var tools: [String: String] = [:]
         for (t, k) in resolvedToolKeys { tools[t.title.lowercased()] = k }
         var o: [String: Any] = [
-            "_help": "Shotate settings. Edit and save; Shotate reloads right away. "
-                + "Docs: https://github.com/baney75/shotate#configuration",
+            "_help": "Yapshot settings. Edit and save; Yapshot reloads right away. "
+                + "Docs: https://github.com/baney75/yapshot#configuration",
             "saveFolder": tilde(saveFolder),
             "copyOnCapture": copyOnCapture,
             "showMenuBarIcon": showMenuBarIcon,
@@ -275,11 +277,11 @@ public struct Settings: Equatable {
         }
     }
 
-    /// "Shotate 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
-    public func newCaptureURL(date: Date = Date()) -> URL { newURL("Shotate", "png", date) }
+    /// "Yapshot 2026-10-10 at 14.03.22.png" in the save folder; adds " 2", " 3" on a clash.
+    public func newCaptureURL(date: Date = Date()) -> URL { newURL("Yapshot", "png", date) }
 
-    /// "Shotate Recording 2026-10-10 at 14.03.22.mp4" in the save folder; adds " 2", " 3" on a clash.
-    public func newRecordingURL(date: Date = Date()) -> URL { newURL("Shotate Recording", "mp4", date) }
+    /// "Yapshot Recording 2026-10-10 at 14.03.22.mp4" in the save folder; adds " 2", " 3" on a clash.
+    public func newRecordingURL(date: Date = Date()) -> URL { newURL("Yapshot Recording", "mp4", date) }
 
     /// "Voice Note 2026-10-10 at 14.03.22.m4a" in the voice notes folder; adds " 2", " 3" on a clash.
     public func newVoiceNoteURL(date: Date = Date()) -> URL { newURL("Voice Note", voiceQuality.ext, date, in: voiceFolder) }

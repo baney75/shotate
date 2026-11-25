@@ -1,8 +1,8 @@
 import Foundation
 
-/// Marks written as JSON, for `shotate annotate`: agents annotate screenshots for docs the way a
+/// Marks written as JSON, for `yapshot annotate`: agents annotate screenshots for docs the way a
 /// person would in the editor. Coordinates are image pixels from the top left, as image viewers and
-/// `shotate windows` show them:
+/// `yapshot windows` show them:
 ///
 ///     [{"tool": "box", "rect": [40, 60, 300, 120], "color": "red"},
 ///      {"tool": "arrow", "from": [500, 400], "to": [340, 140], "text": "Click Deploy"},

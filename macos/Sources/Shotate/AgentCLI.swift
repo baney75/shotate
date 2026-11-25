@@ -1,30 +1,30 @@
 import AppKit
 import ShotateCore
 
-/// `shotate <command>`: the command line for people and coding agents. Captures and recordings go
+/// `yapshot <command>`: the command line for people and coding agents. Captures and recordings go
 /// through the running app (it holds the Screen Recording permission); `annotate` and `export` run
 /// here. Every command prints one JSON object and exits 0, or prints {"error": ...} and exits 1.
 enum AgentCLI {
     static let usage = """
-    shotate: screenshots, recordings, annotated docs images, GIFs and MP4s from the command line.
+    yapshot: screenshots, recordings, annotated docs images, GIFs and MP4s from the command line.
 
-      shotate status                      Is Shotate running, recording, allowed to be driven?
-      shotate windows                     Windows on screen: id, app, title, frame (points, top-left origin)
-      shotate capture [screen|window|area] [--app NAME|--pid N|--window ID] [--title T]
+      yapshot status                      Is Yapshot running, recording, allowed to be driven?
+      yapshot windows                     Windows on screen: id, app, title, frame (points, top-left origin)
+      yapshot capture [screen|window|area] [--app NAME|--pid N|--window ID] [--title T]
                       [--rect x,y,w,h] [--out file.png] [--copy] [--edit]
-      shotate record  [app|screen|area] [--app NAME|--pid N] [--rect x,y,w,h] [--out file.mp4]
-                      [--for SECONDS]     Without --for it returns at once; end it with `shotate stop`.
-      shotate stop [--any]                Stops an agent's recording and waits until it's saved.
+      yapshot record  [app|screen|area] [--app NAME|--pid N] [--rect x,y,w,h] [--out file.mp4]
+                      [--for SECONDS]     Without --for it returns at once; end it with `yapshot stop`.
+      yapshot stop [--any]                Stops an agent's recording and waits until it's saved.
                                           --any also stops one the user started.
-      shotate open file.png               Opens an image in Shotate's editor.
-      shotate annotate in.png out.png --marks marks.json   (or --marks - to read stdin)
-      shotate export in.mp4 [--gif|--mp4] [--out file] [--from S] [--to S] [--width PX] [--fps N]
-      shotate mcp                         MCP server on stdin/stdout for AI agents (local only)
-      shotate mcp install|uninstall [--client claude|codex|cursor|claude-desktop|all]
+      yapshot open file.png               Opens an image in Yapshot's editor.
+      yapshot annotate in.png out.png --marks marks.json   (or --marks - to read stdin)
+      yapshot export in.mp4 [--gif|--mp4] [--out file] [--from S] [--to S] [--width PX] [--fps N]
+      yapshot mcp                         MCP server on stdin/stdout for AI agents (local only)
+      yapshot mcp install|uninstall [--client claude|codex|cursor|claude-desktop|all]
                                           Registers it with those agents (backs up each file first)
 
-    Everything but status and mcp needs "Let Agents Control Shotate" on (menu bar icon), or
-    "agentControl": true in ~/.config/shotate/config.json. Docs: https://github.com/baney75/shotate/blob/main/docs/agents.md
+    Everything but status and mcp needs "Let Agents Control Yapshot" on (menu bar icon), or
+    "agentControl": true in ~/.config/yapshot/config.json. Docs: https://github.com/baney75/yapshot/blob/main/docs/agents.md
     """
 
     static func run(_ args: [String]) -> Never {
@@ -70,7 +70,7 @@ enum AgentCLI {
             Thread.sleep(forTimeInterval: seconds)
             finish(send(["command": "stop"], wait: 300))
         default:
-            fail("Unknown command \(command). Run `shotate help`.")
+            fail("Unknown command \(command). Run `yapshot help`.")
         }
     }
 
@@ -103,11 +103,11 @@ enum AgentCLI {
             }
             Thread.sleep(forTimeInterval: 0.05)
         }
-        return ["error": "Shotate didn't answer within \(Int(wait)) s. Is it running? (`open -a Shotate`)"]
+        return ["error": "Yapshot didn't answer within \(Int(wait)) s. Is it running? (`open -a Yapshot`)"]
     }
 
     /// The app's status reply, or nil when the app isn't up. Other processes of this bundle (the
-    /// `shotate mcp` servers agents keep running) count only if they answer, and only the app does.
+    /// `yapshot mcp` servers agents keep running) count only if they answer, and only the app does.
     static func ping(wait: TimeInterval = 1) -> [String: Any]? {
         let me = getpid()
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.baney.snapmark")
@@ -117,7 +117,7 @@ enum AgentCLI {
         return r["error"] == nil ? r : nil
     }
 
-    /// Whether the Shotate app itself is running and answering.
+    /// Whether the Yapshot app itself is running and answering.
     static func appIsRunning() -> Bool { ping() != nil }
 
     /// Opens the app this command lives in, in the background, and waits until it answers.
@@ -135,10 +135,10 @@ enum AgentCLI {
 
     static func annotate(_ positional: [String], _ options: [String: String]) -> Never {
         guard positional.count == 2, let marksPath = options["marks"] else {
-            fail("Usage: shotate annotate in.png out.png --marks marks.json")
+            fail("Usage: yapshot annotate in.png out.png --marks marks.json")
         }
         let input = URL(fileURLWithPath: absolute(positional[0]))
-        guard let doc = Renderer.loadDocument(at: input) else { fail("\(input.path) isn't an image Shotate can read.") }
+        guard let doc = Renderer.loadDocument(at: input) else { fail("\(input.path) isn't an image Yapshot can read.") }
         let data = marksPath == "-" ? FileHandle.standardInput.readDataToEndOfFile()
             : (try? Data(contentsOf: URL(fileURLWithPath: absolute(marksPath)))) ?? Data()
         do {
@@ -153,7 +153,7 @@ enum AgentCLI {
     /// GIF: two-pass palette, so screen text stays crisp. MP4: H.264, yuv420p, even size, fast start,
     /// so it plays everywhere (GitHub, X, Slack, QuickTime).
     static func export(_ positional: [String], _ options: [String: String]) -> Never {
-        guard let input = positional.first else { fail("Usage: shotate export in.mp4 [--gif|--mp4] [--out file]") }
+        guard let input = positional.first else { fail("Usage: yapshot export in.mp4 [--gif|--mp4] [--out file]") }
         guard let ffmpeg = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"].first(where: FileManager.default.isExecutableFile) else {
             fail("export needs ffmpeg: brew install ffmpeg")
         }

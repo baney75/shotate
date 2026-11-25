@@ -2,10 +2,11 @@ import AppKit
 import ScreenCaptureKit
 import ShotateCore
 
-/// How programs on this Mac drive Shotate without clicks: the `shotate` command (see `AgentCLI`)
-/// posts a distributed notification with a JSON request, and Shotate writes the JSON answer to
+/// How programs on this Mac drive Yapshot without clicks: the `yapshot` command (see `AgentCLI`)
+/// posts a distributed notification with a JSON request, and Yapshot writes the JSON answer to
 /// ~/Library/Application Support/Shotate/agent/<id>.json. Web pages can't post these (unlike
-/// shotate:// links), and everything except `status` needs `agentControl` on in the config.
+/// yapshot:// links), and everything except `status` needs `agentControl` on in the config.
+/// The notification name and the answer folder keep the Shotate name: users never see them.
 enum AgentProtocol {
     static let request = Notification.Name("com.baney.shotate.agent.request")
     static var replies: URL {
@@ -51,8 +52,8 @@ final class AgentControl: NSObject {
         // Only shows text from the Scripts folder, so it works with agent control off (MCP send_script).
         if command == "script" { return showScript(id, r["path"] as? String, voiceFolder: app.settings.voiceFolder) }
         guard app.settings.agentControl else {
-            return fail(id, "Agent control is off. Turn on \"Let Agents Control Shotate\" in the menu bar icon's menu, "
-                + "or set \"agentControl\": true in ~/.config/shotate/config.json.")
+            return fail(id, "Agent control is off. Turn on \"Let Agents Control Yapshot\" in the menu bar icon's menu, "
+                + "or set \"agentControl\": true in ~/.config/yapshot/config.json.")
         }
         // The picker is up for the user: an agent capture would catch it, and a recording would
         // collide with the one the user is about to start.
@@ -60,7 +61,7 @@ final class AgentControl: NSObject {
             return fail(id, "The user is picking something to capture right now. Try again in a moment.")
         }
         guard ScreenRecording.isGranted || command == "open" else {
-            return fail(id, "Shotate doesn't have Screen Recording permission. Open Shotate's setup (shotate://welcome).")
+            return fail(id, "Yapshot doesn't have Screen Recording permission. Open Yapshot's setup (yapshot://welcome).")
         }
         switch command {
         case "windows": windows(id)
@@ -81,7 +82,7 @@ final class AgentControl: NSObject {
         guard url.deletingLastPathComponent().resolvingSymlinksInPath().path
                 == Scripts.folder(in: voiceFolder).resolvingSymlinksInPath().standardizedFileURL.path,
               FileManager.default.fileExists(atPath: url.path) else {
-            return fail(id, "Shotate shows scripts from \(Scripts.folder(in: voiceFolder).path) only.")
+            return fail(id, "Yapshot shows scripts from \(Scripts.folder(in: voiceFolder).path) only.")
         }
         Teleprompter.shared.show(url)
         reply(id, ["shown": url.path])
@@ -175,7 +176,7 @@ final class AgentControl: NSObject {
                 var scale: CGFloat
                 switch mode {
                 case "window":
-                    guard let w = Self.window(r, in: content) else { return fail(id, "No such window on screen. Try `shotate windows`.") }
+                    guard let w = Self.window(r, in: content) else { return fail(id, "No such window on screen. Try `yapshot windows`.") }
                     (image, scale) = try await NativeCapture.capture(w)
                 case "screen", "area":
                     let rect = mode == "area" ? Self.rect(r["rect"]) : nil
@@ -209,7 +210,7 @@ final class AgentControl: NSObject {
     private func record(_ id: String, _ r: [String: Any]) {
         guard let app else { return }
         guard app.canRecord else { return fail(id, "Recording needs macOS 15 and a build made with Xcode 16 or later.") }
-        guard !Recording.isActive else { return fail(id, "Already recording. Stop it first with `shotate stop`.") }
+        guard !Recording.isActive else { return fail(id, "Already recording. Stop it first with `yapshot stop`.") }
         guard !Recording.isSaving else { return fail(id, "Still saving the last recording. Try again in a moment.") }
         let mode = r["mode"] as? String ?? (r["rect"] != nil ? "area" : r["app"] != nil || r["pid"] != nil ? "app" : "screen")
         guard #available(macOS 14.0, *) else { return }
@@ -230,7 +231,7 @@ final class AgentControl: NSObject {
             case "app":
                 guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
                       let w = Self.window(r, in: content), let owner = w.owningApplication else {
-                    return fail(id, "No window of that app on screen. Try `shotate windows`.")
+                    return fail(id, "No window of that app on screen. Try `yapshot windows`.")
                 }
                 guard let screen = Self.screen(containing: w.frame) ?? NSScreen.screens.first else {
                     return fail(id, "No screen is available.")
@@ -249,7 +250,7 @@ final class AgentControl: NSObject {
             unclaimed = nil
             guard app.startRecording(target, to: file, byAgent: true), Recording.isActive else {
                 let why = unclaimed?["error"] as? String
-                    ?? (Recording.isSaving ? "Still saving the last recording. Try again in a moment." : "Shotate is already recording.")
+                    ?? (Recording.isSaving ? "Still saving the last recording. Try again in a moment." : "Yapshot is already recording.")
                 unclaimed = nil
                 return fail(id, why)
             }
@@ -282,7 +283,7 @@ final class AgentControl: NSObject {
             unclaimed = nil
             reply(id, last)
         case .refuseUsers:
-            fail(id, "The user started this recording. Only stop it if they asked: `shotate stop --any`.")
+            fail(id, "The user started this recording. Only stop it if they asked: `yapshot stop --any`.")
         case .nothingRecording:
             fail(id, "Nothing is recording.")
         }

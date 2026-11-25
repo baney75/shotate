@@ -1,6 +1,6 @@
 import Foundation
 
-/// The screenshots Shotate put on the clipboard lately, newest first, for choosing which one ⌘V
+/// The screenshots Yapshot put on the clipboard lately, newest first, for choosing which one ⌘V
 /// pastes. A capture that's copied again (edited, say) moves back to the front as one entry.
 public struct PasteChoices: Equatable {
     public struct Entry: Equatable {
@@ -26,7 +26,7 @@ public struct PasteChoices: Equatable {
 
     public init() {}
 
-    /// Shotate just put this screenshot on the clipboard.
+    /// Yapshot just put this screenshot on the clipboard.
     public mutating func copied(_ file: URL, at date: Date = Date()) {
         // Copying one already here again (Return in its editor) only moves it to the front; a new
         // screenshot more than `burstGap` after the last one starts a new batch.
@@ -51,7 +51,7 @@ public struct PasteChoices: Equatable {
     }
 
     /// Whether ⌘V should ask which screenshot to paste: the setting is on, the clipboard still holds
-    /// the screenshot Shotate put there (so text copied since pastes as usual), and there's a choice.
+    /// the screenshot Yapshot put there (so text copied since pastes as usual), and there's a choice.
     public func shouldAsk(enabled: Bool, clipboardIsOurs: Bool) -> Bool {
         enabled && clipboardIsOurs && entries.count >= 2
     }

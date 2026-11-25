@@ -2,10 +2,10 @@ import AppKit
 import AVFoundation
 import ShotateCore
 
-/// `shotate mcp`: Shotate's MCP server on stdin and stdout, for Claude Code, Codex, Cursor and
+/// `yapshot mcp`: Yapshot's MCP server on stdin and stdout, for Claude Code, Codex, Cursor and
 /// Claude Desktop. Local only: the agent starts it as a child process; no port is opened. Scripts and
 /// voice notes are read from the voice notes folder directly; showing a script and capturing ask
-/// the running app, like the other `shotate` commands.
+/// the running app, like the other `yapshot` commands.
 enum MCPCommand {
     static func run(_ args: [String]) -> Never {
         switch args.first {
@@ -18,7 +18,7 @@ enum MCPCommand {
                 AgentCLI.finish(["results": results.map(\.json)])
             case let .failure(e): AgentCLI.fail(e.message)
             }
-        default: AgentCLI.fail("Usage: shotate mcp [install|uninstall] [--client claude|codex|cursor|claude-desktop|all]")
+        default: AgentCLI.fail("Usage: yapshot mcp [install|uninstall] [--client claude|codex|cursor|claude-desktop|all]")
         }
     }
 
@@ -33,7 +33,7 @@ enum MCPCommand {
     }
 }
 
-/// The tools, done here in the `shotate` process.
+/// The tools, done here in the `yapshot` process.
 struct MCPTools: MCPToolHandler {
     var settings: Settings { (try? Settings.load()) ?? Settings() }
 
@@ -48,9 +48,9 @@ struct MCPTools: MCPToolHandler {
             let r = AgentCLI.send(["command": "script", "path": url.path], wait: 2, launch: false)
             if let e = r["error"] as? String {
                 // An app without the teleprompter says so; anything else, claim nothing more than the save.
-                return e.hasPrefix("Unknown command") ? saved + " Open it from Shotate's Scripts menu." : saved
+                return e.hasPrefix("Unknown command") ? saved + " Open it from Yapshot's Scripts menu." : saved
             }
-            return "Saved \u{201C}\(name)\u{201D} to \(url.path) and opened it in Shotate's teleprompter. "
+            return "Saved \u{201C}\(name)\u{201D} to \(url.path) and opened it in Yapshot's teleprompter. "
                 + "The user presses Record there to read it aloud as a voice note."
         case "list_scripts":
             let f = ISO8601DateFormatter()
@@ -77,7 +77,7 @@ struct MCPTools: MCPToolHandler {
         case "get_transcript":
             let n = try VoiceNotes.entry(MCPServer.string(a, "name"), in: voice)
             guard let t = n.meta.transcript else {
-                throw AgentError("\u{201C}\(n.name)\u{201D} has no transcript yet. The user can transcribe it in Shotate's Voice Notes window.")
+                throw AgentError("\u{201C}\(n.name)\u{201D} has no transcript yet. The user can transcribe it in Yapshot's Voice Notes window.")
             }
             var o: [String: Any] = ["name": n.name, "transcript": t,
                                     "markers": n.meta.markers.map { ["time": $0.time, "label": $0.label] as [String: Any] }]
@@ -92,7 +92,7 @@ struct MCPTools: MCPToolHandler {
             return MCPServer.json(o)
         case "capture":
             guard settings.agentControl else {
-                throw AgentError("Agent control is off. Ask the user to turn on \"Let Agents Control Shotate\" in Shotate's menu bar icon's menu.")
+                throw AgentError("Agent control is off. Ask the user to turn on \"Let Agents Control Yapshot\" in Yapshot's menu bar icon's menu.")
             }
             let target = try MCPServer.string(a, "target")
             guard ["screen", "window", "area", "app"].contains(target) else { throw AgentError("target is screen, window, area or app.") }
@@ -109,7 +109,7 @@ struct MCPTools: MCPToolHandler {
     }
 }
 
-/// Registers the server with each client, for `shotate mcp install` and the Settings button.
+/// Registers the server with each client, for `yapshot mcp install` and the Settings button.
 enum MCPSetup {
     struct Result {
         var client: MCPInstall.Client
@@ -118,9 +118,9 @@ enum MCPSetup {
         var json: [String: Any] { ["client": client.rawValue, "outcome": outcome, "detail": detail] }
     }
 
-    /// The command agents run: the `shotate` script inside the app, or this binary with --cli.
+    /// The command agents run: the `yapshot` script inside the app, or this binary with --cli.
     static var serverCommand: (String, [String]) {
-        let script = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/shotate").path
+        let script = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/yapshot").path
         if FileManager.default.isExecutableFile(atPath: script) { return (script, ["mcp"]) }
         return (CommandLine.arguments[0].hasPrefix("/") ? CommandLine.arguments[0] : AgentCLI.absolute(CommandLine.arguments[0]),
                 ["--cli", "mcp"])
@@ -149,11 +149,12 @@ enum MCPSetup {
                 let backup = change.backup.map { " (backup: \(($0.path as NSString).abbreviatingWithTildeInPath))" } ?? ""
                 let detail: String
                 switch change.outcome {
-                case .added: detail = "Added shotate to \(path)\(backup)."
-                case .updated: detail = "Updated shotate in \(path) to run this copy of Shotate\(backup)."
-                case .alreadyThere: detail = "\(path) already has a shotate entry for this copy of Shotate; left it as it is."
-                case .removed: detail = "Removed shotate from \(path)\(backup)."
-                case .notThere: detail = "\(path) has no shotate entry."
+                case .added: detail = "Added yapshot to \(path)\(backup)."
+                case .replaced: detail = "Replaced the old shotate entry with yapshot in \(path)\(backup)."
+                case .updated: detail = "Updated yapshot in \(path) to run this copy of Yapshot\(backup)."
+                case .alreadyThere: detail = "\(path) already has a yapshot entry for this copy of Yapshot; left it as it is."
+                case .removed: detail = "Removed yapshot from \(path)\(backup)."
+                case .notThere: detail = "\(path) has no yapshot entry."
                 }
                 return Result(client: c, outcome: change.outcome.rawValue, detail: detail)
             } catch {
@@ -163,7 +164,7 @@ enum MCPSetup {
     }
 
     /// Claude Code keeps its own config: its `claude mcp` command edits it. An entry that is already
-    /// there is removed and added again, so it points at this copy of Shotate.
+    /// there is removed and added again, so it points at this copy of Yapshot.
     static func claude(install: Bool, command: String, args: [String]) -> Result {
         let argv = install ? MCPInstall.claudeAddArguments(command: command, args: args) : MCPInstall.claudeRemoveArguments
         let extra = ["~/.local/bin", "~/.claude/local", "/opt/homebrew/bin", "/usr/local/bin"]
@@ -189,22 +190,36 @@ enum MCPSetup {
             p.waitUntilExit()
             return (p.terminationStatus, output)
         }
+        // An entry under the old name that runs our command goes, so the agent sees one server.
+        // It is removed only after yapshot is in, so a failed add never leaves neither.
+        var hasLegacy = false
+        if install, let got = runClaude(MCPInstall.claudeGetLegacyArguments), got.status == 0,
+           let old = MCPInstall.claudeCommand(fromGetOutput: got.output), MCPInstall.isOurCommand(old) {
+            hasLegacy = true
+        }
+        func dropLegacy() -> Bool { hasLegacy && runClaude(MCPInstall.claudeRemoveLegacyArguments)?.status == 0 }
         guard let (status, output) = runClaude(argv) else {
             return Result(client: .claude, outcome: "error", detail: "Couldn't run \(claude).")
         }
         if status == 0 {
-            return Result(client: .claude, outcome: install ? "added" : "removed",
-                          detail: install ? "Ran claude mcp add: shotate is in Claude Code's user config." : "Ran claude mcp remove.")
+            let replaced = install && dropLegacy()
+            return Result(client: .claude, outcome: install ? (replaced ? "replaced" : "added") : "removed",
+                          detail: install ? (replaced ? "Replaced the old shotate server with yapshot in Claude Code's user config."
+                                                      : "Ran claude mcp add: yapshot is in Claude Code's user config.")
+                                          : "Ran claude mcp remove.")
         }
         let lower = output.lowercased()
         if install, lower.contains("already exists") {
             if runClaude(MCPInstall.claudeRemoveArguments)?.status == 0, let again = runClaude(argv), again.status == 0 {
-                return Result(client: .claude, outcome: "updated", detail: "Updated shotate in Claude Code's user config to run this copy of Shotate.")
+                let replaced = dropLegacy()
+                return Result(client: .claude, outcome: replaced ? "replaced" : "updated",
+                              detail: replaced ? "Replaced the old shotate server with yapshot in Claude Code's user config."
+                                               : "Updated yapshot in Claude Code's user config to run this copy of Yapshot.")
             }
-            return Result(client: .claude, outcome: "error", detail: "Claude Code has a shotate server Shotate couldn't update: \(output)")
+            return Result(client: .claude, outcome: "error", detail: "Claude Code has a yapshot server Yapshot couldn't update: \(output)")
         }
         if !install, lower.contains("no ") || lower.contains("not found") {
-            return Result(client: .claude, outcome: "notThere", detail: "Claude Code has no shotate server.")
+            return Result(client: .claude, outcome: "notThere", detail: "Claude Code has no yapshot server.")
         }
         return Result(client: .claude, outcome: "error", detail: "claude \(argv.joined(separator: " ")) failed: \(output)")
     }

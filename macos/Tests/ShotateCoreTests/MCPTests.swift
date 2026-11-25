@@ -81,7 +81,7 @@ final class MCPTests: XCTestCase {
     // MARK: Scripts
 
     private func tempFolder() throws -> URL {
-        let u = FileManager.default.temporaryDirectory.appendingPathComponent("shotate-mcp-\(UUID().uuidString)", isDirectory: true)
+        let u = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-mcp-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }
@@ -166,7 +166,7 @@ final class MCPTests: XCTestCase {
         let file = dir.appendingPathComponent("mcp.json")
         let original = #"{"mcpServers": {"github": {"command": "gh-mcp", "args": []}}, "theme": "dark"}"#
         try Data(original.utf8).write(to: file)
-        let change = try MCPInstall.addJSON(at: file, command: "/Apps/shotate", args: ["mcp"], now: now)
+        let change = try MCPInstall.addJSON(at: file, command: "/Apps/yapshot", args: ["mcp"], now: now)
         XCTAssertEqual(change.outcome, .added)
         let backup = try XCTUnwrap(change.backup)
         XCTAssertEqual(try String(contentsOf: backup, encoding: .utf8), original)
@@ -174,10 +174,10 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(root["theme"] as? String, "dark")
         let servers = try XCTUnwrap(root["mcpServers"] as? [String: Any])
         XCTAssertEqual((servers["github"] as? [String: Any])?["command"] as? String, "gh-mcp")
-        XCTAssertEqual((servers["shotate"] as? [String: Any])?["command"] as? String, "/Apps/shotate")
-        XCTAssertEqual((servers["shotate"] as? [String: Any])?["args"] as? [String], ["mcp"])
+        XCTAssertEqual((servers["yapshot"] as? [String: Any])?["command"] as? String, "/Apps/yapshot")
+        XCTAssertEqual((servers["yapshot"] as? [String: Any])?["args"] as? [String], ["mcp"])
 
-        XCTAssertEqual(try MCPInstall.addJSON(at: file, command: "/Apps/shotate", args: ["mcp"], now: now,
+        XCTAssertEqual(try MCPInstall.addJSON(at: file, command: "/Apps/yapshot", args: ["mcp"], now: now,
                                               isExecutable: { _ in true }).outcome, .alreadyThere)
         let removed = try MCPInstall.removeJSON(at: file, now: now)
         XCTAssertEqual(removed.outcome, .removed)
@@ -213,40 +213,176 @@ final class MCPTests: XCTestCase {
         model = "mini"
         """
         try Data(original.utf8).write(to: file)
-        let change = try MCPInstall.addTOML(at: file, command: "/Apps/Sho \"tate\"/shotate", args: ["mcp"], now: now)
+        let change = try MCPInstall.addTOML(at: file, command: "/Apps/Yap \"shot\"/yapshot", args: ["mcp"], now: now)
         XCTAssertEqual(change.outcome, .added)
         XCTAssertEqual(try String(contentsOf: XCTUnwrap(change.backup), encoding: .utf8), original)
         let added = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(added.hasPrefix(original))
-        XCTAssertTrue(added.contains("[mcp_servers.shotate]\ncommand = \"/Apps/Sho \\\"tate\\\"/shotate\"\nargs = [\"mcp\"]\n"))
-        XCTAssertEqual(try MCPInstall.addTOML(at: file, command: "/Apps/Sho \"tate\"/shotate", args: ["mcp"], now: now,
+        XCTAssertTrue(added.contains("[mcp_servers.yapshot]\ncommand = \"/Apps/Yap \\\"shot\\\"/yapshot\"\nargs = [\"mcp\"]\n"))
+        XCTAssertEqual(try MCPInstall.addTOML(at: file, command: "/Apps/Yap \"shot\"/yapshot", args: ["mcp"], now: now,
                                               isExecutable: { _ in true }).outcome, .alreadyThere)
 
         // A subtable the user added under it goes too; the tables after it stay.
-        try Data((added + "\n[mcp_servers.shotate.env]\nA = \"1\"\n\n[tools]\nweb = true\n").utf8).write(to: file)
+        try Data((added + "\n[mcp_servers.yapshot.env]\nA = \"1\"\n\n[tools]\nweb = true\n").utf8).write(to: file)
         XCTAssertEqual(try MCPInstall.removeTOML(at: file, now: now).outcome, .removed)
         let removed = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertFalse(removed.contains("shotate"))
+        XCTAssertFalse(removed.contains("yapshot"))
         XCTAssertTrue(removed.hasPrefix(original))
         XCTAssertTrue(removed.contains("[tools]\nweb = true"))
         XCTAssertTrue(removed.contains("[mcp_servers.github]\ncommand = \"gh-mcp\""))
         XCTAssertEqual(try MCPInstall.removeTOML(at: file, now: now).outcome, .notThere)
     }
 
+    /// An old `shotate` entry that runs our command becomes `yapshot`; someone else's `shotate` stays.
+    func testJSONReplacesOurOldShotateEntry() throws {
+        let dir = try tempFolder()
+        let file = dir.appendingPathComponent("mcp.json")
+        let ours = #"{"mcpServers": {"shotate": {"command": "/A/Shotate.app/Contents/Resources/bin/shotate", "args": ["mcp"], "env": {"K": "1"}}, "github": {"command": "gh"}}}"#
+        try Data(ours.utf8).write(to: file)
+        let change = try MCPInstall.addJSON(at: file, command: "/A/Yapshot.app/Contents/Resources/bin/yapshot", args: ["mcp"], now: now)
+        XCTAssertEqual(change.outcome, .replaced)
+        XCTAssertEqual(try String(contentsOf: XCTUnwrap(change.backup), encoding: .utf8), ours)
+        let servers = try XCTUnwrap((JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])?["mcpServers"] as? [String: Any])
+        XCTAssertEqual(servers.keys.sorted(), ["github", "yapshot"])
+        XCTAssertEqual((servers["yapshot"] as? [String: Any])?["command"] as? String, "/A/Yapshot.app/Contents/Resources/bin/yapshot")
+        XCTAssertEqual((servers["yapshot"] as? [String: Any])?["env"] as? [String: String], ["K": "1"])
+        XCTAssertEqual(try MCPInstall.addJSON(at: file, command: "/A/Yapshot.app/Contents/Resources/bin/yapshot", args: ["mcp"], now: now,
+                                              isExecutable: { _ in true }).outcome, .alreadyThere)
+
+        let theirs = #"{"mcpServers": {"shotate": {"command": "/opt/other-tool", "args": []}}}"#
+        try Data(theirs.utf8).write(to: file)
+        XCTAssertEqual(try MCPInstall.addJSON(at: file, command: "/b/yapshot", args: ["mcp"], now: now).outcome, .added)
+        let kept = try XCTUnwrap((JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])?["mcpServers"] as? [String: Any])
+        XCTAssertEqual(kept.keys.sorted(), ["shotate", "yapshot"])
+    }
+
+    func testTOMLReplacesOurOldShotateEntry() throws {
+        let dir = try tempFolder()
+        let file = dir.appendingPathComponent("config.toml")
+        let original = """
+        model = "gpt-5"
+
+        [mcp_servers.shotate]
+        command = "/A/Shotate.app/Contents/Resources/bin/shotate"
+        args = ["mcp"]
+
+        [mcp_servers.shotate.env]
+        A = "1"
+
+        [tools]
+        web = true
+        """
+        try Data(original.utf8).write(to: file)
+        XCTAssertEqual(MCPInstall.tomlCommand(original, name: "shotate"), "/A/Shotate.app/Contents/Resources/bin/shotate")
+        let change = try MCPInstall.addTOML(at: file, command: "/b/yapshot", args: ["mcp"], now: now)
+        XCTAssertEqual(change.outcome, .replaced)
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertFalse(text.contains("shotate"))
+        XCTAssertTrue(text.contains("[tools]\nweb = true"))
+        XCTAssertTrue(text.hasSuffix("[mcp_servers.yapshot]\ncommand = \"/b/yapshot\"\nargs = [\"mcp\"]\n"))
+
+        let theirs = "[mcp_servers.shotate]\ncommand = \"/opt/other\"\n"
+        try Data(theirs.utf8).write(to: file)
+        XCTAssertEqual(try MCPInstall.addTOML(at: file, command: "/b/yapshot", args: ["mcp"], now: now).outcome, .added)
+        XCTAssertTrue(try String(contentsOf: file, encoding: .utf8).hasPrefix(theirs))
+    }
+
+    func testRecognizesOurCommand() {
+        XCTAssertTrue(MCPInstall.isOurCommand("/Users/x/Applications/Shotate.app/Contents/MacOS/Shotate"))
+        XCTAssertTrue(MCPInstall.isOurCommand("/Users/x/.local/bin/shotate"))
+        XCTAssertTrue(MCPInstall.isOurCommand("/A/Yapshot.app/Contents/Resources/bin/yapshot"))
+        XCTAssertFalse(MCPInstall.isOurCommand("/opt/shotate-fork/server"))
+        XCTAssertEqual(MCPInstall.tomlCommand("[mcp_servers.\"shotate\"]\ncommand=\"/x/\\\"q\\\"\"", name: "shotate"), "/x/\"q\"")
+        XCTAssertNil(MCPInstall.tomlCommand("[mcp_servers.shotate.env]\ncommand = \"/x\"", name: "shotate"))
+        let got = "shotate:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: /A/bin/shotate\n  Args: mcp\n"
+        XCTAssertEqual(MCPInstall.claudeCommand(fromGetOutput: got), "/A/bin/shotate")
+        XCTAssertNil(MCPInstall.claudeCommand(fromGetOutput: "No MCP server named \"shotate\"."))
+    }
+
+    /// The old table goes through the same scanner: its comments above the next table and the other
+    /// tables stay, an up-to-date `yapshot` is kept, and an old `shotate` written as dotted keys or
+    /// inline is refused, leaving the file as it was.
+    func testTOMLLegacyReplacementUsesTheScanner() throws {
+        let dir = try tempFolder()
+        let file = dir.appendingPathComponent("config.toml")
+        let original = """
+        # top
+        [mcp_servers.yapshot]
+        command = "/b/yapshot"
+        args = ["mcp"]
+
+        [mcp_servers.shotate]
+        command = "/A/bin/shotate" # ours
+        args = [
+          "mcp",
+        ]
+
+        # about github
+        [mcp_servers.github]
+        command = "gh"
+
+        """
+        try Data(original.utf8).write(to: file)
+        let change = try MCPInstall.addTOML(at: file, command: "/b/yapshot", args: ["mcp"], now: now, isExecutable: { _ in true })
+        XCTAssertEqual(change.outcome, .replaced)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), """
+        # top
+        [mcp_servers.yapshot]
+        command = "/b/yapshot"
+        args = ["mcp"]
+
+        # about github
+        [mcp_servers.github]
+        command = "gh"
+
+        """)
+        XCTAssertEqual(try MCPInstall.addTOML(at: file, command: "/b/yapshot", args: ["mcp"], now: now,
+                                              isExecutable: { _ in true }).outcome, .alreadyThere)
+
+        // Only subtables of the old name: its command is unknown, so it stays.
+        let sub = "[mcp_servers.shotate.env]\nA = \"1\"\n"
+        try Data(sub.utf8).write(to: file)
+        XCTAssertEqual(try MCPInstall.addTOML(at: file, command: "/b/yapshot", args: ["mcp"], now: now).outcome, .added)
+        XCTAssertTrue(try String(contentsOf: file, encoding: .utf8).hasPrefix(sub))
+
+        for text in ["[mcp_servers]\nshotate = { command = \"/A/bin/shotate\" }\n",
+                     "mcp_servers.shotate.command = \"/A/bin/shotate\"\n"] {
+            try Data(text.utf8).write(to: file)
+            XCTAssertThrowsError(try MCPInstall.addTOML(at: file, command: "/b/yapshot", args: ["mcp"], now: now)) { error in
+                XCTAssertTrue((error as? AgentError)?.message.contains("Yapshot left the file alone") ?? false, "\(error)")
+            }
+            XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), text)
+        }
+    }
+
+    /// An old entry that runs our command is replaced even when `yapshot` is already current, and
+    /// the JSON entry's other keys stay when `yapshot` is updated.
+    func testJSONReplacesOldEntryBesideACurrentOne() throws {
+        let dir = try tempFolder()
+        let file = dir.appendingPathComponent("mcp.json")
+        let text = #"{"mcpServers": {"shotate": {"command": "/A/bin/shotate"}, "yapshot": {"command": "/b/yapshot", "args": ["mcp"], "env": {"A": "1"}}}}"#
+        try Data(text.utf8).write(to: file)
+        let change = try MCPInstall.addJSON(at: file, command: "/b/yapshot", args: ["mcp"], now: now, isExecutable: { _ in true })
+        XCTAssertEqual(change.outcome, .replaced)
+        let servers = try XCTUnwrap((JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])?["mcpServers"] as? [String: Any])
+        XCTAssertEqual(servers.keys.sorted(), ["yapshot"])
+        XCTAssertEqual(((servers["yapshot"] as? [String: Any])?["env"] as? [String: String]), ["A": "1"])
+    }
+
     func testTOMLHeaderForms() {
-        XCTAssertTrue(MCPInstall.tomlHasServer("[mcp_servers.\"shotate\"]\ncommand = \"x\""))
-        XCTAssertTrue(MCPInstall.tomlHasServer("  [ mcp_servers.shotate ]  "))
-        XCTAssertFalse(MCPInstall.tomlHasServer("[mcp_servers.shotate2]"))
-        XCTAssertFalse(MCPInstall.tomlHasServer("# [mcp_servers.shotate]"))
-        XCTAssertEqual(MCPInstall.tomlAdding("", command: "/x", args: ["mcp"]), "[mcp_servers.shotate]\ncommand = \"/x\"\nargs = [\"mcp\"]\n")
+        XCTAssertTrue(MCPInstall.tomlHasServer("[mcp_servers.\"yapshot\"]\ncommand = \"x\""))
+        XCTAssertTrue(MCPInstall.tomlHasServer("  [ mcp_servers.yapshot ]  "))
+        XCTAssertFalse(MCPInstall.tomlHasServer("[mcp_servers.yapshot2]"))
+        XCTAssertFalse(MCPInstall.tomlHasServer("# [mcp_servers.yapshot]"))
+        XCTAssertEqual(MCPInstall.tomlAdding("", command: "/x", args: ["mcp"]), "[mcp_servers.yapshot]\ncommand = \"/x\"\nargs = [\"mcp\"]\n")
     }
 
     func testClientsAndClaudeArguments() {
         XCTAssertEqual(try MCPInstall.clients(nil).get(), MCPInstall.Client.allCases)
         XCTAssertEqual(try MCPInstall.clients("claude-desktop").get(), [.claudeDesktop])
         XCTAssertThrowsError(try MCPInstall.clients("vscode").get())
-        XCTAssertEqual(MCPInstall.claudeAddArguments(command: "/b/shotate", args: ["mcp"]),
-                       ["mcp", "add", "--scope", "user", "shotate", "--", "/b/shotate", "mcp"])
+        XCTAssertEqual(MCPInstall.claudeAddArguments(command: "/b/yapshot", args: ["mcp"]),
+                       ["mcp", "add", "--scope", "user", "yapshot", "--", "/b/yapshot", "mcp"])
         let home = URL(fileURLWithPath: "/Users/t")
         XCTAssertEqual(MCPInstall.Client.cursor.configURL(home: home)?.path, "/Users/t/.cursor/mcp.json")
         XCTAssertEqual(MCPInstall.Client.codex.configURL(home: home)?.path, "/Users/t/.codex/config.toml")
