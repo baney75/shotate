@@ -22,10 +22,10 @@ jobs:
       - name: Build the app (universal)
         run: scripts/bundle.sh
         env:
-          SHOTATE_ADHOC: 1
+          YAPSHOT_ADHOC: 1
       - name: Render self-test
         run: |
-          build/Shotate.app/Contents/MacOS/Shotate --selftest Tests/Fixtures/sample.png build/selftest.png
+          build/Yapshot.app/Contents/MacOS/Yapshot --selftest Tests/Fixtures/sample.png build/selftest.png
           test -s build/selftest.png
       - name: Check shell scripts
         run: bash -n ../install.sh ../uninstall.sh scripts/bundle.sh scripts/signing-identity.sh
