@@ -26,6 +26,9 @@ struct SavedRecording {
     var stills: [URL] = []
     /// Why the app's system log couldn't be read, in `log`'s words.
     var logError: String?
+    /// Handed over by the 90 s watchdog: the video is there, but the stills and note ran late.
+    /// Only this is a partial save; any other error with a kept file is a failure.
+    var partial = false
 }
 
 /// The app's way into recording. Recording needs macOS 15 and the macOS 15 SDK (Swift 6 / Xcode 16);
@@ -280,10 +283,12 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         // Too slow: hand over the video (and its folder) as they are, and say where they are.
         var fallback = saved
         if case .app = target { fallback.folder = folder }
+        // Only a clean video is a partial save; an incomplete one stays an error even if the rest is slow too.
+        fallback.partial = failure == nil
         let place = (fallback.folder ?? file).path
         DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
             if keep {
-                done(fallback, Self.error("Saving the recording took too long. What was written is at \(place)."))
+                done(fallback, failure ?? Self.error("Saving the recording took too long. What was written is at \(place)."))
             } else {
                 done(nil, failure ?? Self.error("Saving the recording took too long."))
             }

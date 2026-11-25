@@ -251,13 +251,14 @@ final class AgentControl: NSObject {
     private func stop(_ id: String, any: Bool) {
         switch AgentPolicy.stop(active: Recording.isActive, saving: Recording.isSaving,
                                 byAgent: app?.recordingByAgent ?? false, unclaimed: unclaimed != nil, any: any) {
-        case .stop:
-            // Stopping the user's recording on request: an old agent result left uncollected would
-            // later pass for a fresh one.
-            if app?.recordingByAgent == false { unclaimed = nil }
+        case let .stop(drop):
+            // The user's recording on request: an old agent result left uncollected would later
+            // pass for a fresh one.
+            if drop { unclaimed = nil }
             waitingForSave.append(id)
             Recording.stop()
-        case .waitForSave:
+        case let .waitForSave(drop):
+            if drop { unclaimed = nil }
             waitingForSave.append(id)
         case .returnUnclaimed:
             // The agent's own recording already ended (it failed, or the user stopped it): say how.
@@ -285,8 +286,11 @@ final class AgentControl: NSObject {
             if !saved.stills.isEmpty { answer["stills"] = saved.stills.map(\.path) }
             if let e = saved.logError { answer["logError"] = e }
         }
-        // The video is saved but the rest (stills, note) ran late: a warning, not a failure.
-        if let error { answer[saved == nil ? "error" : "warning"] = error.localizedDescription }
+        // Only a partial save (the watchdog handed over the video) is a warning; a kept video that
+        // may be incomplete is still an error, with the video and folder attached.
+        if let error {
+            answer[AgentPolicy.recordingProblemKey(kept: saved != nil, partial: saved?.partial ?? false)] = error.localizedDescription
+        }
         if ids.isEmpty, byAgent { unclaimed = answer }
         for id in ids { reply(id, answer) }
     }
