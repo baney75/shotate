@@ -302,7 +302,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private func row(symbol: String, title: String, detail: NSTextField, trailing: [NSView]) -> NSView {
         let image = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)!)
         image.symbolConfiguration = .init(pointSize: 20, weight: .regular)
-        image.contentTintColor = .controlAccentColor
+        image.contentTintColor = Brand.red  // the mark red from the icon, not the system accent
         image.widthAnchor.constraint(equalToConstant: 28).isActive = true
         let name = NSTextField(labelWithString: title)
         name.font = .systemFont(ofSize: 13, weight: .semibold)
