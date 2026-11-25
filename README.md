@@ -77,7 +77,8 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | | |
 | --- | --- |
 | **Capture** | Area, window or full screen from a global shortcut, the menu bar, or `shotate://` URLs |
-| **Record the screen** | On a Mac with macOS 15 or later: ⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder and copied as a file. No Finder window opens. Video only: Shotate never asks for the microphone |
+| **Record the screen** | On a Mac with macOS 15 or later: ⌥⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder and copied as a file. No Finder window opens. Video only: screen recordings never use the microphone |
+| **Voice notes** | On a Mac: ⇧⌘R from any app starts recording your voice, and pressing it again copies the text. **Voice Notes…** in the menu keeps them all. See [Voice notes](#voice-notes) |
 | **Record an app for a demo and a bug report** | ⇧⌘D, then click a window: Shotate records every window of that app (nothing else on screen) into a folder with the MP4, stills (first and last frames, and up to 6 more, one 0.6 s after each click, skipped when it would land within 0.8 s of an earlier still, so a click within 0.8 s of the previous click with a still, or in the first half second, gets none; with no clicks, a few evenly spaced ones), what the app wrote meanwhile to the system log and to its own log files, any crash report, and `debug.md`. When you stop, `debug.md` is copied: paste it into a coding agent or an issue and it has the errors, the app's log lines and the paths to the video and stills. The video is ready to share as a demo |
 | **Driven by agents** | The `shotate` command takes screenshots, records, annotates images for docs and exports GIFs and MP4s, printing JSON. Turn on **Let Agents Control Shotate** in the menu first. Coding agents get a skill for it. See [docs/agents.md](docs/agents.md) |
 | **Annotate** | Arrow, pen, box, ellipse, highlight, text label, numbered step, crop |
@@ -95,7 +96,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | **Retina-correct** | Captures keep their real size when pasted, instead of doubling |
 | **Out of the way** | A menu bar or tray icon, no Dock or taskbar clutter, no windows until you need one |
 | **Same everywhere** | One config file format, the same tools and keys on macOS, Windows and Linux |
-| **Private** | No analytics, no account. Your screenshots never leave your computer. The only network request is a daily update check, which you can turn off |
+| **Private** | No analytics, no account. Your screenshots never leave your computer. The only network request is a daily update check, which you can turn off. (Transcribing a voice note on a Mac without on-device speech recognition uses Apple's speech service) |
 | **Easy updates** | Shotate checks once a day and updates itself with one click from its menu. On a Mac, pick Stable or Nightly in Settings |
 
 ## Keyboard
@@ -118,6 +119,30 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 On Windows and Linux, use Ctrl where this table shows ⌘ (Ctrl+Backspace moves a capture to the
 Trash, Ctrl+Y also redoes). Tool letters can be changed in Settings or the
 [config file](#configuration).
+
+## Voice notes
+
+On a Mac, press ⇧⌘R in any app. A small badge at the top of the screen shows the time and your
+voice level, and the app you're in keeps the keyboard. Press ⇧⌘R again and Shotate saves the
+recording, transcribes it and puts the text on the clipboard. If it finds no words, the audio file
+goes on the clipboard instead. Screen recording can run at the same time.
+
+**Voice Notes…** in the menu bar menu opens the library: record (⌘R, with pause and ⌘B markers),
+search names and transcripts, play at any speed, transcribe, copy the text, rename, show in Finder,
+move to the Trash, or drag a note out as a file. Notes are plain audio files in `~/Music/Voice
+Notes`, with markers and transcripts in a hidden `.meta` folder beside them. Pick the folder, AAC,
+Apple Lossless or WAV, and stereo in **Settings › Voice Notes**. Quitting mid note saves it.
+
+Transcripts come from macOS speech recognition. When the Mac supports on-device recognition, it runs
+on the Mac; otherwise macOS sends the audio to Apple to transcribe it.
+
+| Shortcut | Does |
+| --- | --- |
+| ⇧⌘R | Start a voice note; again, stop and copy its text |
+| ⌥⇧⌘R | Record an area of the screen (it was ⇧⌘R before voice notes) |
+
+A config file that still has `recordArea` on ⇧⌘R and no `voiceNote` moves recording to ⌥⇧⌘R once.
+A shortcut you chose yourself stays, and `voiceNote` starts off if its keys are taken.
 
 ## Updates
 
@@ -145,9 +170,10 @@ command again (on a Mac, add `-s -- --nightly` after `bash` for nightly). How it
 desktop's screenshot portal, which may ask once; if your desktop has no portal backend, Shotate
 uses `grim`, `gnome-screenshot` or `spectacle` instead.
 
-On **macOS**, Shotate needs exactly one permission, **Screen Recording**, and the welcome window asks for it with
-one click. If macOS ever shows the switch as on while Shotate still can't capture, click **Allow…**
-again: Shotate clears its own stale entry and asks fresh. It needs nothing else: no Accessibility, no Input Monitoring. The global shortcut is
+On **macOS**, Shotate needs one permission, **Screen Recording**, and the welcome window asks for it with
+one click. Voice notes add **Microphone** (only while a voice note you started records) and **Speech
+Recognition** (only when you transcribe one); macOS asks the first time you use them. If macOS ever shows the switch as on while Shotate still can't capture, click **Allow…**
+again: Shotate clears its own stale entry and asks fresh. It needs no Accessibility and no Input Monitoring. The global shortcut is
 registered with `RegisterEventHotKey`, which macOS allows without extra permission.
 
 macOS ties that permission to the app's code signature. Shotate's installer creates a local signing
@@ -176,10 +202,14 @@ carry over the first time Shotate starts.
     "captureArea": "cmd+shift+s",
     "captureWindow": "ctrl+shift+2",
     "captureScreen": "cmd+ctrl+shift+s",
-    "recordArea": "cmd+shift+r",
+    "recordArea": "cmd+option+shift+r",
     "recordScreen": "cmd+ctrl+shift+r",
-    "recordApp": "cmd+shift+d"
+    "recordApp": "cmd+shift+d",
+    "voiceNote": "cmd+shift+r"
   },
+  "voiceFolder": "~/Music/Voice Notes",
+  "voiceQuality": "aac",
+  "voiceStereo": false,
   "commands": {
     "cmd+shift+a": "open -a Terminal"
   },
@@ -195,8 +225,11 @@ carry over the first time Shotate starts.
 | `saveFolder` | Where captures are saved. `~` works. Settings offers Pictures › Screenshots, Desktop, Downloads or any folder. |
 | `copyOnCapture` | Put every capture on the clipboard as soon as it's taken. |
 | `showMenuBarIcon` | Show the menu bar icon. URLs and shortcuts work either way. |
-| `shortcuts` | Global shortcuts for `captureArea`, `captureWindow`, `captureScreen`, and on macOS 15 `recordArea`, `recordScreen` and `recordApp` (any record shortcut again stops recording). An empty string turns one off. A shortcut added in a new version starts off if your file already uses its keys. |
+| `shortcuts` | Global shortcuts for `captureArea`, `captureWindow`, `captureScreen`, and on macOS 15 `recordArea`, `recordScreen` and `recordApp` (any record shortcut again stops recording), and on macOS `voiceNote`. An empty string turns one off. A shortcut added in a new version starts off if your file already uses its keys. |
 | `commands` | Extra global shortcuts that run a shell command in your login shell. |
+| `voiceFolder` | macOS: where voice notes are saved. `~` works. |
+| `voiceQuality` | macOS: `aac`, `alac` (Apple Lossless) or `wav`. |
+| `voiceStereo` | macOS: record voice notes in two channels. Off suits the built-in microphone. |
 | `updateChannel` | macOS: `stable` or `nightly`. Leave it out to follow the build you installed. Windows and Linux always follow `nightly`. |
 | `checkForUpdates` | Check GitHub for updates once a day. `false` means Shotate makes no network request at all. |
 | `toolKeys` | The single letter that picks each editor tool. A letter already used by another tool is ignored, so every tool stays reachable. |

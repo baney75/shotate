@@ -45,7 +45,7 @@ if let i = args.firstIndex(of: "--selftest"), i + 2 < args.count {
 }
 
 // `Shotate --render-ui <folder>` saves a picture of each window (see UISnapshots).
-if let i = args.firstIndex(of: "--render-ui"), i + 1 < args.count { UISnapshots.run(args, at: i) }
+if let i = args.firstIndex(of: "--render-ui"), i + 1 < args.count { MainActor.assumeIsolated { UISnapshots.run(args, at: i) } }
 
 // `open -n Shotate.app --args --record-selftest out.mp4 [pid]` records for two seconds with the
 // recorder the record shortcuts use, and exits 0 once the video is written: an area near the main
@@ -90,7 +90,8 @@ where other.processIdentifier != getpid() && other.processIdentifier != waitPid 
 }
 
 let app = NSApplication.shared
-let delegate = AppDelegate()
+// Top-level code runs on the main thread; AppDelegate is main-actor isolated.
+let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
 app.run()

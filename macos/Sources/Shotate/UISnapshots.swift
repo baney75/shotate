@@ -6,6 +6,7 @@ import ShotateCore
 /// goes behind every other window (it never takes focus or the keyboard) and is captured with
 /// `screencapture -l`, so the process that runs this needs Screen Recording. The capture overlay is
 /// drawn straight to an image. Nothing is saved, copied or registered; no shortcuts are claimed.
+@MainActor
 final class UISnapshots {
     static func run(_ args: [String], at i: Int) -> Never {
         let app = NSApplication.shared
