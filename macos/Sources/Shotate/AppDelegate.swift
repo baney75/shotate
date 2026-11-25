@@ -796,10 +796,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Launch at login
 
-    /// Open at login was registered for Snapmark.app or Shotate.app. Registering again once points it at Yapshot.app;
+    /// Open at login was registered for Snapmark.app. Registering again once points it at Shotate.app;
     /// macOS keeps the old path otherwise, and the item stops working once that app is gone.
     private func moveLoginItem() {
-        let key = "loginItemMovedToYapshot"
+        let key = "loginItemMovedToShotate"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         guard launchAtLogin else { return UserDefaults.standard.set(true, forKey: key) }
         do {
