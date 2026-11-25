@@ -19,8 +19,11 @@ enum AgentCLI {
       shotate open file.png               Opens an image in Shotate's editor.
       shotate annotate in.png out.png --marks marks.json   (or --marks - to read stdin)
       shotate export in.mp4 [--gif|--mp4] [--out file] [--from S] [--to S] [--width PX] [--fps N]
+      shotate mcp                         MCP server on stdin/stdout for AI agents (local only)
+      shotate mcp install|uninstall [--client claude|codex|cursor|claude-desktop|all]
+                                          Registers it with those agents (backs up each file first)
 
-    Everything but status needs "Let Agents Control Shotate" on (menu bar icon), or
+    Everything but status and mcp needs "Let Agents Control Shotate" on (menu bar icon), or
     "agentControl": true in ~/.config/shotate/config.json. Docs: https://github.com/baney75/shotate/blob/main/docs/agents.md
     """
 
@@ -31,6 +34,7 @@ enum AgentCLI {
         }
         let (positional, options) = parse(Array(args.dropFirst()))
         switch command {
+        case "mcp": MCPCommand.run(Array(args.dropFirst()))
         case "annotate": annotate(positional, options)
         case "export": export(positional, options)
         case "status", "windows":

@@ -33,10 +33,13 @@ public struct VoiceMeta: Codable, Hashable {
     public var markers: [VoiceMarker] = []
     public var transcript: String?
     public var duration: Double?
-    public init(markers: [VoiceMarker] = [], transcript: String? = nil, duration: Double? = nil) {
+    /// The script it was read from in the teleprompter, by name.
+    public var script: String?
+    public init(markers: [VoiceMarker] = [], transcript: String? = nil, duration: Double? = nil, script: String? = nil) {
         self.markers = markers
         self.transcript = transcript
         self.duration = duration
+        self.script = script
     }
 }
 
