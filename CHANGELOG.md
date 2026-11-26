@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 (2026-11-25)
 
 ### Renamed
 - **Shotate is now Yapshot.** The app, the menus, the `yapshot` command, `yapshot://` links, the
@@ -30,12 +30,18 @@
 ### Changed
 - **Drawing past the edge looks like the screenshot goes on.** Text or a bar cut by the edge no
   longer smears across the new space. Where an edge has no clear background, such as a photo, the
-  new space continues its colors softly, and corners match the edges that meet there.
+  new space continues its colors softly, and corners match the edges that meet there. The editor also zooms out while you drag past the edge, so
+  the mark stays in sight.
 - **Setup explains every permission.** A Permissions section says what Screen Recording (required)
   and Accessibility (optional, only for choosing what to paste) are used for, what Yapshot never
   does with them, and whether each is allowed right now, with a button to allow it. It also says
   plainly that screenshots never leave your Mac and that Yapshot only goes online on its own to check
   for updates, at launch and once a day. The capture shortcut can be changed right there too.
+- **Stable releases are macOS only for now**, because the Mac app is the one each release is tested
+  on. Windows and Linux get preview builds from the nightly channel: their installers install it,
+  and their app follows it. The 0.12.0 and 0.13.0 releases no longer list Windows or Linux
+  installers. A Windows or Linux copy of 0.13.0 opens the release page when the next release comes
+  out; run the install command once to move it to the preview.
 - The editor opens on Select instead of Arrow, so a click on a new screenshot never drops an
   arrow by accident. Press A for arrows.
 
@@ -68,7 +74,7 @@
   can make screenshots, docs images and demo videos. It only works with **Let Agents Control
   Yapshot** on. Installing links `yapshot` into ~/.local/bin and the skill into the agent skill
   folders that exist.
-- **Record the screen** (macOS 15 and later). ⇧⌘R records an area you drag (or press Space and
+- **Record the screen** (macOS 15 and later). ⌥⇧⌘R records an area you drag (or press Space and
   click a window); ⌃⇧⌘R records the whole screen the pointer is on. A small bar shows the time and
   a Stop button, and a red outline marks a recorded area; neither shows up in the video. Press any
   record shortcut again or click Stop, and the MP4 is saved next to your screenshots, copied as a
@@ -97,18 +103,6 @@
 - **Arrow labels.** Double-click an arrow's end to type a label there; the arrow points at it and
   follows it when you move it. Double-click anywhere else along an arrow to label its middle; the
   label rides on the arrow, and clearing its text removes it.
-
-### Fixed
-- **Drawing past the edge looks like the screenshot carries on.** Lines, text and icons that touch
-  the edge no longer streak across the new space; wide bands such as a title bar or a page background
-  still continue. The editor also zooms out while you drag past the edge, so the mark stays in sight.
-
-### Changed
-- **Stable releases are macOS only for now**, because the Mac app is the one each release is tested
-  on. Windows and Linux get preview builds from the nightly channel: their installers install it,
-  and their app follows it. The 0.12.0 and 0.13.0 releases no longer list Windows or Linux
-  installers. A Windows or Linux copy of 0.13.0 opens the release page when the next release comes
-  out; run the install command once to move it to the preview.
 
 ## 0.13.0 (2026-10-11)
 

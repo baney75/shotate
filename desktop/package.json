@@ -1,7 +1,7 @@
 {
   "name": "yapshot-desktop",
   "private": true,
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Yapshot for Windows and Linux",
   "type": "module",
   "scripts": {
