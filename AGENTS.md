@@ -12,6 +12,18 @@ code. Never call the app Snapmark or Shotate in prose, PRs or commits.
 - Windows/Linux app: `cd desktop && npx tsc --noEmit && npm test`.
 - CI runs both on every PR.
 
+## Releasing
+
+1. In a PR, bump `VERSION`, `desktop/package.json`, `desktop/package-lock.json` (its top two
+   `version` fields), `desktop/src-tauri/Cargo.toml` and the app's entry in `Cargo.lock`, and turn
+   `## Unreleased` in CHANGELOG.md into `## X.Y.Z (YYYY-MM-DD)`, one section per heading.
+2. After it merges, tag the merge commit and push the tag: `git tag -a vX.Y.Z <sha> -m "Yapshot X.Y.Z"`
+   then `git push origin vX.Y.Z`. release.yml makes a draft from that changelog section, builds, and
+   publishes it as Latest. Stable is macOS only; Windows and Linux follow Nightly.
+3. Read back `releases/latest/download/manifest.json`: channel `stable`, the new version, the tag's commit.
+
+Nightly rebuilds itself from main at 06:17 UTC; `gh workflow run nightly.yml -f force=true` rebuilds it now.
+
 ## Anything the user sees on screen
 
 Tests and CI prove the logic only. For a capture, cursor, panel, shortcut or paste change, do the
