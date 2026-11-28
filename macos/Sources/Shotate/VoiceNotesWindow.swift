@@ -175,7 +175,7 @@ struct RecorderPanel: View {
                 .disabled(!rec.isRecording).keyboardShortcut("r", modifiers: [.command, .option])
                 .help("Pause or resume (Option-Command-R)")
                 Button {
-                    // A note started with the shortcut finishes the same way: transcribe, copy, close its badge.
+                    // A note started with the shortcut finishes the same way: copy the audio file and close its badge.
                     if QuickVoiceNote.shared.phase == .recording { QuickVoiceNote.shared.finish() } else { rec.toggle() }
                 } label: { RecordGlyph(recording: rec.isRecording) }
                     .buttonStyle(.plain).keyboardShortcut("r")
@@ -287,33 +287,14 @@ struct PlayerPanel: View {
             }
             Divider()
             HStack(spacing: 10) {
-                if store.transcribing.contains(r.url) {
-                    ProgressView().controlSize(.small)
-                    Text(VoiceStore.transcribesOnDevice ? "Transcribing on this Mac" : "Transcribing")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button { store.transcribe(r.url) } label: {
-                        Label(r.meta.transcript == nil ? "Transcribe" : "Transcribe Again", systemImage: "text.quote")
-                    }
-                }
-                if let t = r.meta.transcript {
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(t, forType: .string)
-                    } label: { Label("Copy Text", systemImage: "doc.on.doc") }
+                Button { VoiceStore.copyAudioFile(r.url) } label: {
+                    Label("Copy Audio", systemImage: "doc.on.clipboard")
                 }
                 Spacer()
                 Button { store.reveal(r) } label: { Label("Show in Finder", systemImage: "folder") }
                 Button(role: .destructive) { store.delete(r) } label: { Label("Move to Trash", systemImage: "trash") }
             }
             .controlSize(.regular)
-            if let t = r.meta.transcript {
-                ScrollView {
-                    Text(t).font(.system(size: 14)).lineSpacing(4).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                }
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-            }
         }
         .padding(24)
         .onAppear { title = r.name; player.load(r.url) }
@@ -327,9 +308,6 @@ struct VoiceNoteRow: View {
             Text(r.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
             HStack(spacing: 6) {
                 Text(r.date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
-                if r.meta.transcript != nil {
-                    Image(systemName: "text.quote").foregroundStyle(Color.brandRed).help("Has a transcript")
-                }
                 if !r.meta.markers.isEmpty {
                     Image(systemName: "bookmark.fill").foregroundStyle(Color.brandRed).help("Has markers")
                 }
@@ -347,7 +325,7 @@ struct VoiceNotesView: View {
     @State private var query = ""
 
     var filtered: [VoiceNote] {
-        store.notes.filter { VoiceNotes.matches(query, name: $0.name, transcript: $0.meta.transcript) }
+        store.notes.filter { VoiceNotes.matches(query, name: $0.name) }
     }
 
     var body: some View {
@@ -355,13 +333,13 @@ struct VoiceNotesView: View {
             // A search field and folder button in the sidebar itself: a hosted view has no window
             // toolbar for `.searchable` and toolbar items on macOS 13.
             VStack(spacing: 0) {
-                TextField("Search names and transcripts", text: $query)
+                TextField("Search voice notes", text: $query)
                     .textFieldStyle(.roundedBorder).padding(.horizontal, 10).padding(.vertical, 8)
                 List(filtered, selection: $store.selection) { r in
                     VoiceNoteRow(r: r)
                         .onDrag { NSItemProvider(contentsOf: r.url) ?? NSItemProvider() }
                         .contextMenu {
-                            Button("Transcribe") { store.transcribe(r.url) }
+                            Button("Copy Audio") { VoiceStore.copyAudioFile(r.url) }
                             Button("Show in Finder") { store.reveal(r) }
                             Divider()
                             Button("Move to Trash", role: .destructive) { store.delete(r) }

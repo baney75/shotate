@@ -51,7 +51,10 @@ static EDITORS: AtomicU32 = AtomicU32::new(0);
 // MARK: - Capture
 
 fn capture(app: &AppHandle, mode: &'static str) {
-    if app.get_webview_window("overlay").is_some() {
+    if let Some(w) = app.get_webview_window("overlay") {
+        // Pressing a capture shortcut while the overlay is open dismisses it rather than leaving it stuck.
+        app.state::<State>().pending.lock().unwrap().take();
+        let _ = w.close();
         return;
     }
     let app = app.clone();

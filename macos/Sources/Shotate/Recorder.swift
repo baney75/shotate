@@ -225,11 +225,13 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
 
     var overlayWindowIDs: [CGWindowID] { indicator?.windowIDs ?? [] }
 
-    /// Ends the recording; `done` runs once the file is written.
+    /// Ends the recording; `done` runs once the file is written. Always dismisses the indicator even
+    /// if stop is triggered again while finalizing.
     func stop() {
+        indicator?.close()
+        indicator = nil
         guard !stopping else { return }
         stopping = true
-        indicator?.close()
         finishSoon()
         // Still starting: `begin` stops the stream as soon as it is running.
         guard let stream else { return }
@@ -614,10 +616,28 @@ final class RecordingIndicator {
     var barWindow: NSWindow { bar }
 
     func close() {
+        let tearDown = {
+            self.timer?.invalidate()
+            self.timer = nil
+            self.outline?.orderOut(nil)
+            self.outline?.close()
+            self.bar.orderOut(nil)
+            self.bar.close()
+        }
+        if Thread.isMainThread { tearDown() } else { DispatchQueue.main.sync(execute: tearDown) }
+    }
+
+    deinit {
         timer?.invalidate()
-        timer = nil
-        outline?.orderOut(nil)
-        bar.orderOut(nil)
+        let outline = self.outline
+        let bar = self.bar
+        let hide = {
+            outline?.orderOut(nil)
+            outline?.close()
+            bar.orderOut(nil)
+            bar.close()
+        }
+        if Thread.isMainThread { hide() } else { DispatchQueue.main.async(execute: hide) }
     }
 }
 

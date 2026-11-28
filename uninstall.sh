@@ -6,6 +6,11 @@
 set -euo pipefail
 
 uninstall_macos() {
+  AGENT="$HOME/Library/LaunchAgents/com.baney.snapmark.plist"
+  if [ -f "$AGENT" ]; then
+    launchctl bootout "gui/$(id -u)" "$AGENT" >/dev/null 2>&1 || launchctl unload -w "$AGENT" >/dev/null 2>&1 || true
+    rm -f "$AGENT"
+  fi
   osascript -e 'tell application id "com.baney.snapmark" to quit' >/dev/null 2>&1 || true
   for _ in $(seq 1 25); do
     pgrep -f "/(Yapshot|Shotate|Snapmark).app/Contents/MacOS/" >/dev/null || break; sleep 0.2

@@ -9,88 +9,261 @@ final class VoiceNotesTests: XCTestCase {
         return try Settings.load(from: url)
     }
 
-    /// A file from before voice notes, with recordArea on ⇧⌘R: recording moves to ⌥⇧⌘R and ⇧⌘R
-    /// starts a voice note.
-    func testOldRecordAreaShortcutMovesForVoiceNotes() throws {
-        let s = try load(#"{"shortcuts": {"captureArea": "cmd+shift+s", "recordArea": "cmd+shift+r"}}"#)
-        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+option+shift+r"))
-        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+r"))
+    /// Default shortcuts: Cmd+Shift+R is the screen recorder (area), Cmd+Shift+M is the mic/voice note.
+    func testDefaultRecorderAndVoiceNoteShortcuts() {
+        let d = Settings()
+        XCTAssertEqual(d.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(d.shortcut("recordScreen"), Shortcut("cmd+ctrl+shift+r"))
+        XCTAssertEqual(d.shortcut("recordApp"), Shortcut("cmd+shift+d"))
+        XCTAssertEqual(d.shortcut("voiceNote"), Shortcut("cmd+shift+m"))
     }
 
-    func testOldRecordAreaShortcutMatchesInAnyOrder() throws {
-        let s = try load(#"{"shortcuts": {"recordArea": "Shift+Cmd+R"}}"#)
-        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+option+shift+r"))
-        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+r"))
+    /// A 0.14.0 config file with the old default pair (recordArea on ⌥⇧⌘R, voiceNote on ⇧⌘R)
+    /// migrates back to ⇧⌘R for recording and ⇧⌘M for voice notes.
+    func testV14ShortcutPairMigratesToRecorderRAndMicM() throws {
+        let s = try load(#"{"shortcuts": {"captureArea": "cmd+shift+s", "recordArea": "cmd+option+shift+r", "voiceNote": "cmd+shift+r"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+m"))
     }
 
-    /// Someone who chose their own record shortcut keeps it; voiceNote only gets its free default.
-    func testReboundRecordAreaIsLeftAlone() throws {
-        let s = try load(#"{"shortcuts": {"recordArea": "cmd+ctrl+r"}}"#)
+    func testV14ShortcutPairMatchesInAnyModifierOrder() throws {
+        let s = try load(#"{"shortcuts": {"recordArea": "Shift+Opt+Cmd+R", "voiceNote": "Shift+Cmd+R"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+m"))
+    }
+
+    /// Custom shortcuts are never stolen: if the user changed either recordArea or voiceNote away
+    /// from the 0.14.0 default pair, both stay exactly as the user set them.
+    func testCustomizedShortcutsAreLeftAlone() throws {
+        var s = try load(#"{"shortcuts": {"recordArea": "cmd+ctrl+r", "voiceNote": "cmd+shift+r"}}"#)
         XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+ctrl+r"))
         XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+r"))
-    }
 
-    /// The migration runs once: a file that already has voiceNote is never touched again, even
-    /// when the person put recordArea back on ⇧⌘R.
-    func testFileWithVoiceNoteKeyIsNotMigrated() throws {
-        let s = try load(#"{"shortcuts": {"recordArea": "cmd+shift+r", "voiceNote": ""}}"#)
-        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
-        XCTAssertNil(s.shortcut("voiceNote"))
-    }
-
-    /// A file that never wrote recordArea had it on the old ⇧⌘R default. If ⌥⇧⌘R is taken, area
-    /// recording keeps ⇧⌘R instead of losing its shortcut, and voiceNote starts off.
-    func testUnwrittenRecordAreaCountsAsTheOldDefault() throws {
-        var s = try load(#"{"shortcuts": {"captureArea": "cmd+option+shift+r"}}"#)
-        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
-        XCTAssertNil(s.shortcut("voiceNote"))
-        s = try load(#"{"commands": {"cmd+option+shift+r": "/usr/bin/true"}}"#)
-        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
-        XCTAssertNil(s.shortcut("voiceNote"))
-        s = try load(#"{"copyOnCapture": true}"#)
+        s = try load(#"{"shortcuts": {"recordArea": "cmd+option+shift+r", "voiceNote": "cmd+option+m"}}"#)
         XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+option+shift+r"))
-        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+option+m"))
+
+        s = try load(#"{"shortcuts": {"recordArea": "cmd+option+shift+r", "voiceNote": ""}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+option+shift+r"))
+        XCTAssertNil(s.shortcut("voiceNote"))
+
+        s = try load(#"{"shortcuts": {"recordArea": "cmd+shift+r", "voiceNote": ""}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(s.shortcut("voiceNote"))
     }
 
-    /// The move is decided once and written as just two keys: everything else in the file, even
-    /// entries this build can't read, stays. Later loads don't migrate, so editing the clash away
-    /// doesn't move area recording after all.
-    func testMigrationWritesOnlyItsKeysAndIsNotDecidedAgain() throws {
+    /// Migration never steals Cmd+Shift+M (or Cmd+Shift+R) when another shortcut or command uses it.
+    func testMigrationYieldsWhenTargetShortcutIsAlreadyTaken() throws {
+        // Another action already uses Cmd+Shift+M: recordArea restores to ⇧⌘R, voiceNote turns off.
+        var s = try load(#"{"shortcuts": {"recordArea": "cmd+option+shift+r", "voiceNote": "cmd+shift+r", "captureWindow": "shift+cmd+m"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(s.shortcut("captureWindow"), Shortcut("cmd+shift+m"))
+        XCTAssertNil(s.shortcut("voiceNote"))
+
+        // A command hotkey uses Cmd+Shift+M: voiceNote turns off rather than stealing it.
+        s = try load(#"{"shortcuts": {"recordArea": "cmd+option+shift+r", "voiceNote": "cmd+shift+r"}, "commands": {"cmd+shift+m": "/usr/bin/true"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(s.shortcut("voiceNote"))
+
+        // Another action also uses Cmd+Shift+R: recordArea stays on ⌥⇧⌘R, voiceNote moves to ⇧⌘M.
+        s = try load(#"{"shortcuts": {"recordArea": "cmd+option+shift+r", "voiceNote": "cmd+shift+r", "captureWindow": "cmd+shift+r"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+option+shift+r"))
+        XCTAssertEqual(s.shortcut("captureWindow"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+m"))
+    }
+
+    /// A pre-0.14.0 config without voiceNote keeps recordArea on ⇧⌘R and gets ⇧⌘M unless taken.
+    func testPreV14ConfigKeepsRecorderRAndGetsFreeMicM() throws {
+        var s = try load(#"{"shortcuts": {"captureArea": "cmd+shift+s", "recordArea": "cmd+shift+r"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(s.shortcut("voiceNote"), Shortcut("cmd+shift+m"))
+
+        s = try load(#"{"shortcuts": {"recordArea": "cmd+shift+r", "captureWindow": "cmd+shift+m"}}"#)
+        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertNil(s.shortcut("voiceNote"))
+    }
+
+    /// Migration writes only recordArea and voiceNote, preserves unknown keys, and does not repeat
+    /// when migrate is false.
+    func testMigrationWritesOnlyItsKeysAndRunsOnce() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapshot-\(UUID().uuidString)/config.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(#"{"shortcuts": {"recordArea": "cmd+shift+r", "captureScreen": "cmd+option+shift+r", "recordScreen": "hyper+r"}, "commands": {"cmd+shift+f13": "~/bin/x"}, "future": 1}"#.utf8).write(to: url)
-        let (first, migrated) = try Settings.loadReporting(from: url)
+        try Data(#"{"shortcuts": {"recordArea": "cmd+option+shift+r", "voiceNote": "cmd+shift+r", "recordScreen": "hyper+r"}, "commands": {"cmd+shift+f13": "~/bin/x"}, "future": 1}"#.utf8).write(to: url)
+        let (first, migrated) = try Settings.loadReporting(from: url, migrate: true)
         XCTAssertTrue(migrated)
+        XCTAssertEqual(first.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(first.shortcut("voiceNote"), Shortcut("cmd+shift+m"))
         try first.writeVoiceNoteShortcuts(to: url)
+
         let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
         let keys = raw["shortcuts"] as! [String: String]
         XCTAssertEqual(keys["recordScreen"], "hyper+r")
         XCTAssertEqual(keys["recordArea"], "cmd+shift+r")
-        XCTAssertEqual(keys["voiceNote"], "")
+        XCTAssertEqual(keys["voiceNote"], "cmd+shift+m")
         XCTAssertEqual(raw["commands"] as? [String: String], ["cmd+shift+f13": "~/bin/x"])
         XCTAssertEqual(raw["future"] as? Int, 1)
-        // A hand edit that drops voiceNote again isn't re-migrated once the caller stops passing migrate.
-        try Data(#"{"shortcuts": {"recordArea": "cmd+shift+r"}}"#.utf8).write(to: url)
+
+        // If the user later hand-edits back to the old pair, migrate: false respects their choice.
+        try Data(#"{"shortcuts": {"recordArea": "cmd+option+shift+r", "voiceNote": "cmd+shift+r"}}"#.utf8).write(to: url)
         let (later, again) = try Settings.loadReporting(from: url, migrate: false)
         XCTAssertFalse(again)
-        XCTAssertEqual(later.shortcut("recordArea"), Shortcut("cmd+shift+r"))
+        XCTAssertEqual(later.shortcut("recordArea"), Shortcut("cmd+option+shift+r"))
+        XCTAssertEqual(later.shortcut("voiceNote"), Shortcut("cmd+shift+r"))
     }
 
-    /// voiceNote's default never takes keys the file uses for something else.
-    func testVoiceNoteDefaultYieldsOnClash() throws {
-        var s = try load(#"{"shortcuts": {"recordArea": "cmd+ctrl+r", "captureWindow": "shift+cmd+r"}}"#)
-        XCTAssertEqual(s.shortcut("captureWindow"), Shortcut("cmd+shift+r"))
-        XCTAssertNil(s.shortcut("voiceNote"))
-        s = try load(#"{"shortcuts": {"recordArea": "cmd+ctrl+r"}, "commands": {"cmd+shift+r": "/usr/bin/true"}}"#)
-        XCTAssertNil(s.shortcut("voiceNote"))
-        // recordArea's new keys are taken: nothing moves, and voiceNote starts off.
-        s = try load(#"{"shortcuts": {"recordArea": "cmd+shift+r", "captureScreen": "cmd+option+shift+r"}}"#)
-        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+shift+r"))
-        XCTAssertNil(s.shortcut("voiceNote"))
-        // recordArea moves, but another action also had ⇧⌘R: voiceNote still starts off.
-        s = try load(#"{"shortcuts": {"recordArea": "cmd+shift+r", "captureWindow": "cmd+shift+r"}}"#)
-        XCTAssertEqual(s.shortcut("recordArea"), Shortcut("cmd+option+shift+r"))
-        XCTAssertNil(s.shortcut("voiceNote"))
+    // MARK: QuickVoiceController (no transcription; copies audio file; reliable dismiss)
+
+    func testQuickVoiceStopCopiesAudioFileAndAutoHides() {
+        let audioURL = URL(fileURLWithPath: "/tmp/Voice Note 2026-11-28 at 08.00.00.m4a")
+        var recording = false
+        var copiedFiles: [URL] = []
+        var scheduledHide: (() -> Void)?
+        var phases: [QuickVoiceController.Phase] = []
+
+        let controller = QuickVoiceController(
+            isRecording: { recording },
+            startRecording: { done in
+                recording = true
+                done(true, nil)
+            },
+            stopRecording: {
+                guard recording else { return nil }
+                recording = false
+                return audioURL
+            },
+            copyAudioFile: { url in
+                copiedFiles.append(url)
+                return true
+            },
+            onPhaseChange: { phases.append($0) },
+            scheduleHide: { _, work in scheduledHide = work },
+            cancelScheduledHide: { scheduledHide = nil }
+        )
+
+        // First Cmd+Shift+M press starts recording.
+        controller.toggle()
+        XCTAssertTrue(recording)
+        XCTAssertEqual(controller.phase, .recording)
+        XCTAssertTrue(controller.phase.isVisible)
+        XCTAssertTrue(copiedFiles.isEmpty)
+
+        // Second Cmd+Shift+M press stops recording and copies the audio file (never text/transcript).
+        controller.toggle()
+        XCTAssertFalse(recording)
+        XCTAssertEqual(copiedFiles, [audioURL])
+        XCTAssertEqual(controller.phase, .copied("Voice Note 2026-11-28 at 08.00.00.m4a"))
+        XCTAssertNotNil(scheduledHide)
+
+        // Auto-hide timer dismisses the badge cleanly.
+        scheduledHide?()
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertFalse(controller.phase.isVisible)
+        XCTAssertEqual(phases, [.starting, .recording, .copied("Voice Note 2026-11-28 at 08.00.00.m4a"), .idle])
+    }
+
+    func testQuickVoiceDismissStopsRecordingCopiesAudioAndHidesImmediately() {
+        let audioURL = URL(fileURLWithPath: "/tmp/note.m4a")
+        var recording = false
+        var copiedFiles: [URL] = []
+        var cancelCount = 0
+
+        let controller = QuickVoiceController(
+            isRecording: { recording },
+            startRecording: { done in recording = true; done(true, nil) },
+            stopRecording: {
+                guard recording else { return nil }
+                recording = false
+                return audioURL
+            },
+            copyAudioFile: { copiedFiles.append($0); return true },
+            cancelScheduledHide: { cancelCount += 1 }
+        )
+
+        controller.toggle()
+        XCTAssertEqual(controller.phase, .recording)
+
+        // Esc or Close button stops recording, copies audio, and immediately dismisses.
+        controller.dismiss()
+        XCTAssertFalse(recording)
+        XCTAssertEqual(copiedFiles, [audioURL])
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertFalse(controller.phase.isVisible)
+        XCTAssertGreaterThanOrEqual(cancelCount, 1)
+    }
+
+    func testQuickVoiceDismissWhileWaitingOnMicPermissionAbortsLateStart() {
+        var recording = false
+        var stopCalls = 0
+        var pendingStart: ((Bool, String?) -> Void)?
+
+        let controller = QuickVoiceController(
+            isRecording: { recording },
+            startRecording: { done in pendingStart = done },
+            stopRecording: {
+                stopCalls += 1
+                recording = false
+                return nil
+            },
+            copyAudioFile: { _ in true }
+        )
+
+        controller.toggle()
+        XCTAssertEqual(controller.phase, .starting)
+
+        // User presses Esc / close / shortcut again before mic permission returns.
+        controller.dismiss()
+        XCTAssertEqual(controller.phase, .idle)
+
+        // Late permission callback must not open a zombie overlay and must stop any started recorder.
+        recording = true
+        pendingStart?(true, nil)
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertFalse(controller.phase.isVisible)
+        XCTAssertEqual(stopCalls, 1)
+        XCTAssertFalse(recording)
+    }
+
+    func testQuickVoiceExternalStopDismissesBadge() {
+        var recording = false
+        let controller = QuickVoiceController(
+            isRecording: { recording },
+            startRecording: { done in recording = true; done(true, nil) },
+            stopRecording: { recording = false; return nil },
+            copyAudioFile: { _ in true }
+        )
+
+        controller.toggle()
+        XCTAssertEqual(controller.phase, .recording)
+
+        // Recorder stopped from Voice Notes window or system audio interruption.
+        recording = false
+        controller.externalRecordingStopped()
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertFalse(controller.phase.isVisible)
+    }
+
+    func testQuickVoiceInternalStopDoesNotFlickerOnSynchronousIsRecordingChange() {
+        let audioURL = URL(fileURLWithPath: "/tmp/sync-stop.m4a")
+        var recording = false
+        var phases: [QuickVoiceController.Phase] = []
+        var controller: QuickVoiceController!
+
+        controller = QuickVoiceController(
+            isRecording: { recording },
+            startRecording: { done in recording = true; done(true, nil) },
+            stopRecording: {
+                recording = false
+                // Simulate Combine firing $isRecording = false synchronously during stop().
+                controller.externalRecordingStopped()
+                return audioURL
+            },
+            copyAudioFile: { _ in true },
+            onPhaseChange: { phases.append($0) }
+        )
+
+        controller.toggle()
+        controller.finish()
+        XCTAssertEqual(phases, [.starting, .recording, .copied("sync-stop.m4a")])
     }
 
     func testVoiceSettingsDefaultsAndParsing() throws {
@@ -141,20 +314,21 @@ final class VoiceNotesTests: XCTestCase {
         XCTAssertEqual(VoiceNotes.sidecarURL(for: audio).path, "/Users/x/Music/Voice Notes/.meta/Voice Note 1.m4a.json")
     }
 
-    func testMetaRoundTripsAndOldSidecarsDecode() throws {
-        let m = VoiceMeta(markers: [VoiceMarker(time: 1.5, label: "Marker 1")], transcript: "Hello", duration: 3)
-        XCTAssertEqual(try JSONDecoder().decode(VoiceMeta.self, from: JSONEncoder().encode(m)), m)
-        // Cantor's sidecars have the same shape, so a library moved over keeps its transcripts.
+    func testMetaRoundTripsAndLegacyTranscriptSidecarsDecodeCleanly() throws {
+        let m = VoiceMeta(markers: [VoiceMarker(time: 1.5, label: "Marker 1")], duration: 3, script: "Intro")
+        let encoded = try JSONEncoder().encode(m)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("transcript"))
+        XCTAssertEqual(try JSONDecoder().decode(VoiceMeta.self, from: encoded), m)
+        // Legacy sidecars that stored a transcript still decode cleanly with unknown fields ignored.
         let old = try JSONDecoder().decode(VoiceMeta.self, from: Data(#"{"markers": [], "transcript": "Hi"}"#.utf8))
-        XCTAssertEqual(old.transcript, "Hi")
+        XCTAssertTrue(old.markers.isEmpty)
         XCTAssertNil(old.duration)
     }
 
-    func testSearchNamesAndTranscripts() {
-        XCTAssertTrue(VoiceNotes.matches("", name: "a", transcript: nil))
-        XCTAssertTrue(VoiceNotes.matches("groc", name: "Voice Note", transcript: "Buy GROCERIES"))
-        XCTAssertTrue(VoiceNotes.matches("voice", name: "Voice Note", transcript: nil))
-        XCTAssertFalse(VoiceNotes.matches("milk", name: "Voice Note", transcript: nil))
+    func testSearchMatchesNamesOnly() {
+        XCTAssertTrue(VoiceNotes.matches("", name: "a"))
+        XCTAssertTrue(VoiceNotes.matches("voice", name: "Voice Note"))
+        XCTAssertFalse(VoiceNotes.matches("milk", name: "Voice Note"))
     }
 
     func testSafeNameAndClock() {

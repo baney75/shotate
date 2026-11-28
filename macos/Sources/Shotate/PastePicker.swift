@@ -84,6 +84,11 @@ final class PastePicker {
         if ask != hotkeys.pasteClaimed { hotkeys.claimPaste(ask) }
     }
 
+    func dismiss() {
+        chooser?.cancel()
+        chooser = nil
+    }
+
     private func ask() {
         // ⌘V again while choosing pastes the highlighted one.
         if let chooser { return chooser.chooseSelected() }
@@ -186,6 +191,7 @@ final class PasteChooser {
         @Published var asking = true { didSet { toggle(asking) } }
         var choose: (Int) -> Void = { _ in }
         var toggle: (Bool) -> Void = { _ in }
+        var cancel: () -> Void = {}
         /// Where the pointer was when the panel opened. It usually opens under the pointer, so
         /// hover selects only once the mouse has really moved; a twitch never changes what pastes.
         private let mouseAtOpen = NSEvent.mouseLocation
@@ -208,6 +214,8 @@ final class PasteChooser {
     /// For `--render-ui`, which captures the panel without showing it the usual way.
     var window: NSWindow { panel }
     private var resignObserver: NSObjectProtocol?
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var escapeToken = 0
     private var done = false
 
     init(items: [Item], typesPaste: Bool) {
@@ -219,6 +227,7 @@ final class PasteChooser {
         panel = ChooserPanel()
         model.choose = { [weak self] i in self?.choose(i) }
         model.toggle = { [weak self] on in self?.onToggle(on) }
+        model.cancel = { [weak self] in self?.cancel() }
         panel.onKey = { [weak self] e in self?.key(e) ?? false }
         let host = FirstClickHostingView(rootView: ChooserView(model: model))
         host.layoutSubtreeIfNeeded()
@@ -238,13 +247,22 @@ final class PasteChooser {
         panel.orderFrontRegardless()
         panel.makeKey()
         panel.invalidateShadow()
+        escapeToken = Hotkeys.claimEscape { [weak self] in self?.cancel() }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
             panel.animator().alphaValue = 1
         }
-        // A click in another window closes it, like a menu.
+        // A click in another window, Space switch, or sleep closes it, like a menu.
         resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel,
                                                                 queue: .main) { [weak self] _ in self?.cancel() }
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.activeSpaceDidChangeNotification,
+                     NSWorkspace.willSleepNotification,
+                     NSWorkspace.sessionDidResignActiveNotification] {
+            workspaceObservers.append(ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.cancel()
+            })
+        }
     }
 
     func chooseSelected() { choose(model.selected) }
@@ -254,7 +272,7 @@ final class PasteChooser {
         onChoose(model.items[i].id)
     }
 
-    private func cancel() {
+    func cancel() {
         guard close() else { return }
         onCancel()
     }
@@ -263,9 +281,22 @@ final class PasteChooser {
     private func close() -> Bool {
         guard !done else { return false }
         done = true
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        Hotkeys.releaseEscape(escapeToken)
+        escapeToken = 0
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver); self.resignObserver = nil }
+        let ws = NSWorkspace.shared.notificationCenter
+        for obs in workspaceObservers { ws.removeObserver(obs) }
+        workspaceObservers.removeAll()
         panel.orderOut(nil)
+        panel.close()
         return true
+    }
+
+    deinit {
+        if escapeToken != 0 { Hotkeys.releaseEscape(escapeToken) }
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        let ws = NSWorkspace.shared.notificationCenter
+        for obs in workspaceObservers { ws.removeObserver(obs) }
     }
 
     /// ← → (and Tab) move, 1–9 pick, Return pastes, Esc cancels.
@@ -335,12 +366,22 @@ private struct ChooserView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .center, spacing: 12) {
                 Text("Paste a Screenshot").font(.system(size: 15, weight: .semibold))
                 Spacer(minLength: 24)
                 Text(model.typesPaste ? "← → to choose   Return to paste   Esc to cancel"
                                       : "Return copies it, then press ⌘V   Esc to cancel")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
+                Button { model.cancel() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.primary.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+                .help("Close (Esc)")
             }
             if !model.typesPaste {
                 // Without Accessibility a pick can only copy. Say so plainly, with the fix one click away.

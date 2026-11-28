@@ -2,7 +2,6 @@ import AppKit
 import AVFoundation
 import CoreGraphics
 import ShotateCore
-import Speech
 
 /// Screen Recording permission. A running app may not see a change until it relaunches.
 ///
@@ -88,6 +87,8 @@ enum ScreenRecording {
 /// Errors the user must see. A menu bar app has no window of its own, so bring it forward first.
 enum Alerts {
     static func show(_ title: String, _ detail: String, in window: NSWindow? = nil) {
+        // Never leave a fullscreen overlay covering a modal alert.
+        _ = Picker.cancelCurrent(reason: .systemEvent)
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = detail
@@ -122,9 +123,6 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let micLabel = NSTextField(wrappingLabelWithString: "")
     private let micStatusIcon = NSImageView()
     private let micAllowButton = NSButton(title: "Allow…", target: nil, action: nil)
-    private let speechLabel = NSTextField(wrappingLabelWithString: "")
-    private let speechStatusIcon = NSImageView()
-    private let speechAllowButton = NSButton(title: "Allow…", target: nil, action: nil)
     /// The capture shortcut, changeable right here: click, then press the keys you want.
     private lazy var shortcutRecorder: ShortcutRecorder = {
         let r = ShortcutRecorder(value: app?.settings.shortcuts["captureArea"] ?? "")
@@ -223,21 +221,16 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let accessibility = row(symbol: "keyboard.badge.ellipsis", title: "Accessibility · Optional",
                                 detail: axLabel, trailing: [axStatusIcon, axAllowButton])
 
-        for (label, icon, button, action) in [(micLabel, micStatusIcon, micAllowButton, #selector(allowMicrophone)),
-                                              (speechLabel, speechStatusIcon, speechAllowButton, #selector(allowSpeech))] {
-            label.maximumNumberOfLines = 0
-            label.preferredMaxLayoutWidth = 390
-            icon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Allowed")
-            icon.contentTintColor = .systemGreen
-            icon.symbolConfiguration = .init(pointSize: 18, weight: .regular)
-            button.target = self
-            button.action = action
-            button.bezelStyle = .rounded
-        }
+        micLabel.maximumNumberOfLines = 0
+        micLabel.preferredMaxLayoutWidth = 390
+        micStatusIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Allowed")
+        micStatusIcon.contentTintColor = .systemGreen
+        micStatusIcon.symbolConfiguration = .init(pointSize: 18, weight: .regular)
+        micAllowButton.target = self
+        micAllowButton.action = #selector(allowMicrophone)
+        micAllowButton.bezelStyle = .rounded
         let microphone = row(symbol: "mic", title: "Microphone · For voice notes",
                              detail: micLabel, trailing: [micStatusIcon, micAllowButton])
-        let speech = row(symbol: "text.quote", title: "Speech Recognition · For voice note text",
-                         detail: speechLabel, trailing: [speechStatusIcon, speechAllowButton])
 
         shortcutLabel.textColor = .secondaryLabelColor
         shortcutLabel.maximumNumberOfLines = 0
@@ -271,7 +264,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let pasteRow = NSStackView(views: [pasteBox])
         pasteRow.edgeInsets = NSEdgeInsets(top: 0, left: 40, bottom: 0, right: 0)
         let card = NSStackView(views: [permissionsTitle, permissionsIntro, permission, settingsLink, separator(),
-                                       accessibility, pasteRow, separator(), microphone, separator(), speech,
+                                       accessibility, pasteRow, separator(), microphone,
                                        separator(), shortcut, separator(), mark])
         card.orientation = .vertical
         card.alignment = .leading
@@ -284,9 +277,9 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         card.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.06).cgColor
 
         let privacy = NSTextField(wrappingLabelWithString:
-            "Your screenshots never leave your Mac. Yapshot has no analytics and no account. On its own it goes "
-            + "online only to check for updates, when it starts and once a day. You can turn that off in Settings. "
-            + "Transcribing a voice note on a Mac without on-device speech recognition uses Apple's speech service.")
+            "Your screenshots, recordings and voice notes never leave your Mac. Yapshot has no analytics and no "
+            + "account. On its own it goes online only to check for updates, when it starts and once a day. You "
+            + "can turn that off in Settings.")
         privacy.font = .systemFont(ofSize: 11)
         privacy.textColor = .secondaryLabelColor
         privacy.alignment = .center
@@ -355,7 +348,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         return box
     }
 
-    /// " ⌥⇧⌘R records an area, ⌃⇧⌘R the whole screen, ⇧⌘D an app and its log; press it again to stop."
+    /// " ⇧⌘R records an area, ⌃⇧⌘R the whole screen, ⇧⌘D an app and its log; press it again to stop."
     private static func recordHint(_ s: Settings?) -> String {
         let parts = [("recordArea", "records an area"), ("recordScreen", "the whole screen"), ("recordApp", "an app and its log")]
             .compactMap { name, what in s?.shortcut(name).map { "\($0.displayString) \(what)" } }
@@ -416,21 +409,12 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         micStatusIcon.isHidden = mic != .authorized
         micAllowButton.isHidden = mic == .authorized
         micLabel.stringValue = "Records your voice only while a voice note you started is recording, and stops when "
-            + "you stop it. Yapshot never listens in the background, and screen recordings have no sound. "
-            + "Voice notes are saved as audio files in your voice notes folder."
+            + "you stop it. Yapshot never listens in the background, never transcribes your audio, and screen "
+            + "recordings have no sound. Voice notes are saved as audio files in your voice notes folder and "
+            + "copied as audio files to the clipboard."
             + (mic == .authorized ? "\nAllowed." : mic == .notDetermined ? "\nNot asked yet. macOS asks when you start your first voice note."
                : "\nNot allowed. Click Allow, then turn Yapshot on in System Settings.")
-        let speech = SFSpeechRecognizer.authorizationStatus()
-        speechStatusIcon.isHidden = speech != .authorized
-        speechAllowButton.isHidden = speech == .authorized
-        speechLabel.stringValue = "Turns a voice note into text when you ask: Transcribe in Voice Notes, or the "
-            + "second press of the voice note shortcut. When this Mac supports on-device speech recognition, "
-            + "transcription runs on this Mac. Otherwise macOS sends the audio to Apple to transcribe it. "
-            + "Yapshot transcribes nothing else."
-            + (speech == .authorized ? "\nAllowed." : speech == .notDetermined ? "\nNot asked yet. macOS asks the first time you transcribe."
-               : "\nNot allowed. Click Allow, then turn Yapshot on in System Settings.")
         micLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [micAllowButton], check: micStatusIcon)
-        speechLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [speechAllowButton], check: speechStatusIcon)
         statusLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [allowButton, relaunchButton], check: statusIcon)
         axLabel.preferredMaxLayoutWidth = Self.noteWidth(beside: [axAllowButton], check: axStatusIcon)
         fitHeight()
@@ -486,16 +470,6 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
-    }
-
-    @objc private func allowSpeech() {
-        guard SFSpeechRecognizer.authorizationStatus() == .notDetermined else {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
-            return
-        }
-        SFSpeechRecognizer.requestAuthorization { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
     }

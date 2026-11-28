@@ -14,46 +14,64 @@ enum NativeCapture {
         case failed
     }
 
-    /// Calls back on main.
+    /// Calls back on main, once. A pre-picker watchdog prevents ScreenCaptureKit stalls from leaving
+    /// capture locked up.
     static func run(_ mode: CaptureMode, completion: @escaping (Result) -> Void) {
+        var finished = false
+        let deliver: @MainActor (Result) -> Void = { result in
+            guard !finished else { return }
+            finished = true
+            completion(result)
+        }
+        var pickerShown = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
+            MainActor.assumeIsolated {
+                guard !finished, !pickerShown else { return }
+                NSLog("Yapshot: ScreenCaptureKit timed out before the picker opened")
+                deliver(.failed)
+            }
+        }
         Task { @MainActor in
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                guard !finished else { return }
                 if mode == .screen {
                     // screencapture -m: the main display.
                     guard let screen = NSScreen.screens.first, let display = display(for: screen, in: content) else {
-                        return completion(.failed)
+                        return deliver(.failed)
                     }
                     let image = try await capture(display, in: content)
-                    return completion(.image(image, dpi: 72 * screen.backingScaleFactor))
+                    return deliver(.image(image, dpi: 72 * screen.backingScaleFactor))
                 }
-                guard let (choice, shots, windows) = try await pick(content, windowMode: mode == .window) else {
-                    return completion(.failed)
+                guard let (choice, shots, windows) = try await pick(content, windowMode: mode == .window, onShown: {
+                    pickerShown = true
+                }) else {
+                    return deliver(.failed)
                 }
                 switch choice {
                 case nil:
-                    completion(.cancelled)
+                    deliver(.cancelled)
                 case let .area(screen, rect)?:
-                    guard let (s, image) = shots.first(where: { $0.0 === screen }) else { return completion(.cancelled) }
+                    guard let (s, image) = shots.first(where: { $0.0 === screen }) else { return deliver(.cancelled) }
                     let scale = s.backingScaleFactor
                     let pixels = CaptureGeometry.pixelRect(of: rect, screenFrame: s.frame, scale: scale)
-                    guard let crop = image.cropping(to: pixels) else { return completion(.cancelled) }
-                    completion(.image(crop, dpi: 72 * scale))
+                    guard let crop = image.cropping(to: pixels) else { return deliver(.cancelled) }
+                    deliver(.image(crop, dpi: 72 * scale))
                 case let .window(id)?:
-                    guard let w = windows.first(where: { $0.id == id }) else { return completion(.cancelled) }
+                    guard let w = windows.first(where: { $0.id == id }) else { return deliver(.cancelled) }
                     Task { @MainActor in
                         do {
                             let (image, scale) = try await capture(w.window)
-                            completion(.image(image, dpi: 72 * scale))
+                            deliver(.image(image, dpi: 72 * scale))
                         } catch {
                             NSLog("Yapshot: window capture: %@", error.localizedDescription)
-                            completion(.cancelled)
+                            deliver(.cancelled)
                         }
                     }
                 }
             } catch {
                 NSLog("Yapshot: ScreenCaptureKit: %@", error.localizedDescription)
-                completion(.failed)
+                deliver(.failed)
             }
         }
     }
@@ -68,31 +86,48 @@ enum NativeCapture {
     /// picked window gives the part of its frame on the screen that shows most of it, or with `app`
     /// (click a window; Space doesn't switch to dragging) that window's app. Calls back on main.
     static func pickToRecord(app: Bool, completion: @escaping (Pick) -> Void) {
+        var finished = false
+        let deliver: @MainActor (Pick) -> Void = { result in
+            guard !finished else { return }
+            finished = true
+            completion(result)
+        }
+        var pickerShown = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
+            MainActor.assumeIsolated {
+                guard !finished, !pickerShown else { return }
+                NSLog("Yapshot: ScreenCaptureKit timed out before the record picker opened")
+                deliver(.failed)
+            }
+        }
         Task { @MainActor in
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                guard let (choice, shots, windows) = try await pick(content, windowMode: app, toggles: !app) else {
-                    return completion(.failed)
+                guard !finished else { return }
+                guard let (choice, shots, windows) = try await pick(content, windowMode: app, toggles: !app, onShown: {
+                    pickerShown = true
+                }) else {
+                    return deliver(.failed)
                 }
                 switch choice {
                 case nil:
-                    completion(.cancelled)
+                    deliver(.cancelled)
                 case let .area(screen, rect)?:
-                    completion(.chosen(.area(rect, screen)))
+                    deliver(.chosen(.area(rect, screen)))
                 case let .window(id)?:
                     guard let w = windows.first(where: { $0.id == id }),
                           let screen = shots.map(\.0).max(by: { area(w.frame.intersection($0.frame)) < area(w.frame.intersection($1.frame)) })
-                    else { return completion(.cancelled) }
+                    else { return deliver(.cancelled) }
                     if app {
-                        guard let pid = w.window.owningApplication?.processID else { return completion(.cancelled) }
-                        return completion(.chosen(.app(pid, screen)))
+                        guard let pid = w.window.owningApplication?.processID else { return deliver(.cancelled) }
+                        return deliver(.chosen(.app(pid, screen)))
                     }
                     let rect = w.frame.intersection(screen.frame)
-                    completion(rect.width >= 2 && rect.height >= 2 ? .chosen(.area(rect, screen)) : .cancelled)
+                    deliver(rect.width >= 2 && rect.height >= 2 ? .chosen(.area(rect, screen)) : .cancelled)
                 }
             } catch {
                 NSLog("Yapshot: ScreenCaptureKit: %@", error.localizedDescription)
-                completion(.failed)
+                deliver(.failed)
             }
         }
     }
@@ -102,7 +137,8 @@ enum NativeCapture {
     /// Freezes every screen and shows the picker over them until something is chosen or it is
     /// cancelled. Nil when ScreenCaptureKit returned no screens.
     @MainActor
-    private static func pick(_ content: SCShareableContent, windowMode: Bool, toggles: Bool = true) async throws
+    private static func pick(_ content: SCShareableContent, windowMode: Bool, toggles: Bool = true,
+                             onShown: () -> Void = {}) async throws
         -> (choice: Picker.Choice?, shots: [(NSScreen, CGImage)], windows: [PickableWindow])? {
         let frozen = try await withThrowingTaskGroup(of: (Int, CGImage).self) { group in
             for (i, screen) in NSScreen.screens.enumerated() {
@@ -116,6 +152,7 @@ enum NativeCapture {
         let shots = NSScreen.screens.enumerated().compactMap { i, s in frozen[i].map { (s, $0) } }
         guard !shots.isEmpty else { return nil }
         let windows = pickableWindows(content)
+        onShown()
         let choice = await withCheckedContinuation { (done: CheckedContinuation<Picker.Choice?, Never>) in
             Picker.show(shots: shots, windows: windows.map { ($0.id, $0.frame) }, windowMode: windowMode, toggles: toggles) {
                 done.resume(returning: $0)
@@ -179,7 +216,7 @@ enum NativeCapture {
             guard let layer = w[kCGWindowLayer] as? Int, layer >= 0, layer < Int(CGWindowLevelForKey(.screenSaverWindow)),
                   (w[kCGWindowAlpha] as? Double ?? 1) > 0,
                   let id = w[kCGWindowNumber] as? CGWindowID, let sc = byID[id],
-                  let dict = w[kCGWindowBounds], let r = CGRect(dictionaryRepresentation: dict as! CFDictionary),
+                  let dict = w[kCGWindowBounds] as? NSDictionary, let r = CGRect(dictionaryRepresentation: dict),
                   r.width >= 8, r.height >= 8 else { return nil }
             if layer != 0, screens.contains(where: { r.contains($0) }) { return nil }
             return PickableWindow(id: id, frame: CGRect(x: r.minX, y: top - r.maxY, width: r.width, height: r.height),
@@ -208,7 +245,8 @@ enum BackgroundCursor {
 }
 
 /// The full-screen chooser over the frozen screens: drag out an area, or (in window mode, or after
-/// Space) click a window. Esc or a right-click cancels.
+/// Space) click a window. Esc, the Cancel button, a right-click, or pressing a capture/record
+/// shortcut again always dismisses it.
 final class Picker {
     enum Choice {
         /// In AppKit global coordinates, within `screen`.
@@ -225,20 +263,36 @@ final class Picker {
     var windowMode: Bool
     /// Space switches between dragging an area and clicking a window.
     var toggles = true
-    private let done: (Choice?) -> Void
+    private var session: OverlaySession<Choice>?
+    private var escapeToken = 0
+    private var localKeyMonitor: Any?
+    private var globalKeyMonitor: Any?
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     /// Drag start and current point, in global coordinates, and the screen it started on.
     var dragStart: CGPoint?
     var dragPoint: CGPoint?
     var dragScreen: NSScreen?
     var hovered: CGWindowID?
 
+    /// Cancels an active fullscreen picker if one is on screen. Returns true if one was dismissed.
+    @discardableResult
+    static func cancelCurrent(reason: OverlaySession<Choice>.DismissReason = .hotkey) -> Bool {
+        guard let existing = current else { return false }
+        existing.cancel(reason: reason)
+        return true
+    }
+
     static func show(shots: [(NSScreen, CGImage)], windows: [(CGWindowID, CGRect)], windowMode: Bool, toggles: Bool = true,
                      done: @escaping (Choice?) -> Void) {
+        // Never leak a previous fullscreen overlay if a second picker is requested.
+        current?.cancel(reason: .replaced)
         let p = Picker(windows: windows.map { (id: $0.0, frame: $0.1) }, windowMode: windowMode, done: done)
         p.toggles = toggles
         current = p
         p.screens = shots.map(\.0)
         p.overlays = shots.map { PickerWindow(screen: $0.0, image: $0.1, picker: p) }
+        p.installDismissGuards()
+        p.session?.begin()
         // The overlays take keys without activating Yapshot, so the app being captured keeps its
         // active look and its focus comes back on Esc.
         let mouse = NSEvent.mouseLocation
@@ -263,7 +317,50 @@ final class Picker {
     private init(windows: [(id: CGWindowID, frame: CGRect)], windowMode: Bool, done: @escaping (Choice?) -> Void) {
         self.windows = windows
         self.windowMode = windowMode
-        self.done = done
+        self.session = OverlaySession<Choice>(
+            claimEscape: { [weak self] on in
+                guard let self else { return }
+                if on {
+                    self.escapeToken = Hotkeys.claimEscape { [weak self] in self?.cancel(reason: .escape) }
+                } else {
+                    Hotkeys.releaseEscape(self.escapeToken)
+                    self.escapeToken = 0
+                }
+            },
+            tearDown: { [weak self] in self?.tearDown() },
+            completion: done
+        )
+    }
+
+    private func installDismissGuards() {
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let self, Self.isCancelKey(e) else { return e }
+            self.cancel(reason: .escape)
+            return nil
+        }
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard Self.isCancelKey(e) else { return }
+            DispatchQueue.main.async { self?.cancel(reason: .escape) }
+        }
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.willSleepNotification,
+                     NSWorkspace.sessionDidResignActiveNotification,
+                     NSWorkspace.activeSpaceDidChangeNotification] {
+            let obs = ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.cancel(reason: .systemEvent)
+            }
+            observers.append((ws, obs))
+        }
+        let screenObs = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.cancel(reason: .systemEvent)
+        }
+        observers.append((NotificationCenter.default, screenObs))
+    }
+
+    static func isCancelKey(_ e: NSEvent) -> Bool {
+        e.keyCode == 53 || (e.modifierFlags.contains(.command) && e.charactersIgnoringModifiers == ".")
     }
 
     /// The dragged rectangle, kept on the screen where the drag started and snapped to its pixels.
@@ -322,24 +419,49 @@ final class Picker {
         refresh()
     }
 
-    func cancel() { finish(nil) }
+    func cancel(reason: OverlaySession<Choice>.DismissReason = .escape) {
+        _ = session?.dismiss(reason)
+    }
 
-    func refresh() { for w in overlays { w.overlay.update() } }
+    func refresh() {
+        for w in overlays {
+            w.overlay.update()
+            w.updateHint()
+        }
+    }
 
-    private func finish(_ choice: Choice?) {
-        guard Picker.current === self else { return }
-        Picker.current = nil
-        for w in overlays { w.orderOut(nil) }
+    private func finish(_ choice: Choice) {
+        _ = session?.complete(choice)
+    }
+
+    private func tearDown() {
+        if Picker.current === self { Picker.current = nil }
+        if let m = localKeyMonitor { NSEvent.removeMonitor(m); localKeyMonitor = nil }
+        if let m = globalKeyMonitor { NSEvent.removeMonitor(m); globalKeyMonitor = nil }
+        for (center, obs) in observers { center.removeObserver(obs) }
+        observers.removeAll()
+        let windowsToClose = overlays
         overlays = []
+        for w in windowsToClose {
+            w.orderOut(nil)
+            w.close()
+        }
         BackgroundCursor.set(false)
-        done(choice)
+        NSCursor.arrow.set()
     }
 }
 
 private final class PickerWindow: NSPanel {
     let overlay: PickerView
+    private weak var picker: Picker?
+    private let screenRef: NSScreen
+    private let hintLabel = NSTextField(labelWithString: "")
+    private var cancelBar: NSView?
+    private var cancelRow: NSStackView?
 
     init(screen: NSScreen, image: CGImage, picker: Picker) {
+        self.picker = picker
+        self.screenRef = screen
         overlay = PickerView(screen: screen, image: image, picker: picker)
         super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
                    defer: false)
@@ -353,9 +475,17 @@ private final class PickerWindow: NSPanel {
         hasShadow = false
         isOpaque = true
         backgroundColor = .black
-        contentView = overlay
+        // Keep the layer-hosting PickerView and the clickable Cancel HUD as siblings in a plain container.
+        let container = NSView(frame: CGRect(origin: .zero, size: screen.frame.size))
+        overlay.frame = container.bounds
+        container.addSubview(overlay)
+        let bar = makeCancelBar(picker: picker)
+        cancelBar = bar
+        container.addSubview(bar)
+        contentView = container
         initialFirstResponder = overlay
         makeFirstResponder(overlay)
+        updateHint()
     }
 
     override var canBecomeKey: Bool { true }
@@ -364,6 +494,102 @@ private final class PickerWindow: NSPanel {
         super.becomeKey()
         makeFirstResponder(overlay)
     }
+
+    override func sendEvent(_ e: NSEvent) {
+        if e.type == .keyDown, Picker.isCancelKey(e) {
+            picker?.cancel(reason: .escape)
+            return
+        }
+        super.sendEvent(e)
+    }
+
+    override func performKeyEquivalent(with e: NSEvent) -> Bool {
+        if Picker.isCancelKey(e) {
+            picker?.cancel(reason: .escape)
+            return true
+        }
+        return super.performKeyEquivalent(with: e)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        picker?.cancel(reason: .escape)
+    }
+
+    func updateHint() {
+        guard let picker else { return }
+        if picker.windowMode {
+            hintLabel.stringValue = picker.toggles ? "Click a window  ·  Space: area  ·  Esc" : "Click a window  ·  Esc"
+        } else {
+            hintLabel.stringValue = picker.toggles ? "Drag an area  ·  Space: window  ·  Esc" : "Drag an area  ·  Esc"
+        }
+        layoutCancelBar()
+    }
+
+    private func layoutCancelBar() {
+        guard let bar = cancelBar, let row = cancelRow else { return }
+        let size = row.fittingSize
+        row.frame = CGRect(origin: .zero, size: size)
+        bar.layer?.cornerRadius = size.height / 2
+        let vf = screenRef.visibleFrame
+        let x = vf.midX - screenRef.frame.minX - size.width / 2
+        let y = vf.maxY - screenRef.frame.minY - size.height - 14
+        bar.frame = CGRect(origin: CGPoint(x: max(12, x), y: max(12, y)), size: size)
+    }
+
+    /// Always-visible top-center Cancel pill so the fullscreen overlay can be dismissed with a single click.
+    private func makeCancelBar(picker: Picker) -> NSView {
+        hintLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        hintLabel.textColor = NSColor(white: 1, alpha: 0.88)
+
+        let close = PickerCancelButton(title: "Cancel", target: nil, action: nil)
+        close.isBordered = false
+        close.wantsLayer = true
+        close.layer?.backgroundColor = NSColor(white: 1, alpha: 0.16).cgColor
+        close.layer?.cornerRadius = 11
+        close.attributedTitle = NSAttributedString(string: "Cancel", attributes: [
+            .foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 12, weight: .semibold)])
+        if let xmark = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Cancel")?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .bold)) {
+            close.image = xmark
+            close.contentTintColor = .white
+            close.imagePosition = .imageLeading
+            close.imageHugsTitle = true
+        }
+        close.widthAnchor.constraint(equalToConstant: 74).isActive = true
+        close.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        close.target = close
+        close.action = #selector(PickerCancelButton.clicked)
+        close.onClick = { [weak picker] in picker?.cancel(reason: .closeButton) }
+        close.toolTip = "Cancel (Esc)"
+
+        let row = NSStackView(views: [hintLabel, close])
+        row.spacing = 12
+        row.edgeInsets = NSEdgeInsets(top: 6, left: 14, bottom: 6, right: 6)
+        cancelRow = row
+
+        let bar = PickerBarView(frame: .zero)
+        bar.wantsLayer = true
+        bar.layer?.backgroundColor = Brand.ink.withAlphaComponent(0.92).cgColor
+        bar.layer?.borderColor = Brand.edge.cgColor
+        bar.layer?.borderWidth = 1
+        bar.layer?.masksToBounds = true
+        bar.appearance = NSAppearance(named: .darkAqua)
+        bar.addSubview(row)
+        return bar
+    }
+}
+
+private final class PickerBarView: NSView {
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
+    override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+private final class PickerCancelButton: NSButton {
+    var onClick: () -> Void = {}
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
+    @objc func clicked() { onClick() }
 }
 
 /// One screen's frozen image with the selection drawn over it. Layers do the drawing, so moving the
@@ -429,12 +655,12 @@ private final class PickerView: NSView {
     override func mouseDown(with e: NSEvent) { picker.mouseDown(at: global(e)) }
     override func mouseDragged(with e: NSEvent) { picker.mouseDragged(to: global(e)) }
     override func mouseUp(with e: NSEvent) { picker.mouseUp(at: global(e)) }
-    override func rightMouseDown(with e: NSEvent) { picker.cancel() }
+    override func rightMouseDown(with e: NSEvent) { picker.cancel(reason: .rightClick) }
 
     override func keyDown(with e: NSEvent) {
         switch e.keyCode {
-        case 53: picker.cancel()        // Esc
-        case 49: picker.toggleMode()    // Space
+        case 53: picker.cancel(reason: .escape)     // Esc
+        case 49: picker.toggleMode()                // Space
         default: break
         }
     }

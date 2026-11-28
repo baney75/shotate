@@ -18,7 +18,9 @@ final class Hotkeys {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
             DispatchQueue.main.async {
-                if id.id == Hotkeys.pasteID { Hotkeys.shared?.onPaste() } else { Hotkeys.shared?.actions[id.id]?() }
+                if id.id == Hotkeys.pasteID { Hotkeys.shared?.onPaste() }
+                else if id.id == Hotkeys.escapeID { Hotkeys.shared?.onEscape?() }
+                else { Hotkeys.shared?.actions[id.id]?() }
             }
             return noErr
         }, 1, &spec, nil, &handler)
@@ -29,6 +31,44 @@ final class Hotkeys {
     private static let pasteID: UInt32 = 0xFFFF
     private var pasteRef: EventHotKeyRef?
     var onPaste: () -> Void = {}
+
+    /// Bare Esc, claimed only while a fullscreen or modal overlay is up (Picker, PasteChooser), so
+    /// Esc always dismisses the overlay even if another app took key focus and without Accessibility.
+    private static let escapeID: UInt32 = 0xFFFE
+    private var escapeRef: EventHotKeyRef?
+    private var escapeToken = 0
+    private var onEscape: (() -> Void)?
+
+    @discardableResult
+    static func claimEscape(_ action: @escaping () -> Void) -> Int {
+        shared?.setEscape(action) ?? 0
+    }
+
+    static func releaseEscape(_ token: Int) {
+        shared?.clearEscape(token)
+    }
+
+    private func setEscape(_ action: @escaping () -> Void) -> Int {
+        escapeToken += 1
+        onEscape = action
+        if escapeRef == nil {
+            var ref: EventHotKeyRef?
+            let status = RegisterEventHotKey(UInt32(kVK_Escape), 0,
+                                             EventHotKeyID(signature: OSType(0x534E4150), id: Hotkeys.escapeID),
+                                             GetApplicationEventTarget(), 0, &ref)
+            if status == noErr { escapeRef = ref }
+        }
+        return escapeToken
+    }
+
+    private func clearEscape(_ token: Int) {
+        guard token == escapeToken else { return }
+        onEscape = nil
+        if let ref = escapeRef {
+            UnregisterEventHotKey(ref)
+            escapeRef = nil
+        }
+    }
 
     var pasteClaimed: Bool { pasteRef != nil }
 
