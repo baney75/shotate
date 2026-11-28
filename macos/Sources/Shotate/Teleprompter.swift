@@ -75,11 +75,12 @@ import SwiftUI
         timer?.invalidate(); timer = nil
     }
 
-    /// Record starts a voice note from the top of the script; Stop saves and transcribes it.
+    /// Record starts a voice note from the top of the script; Stop saves it (and copies the audio
+    /// file if started from the shortcut).
     func toggleRecord() {
         let rec = VoiceRecorder.shared
         if QuickVoiceNote.shared.phase == .recording {
-            // A note started with the shortcut finishes the same way: transcribe, copy, close its badge.
+            // A note started with the shortcut finishes the same way: copy the audio file and close its badge.
             QuickVoiceNote.shared.finish()
         } else if rec.isRecording {
             rec.stop()
@@ -113,7 +114,7 @@ import SwiftUI
         updateTimer()
     }
 
-    /// A voice note recorded from the script: note the script and transcribe it as usual.
+    /// A voice note recorded from the script: record the script's name in its sidecar.
     private func saved(_ u: URL) {
         guard fromScript else { return }
         fromScript = false
@@ -121,12 +122,8 @@ import SwiftUI
         var m = store.loadMeta(u)
         m.script = name
         store.saveMeta(m, for: u)
-        status = "Saved \(u.deletingPathExtension().lastPathComponent). Transcribing\u{2026}"
-        store.transcribe(u) { text, failure in
-            let me = Teleprompter.shared
-            me.status = text != nil ? "Saved and transcribed." : (failure ?? "Couldn't transcribe.")
-            VoiceStore.shared.reload()
-        }
+        status = "Saved \(u.deletingPathExtension().lastPathComponent)."
+        VoiceStore.shared.reload()
     }
 
     private func updateTimer() {

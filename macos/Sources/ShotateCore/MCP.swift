@@ -33,11 +33,9 @@ public final class MCPServer {
              required: ["name"]),
         tool("delete_script", "Delete a saved script.", ["name": string("The script's name, as list_scripts shows it.")],
              required: ["name"]),
-        tool("list_voice_notes", "List the user's voice notes, newest first: name, date, duration in seconds, whether "
-             + "it has a transcript, and the script it was read from.",
+        tool("list_voice_notes", "List the user's voice notes, newest first: name, file, path, date, duration in seconds, "
+             + "and the script it was read from.",
              ["limit": ["type": "integer", "minimum": 1, "description": "At most this many (default 20)."]]),
-        tool("get_transcript", "The transcript of a voice note, with its markers.",
-             ["name": string("The voice note's name, as list_voice_notes shows it.")], required: ["name"]),
         tool("status", "Whether Yapshot is running, whether agent control is on, and where voice notes are kept."),
         tool("capture", "Take a screenshot through the running app and return the file path. Needs \"Let Agents Control "
              + "Yapshot\" on in the menu bar icon's menu.",
@@ -85,7 +83,7 @@ public final class MCPServer {
                 "capabilities": ["tools": ["listChanged": false]],
                 "serverInfo": ["name": "yapshot", "title": "Yapshot", "version": version],
                 "instructions": "Yapshot is the user's screenshot and voice notes app on this Mac. send_script puts a script "
-                    + "in its teleprompter for the user to read aloud; list_voice_notes and get_transcript read what they recorded.",
+                    + "in its teleprompter for the user to read aloud; list_voice_notes lists their saved audio recordings.",
             ], id: id)
         case "ping":
             return encode(result: [:], id: id)

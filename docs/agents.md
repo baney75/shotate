@@ -104,14 +104,13 @@ Agents…** in Settings › Advanced does the same. Restart an open agent to pic
 | `list_scripts` | | Name, modified date and word count of each script |
 | `read_script` | `name` | The script's text |
 | `delete_script` | `name` | Deletes it. Only a plain name in the Scripts folder: `../x` or `a/b` is refused |
-| `list_voice_notes` | `limit` (20) | Newest first: name, date, duration, `hasTranscript`, and `script` when read from one |
-| `get_transcript` | `name` | The transcript and markers |
+| `list_voice_notes` | `limit` (20) | Newest first: name, file, path, date, duration, and `script` when read from one |
 | `status` | | Running, agent control, voice and scripts folders |
 | `capture` | `target` (screen, window, area, app), `app`, `window`, `title`, `rect`, `out` | A screenshot, as `yapshot capture` does. Needs agent control |
 
 Voice notes and scripts are read from the folder directly, so those tools work without the app.
-The teleprompter scrolls while a voice note records; when that note is saved, Yapshot transcribes
-it and writes the script's name in its sidecar (`.meta/<file>.json`, `"script"`).
+The teleprompter scrolls while a voice note records; when that note is saved, Yapshot writes the
+script's name in its sidecar (`.meta/<file>.json`, `"script"`).
 
 ## How it works
 

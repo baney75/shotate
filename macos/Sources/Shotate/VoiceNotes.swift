@@ -1,7 +1,6 @@
 import AppKit
 import AVFoundation
 import Combine
-import Speech
 import ShotateCore
 import SwiftUI
 
@@ -34,25 +33,15 @@ extension VoiceQuality {
     }
 }
 
-/// The voice notes folder: plain audio files, with markers and transcripts in `.meta/<file>.json`.
+/// The voice notes folder: plain audio files, with markers in `.meta/<file>.json`.
 @MainActor final class VoiceStore: ObservableObject {
     static let shared = VoiceStore()
     private(set) var dir = Settings.defaultVoiceFolder
     @Published var notes: [VoiceNote] = []
     @Published var selection: URL?
-    @Published var transcribing: Set<URL> = []
     @Published var message: String?
     /// The library has been looked at, so a folder change should list the new one.
     private var listed = false
-    private var speechTasks: [URL: SFSpeechRecognitionTask] = [:]
-    private var recognizers: [URL: SFSpeechRecognizer] = [:]
-    /// Callers waiting on a transcript. They get the text, or nil with the reason.
-    private var waiters: [URL: [(String?, String?) -> Void]] = [:]
-    /// Notes waiting on speech authorization, so a second caller in that gap doesn't start a second task.
-    private var authorizing: Set<URL> = []
-
-    /// True when transcription runs on this Mac. Otherwise macOS may send the audio to Apple.
-    static var transcribesOnDevice: Bool { SFSpeechRecognizer()?.supportsOnDeviceRecognition ?? false }
 
     func setFolder(_ url: URL) {
         guard url.standardizedFileURL != dir.standardizedFileURL else { return }
@@ -123,85 +112,16 @@ extension VoiceQuality {
 
     func reveal(_ r: VoiceNote) { NSWorkspace.shared.activateFileViewerSelecting([r.url]) }
 
-    /// Transcribes with macOS speech recognition: on this Mac when it supports that. With a
-    /// completion, errors go to it instead of an alert.
-    func transcribe(_ u: URL, completion: ((_ text: String?, _ failure: String?) -> Void)? = nil) {
-        if let completion { waiters[u, default: []].append(completion) }
-        guard !transcribing.contains(u), !authorizing.contains(u) else { return }
-        authorizing.insert(u)
-        SFSpeechRecognizer.requestAuthorization { status in
-            Task { @MainActor in VoiceStore.shared.startTranscription(u, status: status) }
-        }
-    }
-
-    private func startTranscription(_ u: URL, status: SFSpeechRecognizerAuthorizationStatus) {
-        authorizing.remove(u)
-        guard status == .authorized else {
-            fail(u, "Speech recognition is off for Yapshot. Turn it on in System Settings > Privacy & Security > Speech Recognition.")
-            return
-        }
-        guard let rec = SFSpeechRecognizer(), rec.isAvailable else {
-            fail(u, "Speech recognition isn't available right now.")
-            return
-        }
-        let req = SFSpeechURLRecognitionRequest(url: u)
-        req.shouldReportPartialResults = false
-        req.addsPunctuation = true
-        if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-        transcribing.insert(u)
-        recognizers[u] = rec
-        speechTasks[u] = rec.recognitionTask(with: req) { result, error in
-            let text = result?.bestTranscription.formattedString
-            let isFinal = result?.isFinal ?? false
-            let err = error?.localizedDescription
-            Task { @MainActor in VoiceStore.shared.finishTranscription(u, text: text, isFinal: isFinal, error: err) }
-        }
-        // A stalled speech service must not leave the note "Transcribing" forever: give up after a
-        // minute plus twice the note's length, which hands the audio file to whoever is waiting.
-        let task = speechTasks[u]
-        let length = (try? AVAudioPlayer(contentsOf: u))?.duration ?? 60
-        DispatchQueue.main.asyncAfter(deadline: .now() + 60 + 2 * length) {
-            MainActor.assumeIsolated {
-                let store = VoiceStore.shared
-                guard store.transcribing.contains(u), let task, store.speechTasks[u] === task else { return }
-                task.cancel()
-                store.endTranscription(u)
-                store.fail(u, "Transcription took too long.")
-            }
-        }
-    }
-
-    private func finishTranscription(_ u: URL, text: String?, isFinal: Bool, error: String?) {
-        guard transcribing.contains(u) else { return }
-        if isFinal, let text {
-            var m = loadMeta(u)
-            m.transcript = text.isEmpty ? "(No speech found.)" : text
-            saveMeta(m, for: u)
-            endTranscription(u)
-            reload()
-            for w in waiters.removeValue(forKey: u) ?? [] { w(text, nil) }
-        } else if let error {
-            endTranscription(u)
-            fail(u, "Transcription failed: \(error)")
-        }
-    }
-
-    private func endTranscription(_ u: URL) {
-        transcribing.remove(u)
-        speechTasks[u] = nil
-        recognizers[u] = nil
-    }
-
-    /// Reports a failure to waiting callers, or as an alert when nobody is waiting.
-    private func fail(_ u: URL, _ reason: String) {
-        let ws = waiters.removeValue(forKey: u) ?? []
-        if ws.isEmpty { message = reason }
-        for w in ws { w(nil, reason) }
+    @discardableResult
+    static func copyAudioFile(_ url: URL) -> Bool {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        return pb.writeObjects([url as NSURL])
     }
 }
 
 /// The microphone: one voice note at a time, with live levels, pause and markers.
-@MainActor final class VoiceRecorder: NSObject, ObservableObject {
+@MainActor final class VoiceRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     static let shared = VoiceRecorder()
     @Published private(set) var isRecording = false
     @Published private(set) var isPaused = false
@@ -262,6 +182,7 @@ extension VoiceQuality {
         do {
             try FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
             let r = try AVAudioRecorder(url: u, settings: quality.recorderSettings(channels: stereo ? 2 : 1))
+            r.delegate = self
             r.isMeteringEnabled = true
             guard r.record() else {
                 error = "Recording didn't start. Check that a microphone is connected."
@@ -303,6 +224,7 @@ extension VoiceQuality {
     @discardableResult
     func stop() -> URL? {
         guard let r = recorder, let u = url else { return nil }
+        r.delegate = nil
         r.stop()
         timer?.invalidate(); timer = nil; recorder = nil; url = nil
         isRecording = false; isPaused = false
@@ -315,6 +237,33 @@ extension VoiceQuality {
         store.selection = u
         NotificationCenter.default.post(name: Self.saved, object: u)
         return u
+    }
+
+    /// System interruption or encode error: clean up so neither the recorder nor the badge sticks.
+    private func handleUnexpectedStop(errorMessage: String?) {
+        guard let r = recorder else { return }
+        let u = url
+        r.delegate = nil
+        timer?.invalidate(); timer = nil; recorder = nil; url = nil
+        isRecording = false; isPaused = false
+        if let errorMessage { error = errorMessage }
+        if let u, FileManager.default.fileExists(atPath: u.path) {
+            VoiceStore.shared.reload()
+        }
+        QuickVoiceNote.shared.externalRecordingStopped()
+    }
+
+    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        Task { @MainActor in
+            VoiceRecorder.shared.handleUnexpectedStop(errorMessage: flag ? nil : "The microphone recording stopped unexpectedly.")
+        }
+    }
+
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        let message = error?.localizedDescription
+        Task { @MainActor in
+            VoiceRecorder.shared.handleUnexpectedStop(errorMessage: message.map { "Recording failed: \($0)" } ?? "Recording failed.")
+        }
     }
 }
 
@@ -381,84 +330,111 @@ extension VoiceQuality {
     }
 }
 
-/// The voice note shortcut from any app: the first press starts recording in the background, the
-/// second stops, transcribes and puts the text on the clipboard. A floating badge that never takes
-/// focus shows what is happening.
+/// The voice note shortcut from any app (⇧⌘M): the first press starts recording the microphone,
+/// the second stops and puts the audio file on the clipboard. A floating badge that never takes
+/// focus shows what is happening, with clickable Stop and Close buttons and Esc dismiss.
 @MainActor final class QuickVoiceNote: ObservableObject {
     static let shared = QuickVoiceNote()
 
-    enum Phase: Equatable {
-        case idle, starting, recording, transcribing
-        case copied(String)
-        /// Transcribed, but the clipboard changed meanwhile, so it was left alone.
-        case saved(String)
-        case failed(String)
-    }
+    typealias Phase = QuickVoiceController.Phase
 
     @Published private(set) var phase: Phase = .idle
-    /// The configured shortcut as macOS shows it ("⇧⌘R"), or nil when it is off.
+    /// The configured shortcut as macOS shows it ("⇧⌘M"), or nil when it is off.
     @Published var shortcut: String?
     private var panel: NSPanel?
     private var hideWork: DispatchWorkItem?
+    private var localEscMonitor: Any?
+    private var globalEscMonitor: Any?
+    private var subscriptions: Set<AnyCancellable> = []
+    private lazy var controller: QuickVoiceController = QuickVoiceController(
+        isRecording: { MainActor.assumeIsolated { VoiceRecorder.shared.isRecording } },
+        startRecording: { done in
+            MainActor.assumeIsolated {
+                VoiceRecorder.shared.start { ok in
+                    done(ok, VoiceRecorder.shared.error)
+                }
+            }
+        },
+        stopRecording: { MainActor.assumeIsolated { VoiceRecorder.shared.stop() } },
+        copyAudioFile: { url in MainActor.assumeIsolated { VoiceStore.copyAudioFile(url) } },
+        onPhaseChange: { [weak self] next in MainActor.assumeIsolated { self?.apply(phase: next) } },
+        scheduleHide: { [weak self] delay, work in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.hideWork?.cancel()
+                let item = DispatchWorkItem(block: work)
+                self.hideWork = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+            }
+        },
+        cancelScheduledHide: { [weak self] in
+            MainActor.assumeIsolated {
+                self?.hideWork?.cancel()
+                self?.hideWork = nil
+            }
+        }
+    )
 
-    func toggle() {
-        let rec = VoiceRecorder.shared
-        if rec.isRecording {
-            finish()
-        } else if phase != .transcribing, phase != .starting {
-            phase = .starting
-            // start() may wait on the microphone prompt; the badge shows once recording begins.
-            rec.start { ok in
-                let me = QuickVoiceNote.shared
-                me.show(ok ? .recording : .failed(VoiceRecorder.shared.error ?? "Recording didn't start."))
+    private init() {
+        VoiceRecorder.shared.$isRecording.removeDuplicates().sink { [weak self] recording in
+            guard !recording else { return }
+            Task { @MainActor [weak self] in self?.controller.externalRecordingStopped() }
+        }.store(in: &subscriptions)
+    }
+
+    var isVisible: Bool { phase.isVisible }
+
+    func toggle() { controller.toggle() }
+
+    func finish() { _ = controller.finish() }
+
+    func dismiss() { controller.dismiss() }
+
+    func externalRecordingStopped() { controller.externalRecordingStopped() }
+
+    private func apply(phase next: Phase) {
+        phase = next
+        if next.isVisible {
+            let panel = self.panel ?? makePanel()
+            self.panel = panel
+            if let host = panel.contentView {
+                host.layoutSubtreeIfNeeded()
+                panel.setContentSize(host.fittingSize)
+            }
+            position(panel)
+            panel.orderFrontRegardless()
+            installEscMonitors()
+        } else {
+            removeEscMonitors()
+            panel?.orderOut(nil)
+        }
+    }
+
+    private func installEscMonitors() {
+        if localEscMonitor == nil {
+            localEscMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53 else { return event }
+                return MainActor.assumeIsolated {
+                    guard let self, self.phase.isVisible else { return event }
+                    self.dismiss()
+                    return nil
+                }
+            }
+        }
+        if globalEscMonitor == nil {
+            globalEscMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53 else { return }
+                Task { @MainActor [weak self] in
+                    guard let self, self.phase.isVisible else { return }
+                    self.dismiss()
+                }
             }
         }
     }
 
-    func finish() {
-        guard let url = VoiceRecorder.shared.stop() else { return }
-        show(.transcribing)
-        // Something copied while this transcribes is newer than the note: don't overwrite it.
-        let copiedBefore = NSPasteboard.general.changeCount
-        VoiceStore.shared.transcribe(url) { text, failure in
-            let pb = NSPasteboard.general
-            if pb.changeCount != copiedBefore {
-                QuickVoiceNote.shared.show(.saved(text?.isEmpty == false
-                    ? "You copied something else, so the text is in Voice Notes."
-                    : "You copied something else, so the audio is in Voice Notes."))
-                return
-            }
-            pb.clearContents()
-            if let text, !text.isEmpty {
-                pb.setString(text, forType: .string)
-                QuickVoiceNote.shared.show(.copied(text))
-            } else {
-                // No text: put the audio file on the clipboard so the note is still one paste away.
-                pb.writeObjects([url as NSURL])
-                QuickVoiceNote.shared.show(.failed((failure ?? "No speech found.") + " The audio file is on the clipboard."))
-            }
-        }
-    }
-
-    private func show(_ p: Phase) {
-        phase = p
-        hideWork?.cancel()
-        let panel = self.panel ?? makePanel()
-        self.panel = panel
-        if let host = panel.contentView { panel.setContentSize(host.fittingSize) }
-        position(panel)
-        panel.orderFrontRegardless()
-        switch p {
-        case .copied, .saved, .failed:
-            let work = DispatchWorkItem {
-                let me = QuickVoiceNote.shared
-                me.panel?.orderOut(nil)
-                me.phase = .idle
-            }
-            hideWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
-        default: break
-        }
+    private func removeEscMonitors() {
+        if let m = localEscMonitor { NSEvent.removeMonitor(m); localEscMonitor = nil }
+        if let m = globalEscMonitor { NSEvent.removeMonitor(m); globalEscMonitor = nil }
     }
 
     /// The badge's window, which captures and recordings leave out.
@@ -480,10 +456,11 @@ extension VoiceQuality {
         p.isOpaque = false
         p.hasShadow = true
         p.hidesOnDeactivate = false
-        p.ignoresMouseEvents = true
-        // Keep the badge (and the transcript it shows) out of screenshots and screen recordings.
+        // Clickable so Stop and Close (×) always work on the first click without activating Yapshot.
+        p.ignoresMouseEvents = false
+        // Keep the badge out of screenshots and screen recordings.
         p.sharingType = .none
-        let host = NSHostingView(rootView: QuickVoiceBadge())
+        let host = BadgeHostingView(rootView: QuickVoiceBadge())
         host.frame = p.contentRect(forFrameRect: p.frame)
         p.contentView = host
         return p
@@ -504,6 +481,11 @@ private final class BadgePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+/// Accepts the first click while Yapshot is in the background, so Stop and Close work immediately.
+private final class BadgeHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 // The voice notes colors are the app's own (Brand): ink surfaces, mark red for anything live.
 extension Color {
     static let brandRed = Color(nsColor: Brand.red)
@@ -513,10 +495,10 @@ extension Color {
 }
 
 /// The floating badge for a quick voice note, drawn like the screen recording bar: an ink pill
-/// with a hairline edge, a pulsing red light and white text.
+/// with a hairline edge, a pulsing red light, white text, and clickable Stop and Close buttons.
 struct QuickVoiceBadge: View {
     /// The width, and the height of a one-line badge. A failure wraps and the badge grows to fit.
-    static let size = CGSize(width: 400, height: 56)
+    static let size = CGSize(width: 440, height: 56)
     @ObservedObject var quick = QuickVoiceNote.shared
     @ObservedObject var rec = VoiceRecorder.shared
     /// A fixed state to draw instead of the live one, for `--render-ui`.
@@ -525,19 +507,40 @@ struct QuickVoiceBadge: View {
     private var isFailure: Bool { if case .failed = phase { return true } else { return false } }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             icon.frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: 13, weight: .semibold)).monospacedDigit().foregroundStyle(.white)
                 Text(detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
                     .lineLimit(isFailure ? 3 : 1).fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 4)
             if phase == .recording {
-                MiniLevels(levels: sample?.levels ?? Array(rec.history.suffix(18))).frame(width: 54, height: 20)
+                MiniLevels(levels: sample?.levels ?? Array(rec.history.suffix(18))).frame(width: 44, height: 20)
+                Button { quick.finish() } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "stop.fill").font(.system(size: 9, weight: .bold))
+                        Text("Stop").font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10).frame(height: 24)
+                    .background(Capsule().fill(Color.brandRed))
+                }
+                .buttonStyle(.plain)
+                .help("Stop recording and copy the audio file")
             }
+            Button { quick.dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.white.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            .help("Close (Esc)")
         }
-        .padding(.leading, 18).padding(.trailing, 20).padding(.vertical, 10)
+        .padding(.leading, 18).padding(.trailing, 14).padding(.vertical, 10)
         .frame(width: Self.size.width).frame(minHeight: Self.size.height)
         // Half the one-line height: a pill like the recording bar, still round when a failure wraps.
         .background(RoundedRectangle(cornerRadius: Self.size.height / 2, style: .continuous).fill(Color.brandInk.opacity(0.94)))
@@ -549,10 +552,8 @@ struct QuickVoiceBadge: View {
         switch phase {
         case .recording:
             LiveDot()
-        case .transcribing, .starting:
+        case .starting:
             ProgressView().controlSize(.small).tint(.white)
-        case .saved:
-            Image(systemName: "checkmark.circle.fill").font(.system(size: 16)).foregroundStyle(.white)
         case .copied:
             Image(systemName: "doc.on.clipboard.fill").font(.system(size: 16)).foregroundStyle(.white)
         case .failed:
@@ -565,10 +566,8 @@ struct QuickVoiceBadge: View {
     private var title: String {
         switch phase {
         case .recording: return "Recording  \(VoiceNotes.clock(sample?.elapsed ?? rec.elapsed))"
-        case .transcribing: return "Transcribing"
-        case .copied: return "Copied to clipboard"
-        case .saved: return "Saved"
-        case .failed: return "Couldn't transcribe"
+        case .copied: return "Audio copied to clipboard"
+        case .failed: return "Couldn't record voice note"
         case .idle, .starting: return ""
         }
     }
@@ -576,10 +575,9 @@ struct QuickVoiceBadge: View {
     private var detail: String {
         switch phase {
         case .recording:
-            return quick.shortcut.map { "Press \($0) to stop and copy the text" }
-                ?? "Stop it from the menu bar"
-        case .transcribing: return VoiceStore.transcribesOnDevice ? "On this Mac" : "With Apple's speech recognition"
-        case .copied(let text), .saved(let text): return text
+            return quick.shortcut.map { "Press \($0) or click Stop to copy audio" }
+                ?? "Click Stop or press Esc to close"
+        case .copied(let name): return name
         case .failed(let why): return why
         case .idle, .starting: return ""
         }

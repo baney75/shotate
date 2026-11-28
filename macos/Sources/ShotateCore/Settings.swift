@@ -41,11 +41,12 @@ public struct Settings: Equatable {
     /// The record actions: pressed again while recording, any of them stops it.
     public static let recordActions: Set<String> = ["recordArea", "recordScreen", "recordApp"]
     public static let defaultShortcuts = ["captureArea": defaultShortcut, "captureWindow": "",
-                                          "captureScreen": "cmd+ctrl+shift+s", "recordArea": "cmd+option+shift+r",
+                                          "captureScreen": "cmd+ctrl+shift+s", "recordArea": "cmd+shift+r",
                                           "recordScreen": "cmd+ctrl+shift+r", "recordApp": "cmd+shift+d",
-                                          "voiceNote": "cmd+shift+r"]
-    /// recordArea's default before voice notes took ⇧⌘R.
-    static let oldRecordAreaShortcut = "cmd+shift+r"
+                                          "voiceNote": "cmd+shift+m"]
+    /// The 0.14.0 shortcut pair where voice notes briefly took ⇧⌘R from recordArea.
+    static let legacyV14RecordAreaShortcut = "cmd+option+shift+r"
+    static let legacyV14VoiceNoteShortcut = "cmd+shift+r"
     public static let channels = ["stable", "nightly"]
     public static let configURL = URL(fileURLWithPath: NSHomeDirectory() + "/.config/yapshot/config.json")
     /// Where the app kept its config before it was Yapshot, newest name first: Shotate, then Snapmark.
@@ -139,9 +140,10 @@ public struct Settings: Equatable {
         try loadReporting(from: url).settings
     }
 
-    /// `load`, and whether this load decided the voice note shortcut move (only with `migrate`, and
-    /// only for a file without `voiceNote`). The caller then records the decision with
-    /// `writeVoiceNoteShortcuts` and stops passing `migrate`, so a later hand edit never re-decides it.
+    /// `load`, and whether this load migrated the 0.14.0 shortcut pair back (only with `migrate`,
+    /// and only when `recordArea` is still ⌥⇧⌘R and `voiceNote` is still ⇧⌘R). The caller then
+    /// writes those two keys with `writeVoiceNoteShortcuts` and stops passing `migrate`, so a later
+    /// hand edit is never overridden.
     public static func loadReporting(from url: URL = Settings.configURL,
                                      migrate: Bool = true) throws -> (settings: Settings, migrated: Bool) {
         let data = try Data(contentsOf: url)
@@ -160,7 +162,7 @@ public struct Settings: Equatable {
         }
         if let m = o["commands"] as? [String: String] { s.commandHotkeys = m.filter { Shortcut($0.key) != nil } }
         let written = Set((o["shortcuts"] as? [String: Any] ?? [:]).keys)
-        if migrate { s.moveRecordAreaForVoiceNote(written: written) }
+        let migrated = migrate ? s.restoreRecorderShortcut(written: written) : false
         s.yieldNewDefaults(written: written)
         if let m = o["toolKeys"] as? [String: String] { s.toolKeys = m.mapValues { $0.lowercased() } }
         if let c = (o["updateChannel"] as? String)?.lowercased(), Settings.channels.contains(c) { s.updateChannel = c }
@@ -175,7 +177,7 @@ public struct Settings: Equatable {
         }
         if let q = (o["voiceQuality"] as? String).flatMap({ VoiceQuality(rawValue: $0.lowercased()) }) { s.voiceQuality = q }
         if let b = o["voiceStereo"] as? Bool { s.voiceStereo = b }
-        return (s, migrate && !written.contains("voiceNote"))
+        return (s, migrated)
     }
 
     /// Writes only `shortcuts.recordArea` and `shortcuts.voiceNote` into the file and keeps every other
@@ -243,26 +245,27 @@ public struct Settings: Equatable {
         return s
     }
 
-    /// Before voice notes, ⇧⌘R recorded an area. A file that still has that and no `voiceNote` gets the
-    /// new layout once: recordArea moves to ⌥⇧⌘R and ⇧⌘R starts a voice note. If ⌥⇧⌘R is already
-    /// used for something else, nothing moves (voiceNote then starts off). Any other recordArea is the
-    /// person's own choice and stays. voiceNote keeps its default, which `yieldNewDefaults` still turns
-    /// off if another shortcut uses ⇧⌘R.
-    /// A file without recordArea had it on the old default, so it counts as ⇧⌘R here.
-    mutating func moveRecordAreaForVoiceNote(written: Set<String>) {
-        let old = Settings.oldRecordAreaShortcut
-        let had = written.contains("recordArea") ? shortcut("recordArea") : Shortcut(old)
-        guard !written.contains("voiceNote"), had == Shortcut(old),
-              let moved = Settings.defaultShortcuts["recordArea"], let target = Shortcut(moved) else { return }
-        let taken = Settings.actions.contains { $0 != "recordArea" && written.contains($0) && shortcut($0) == target }
-            || commandHotkeys.keys.contains { Shortcut($0) == target }
-        if taken {
-            // Keep area recording where it was; voice notes start off rather than take its keys.
-            shortcuts["recordArea"] = old
-            shortcuts["voiceNote"] = ""
-        } else {
-            shortcuts["recordArea"] = moved
-        }
+    /// In 0.14.0, voice notes briefly took ⇧⌘R and moved area recording to ⌥⇧⌘R. A config file that
+    /// still has that exact 0.14.0 pair (`recordArea` = ⌥⇧⌘R and `voiceNote` = ⇧⌘R) migrates once
+    /// back to `recordArea` = ⇧⌘R and `voiceNote` = ⇧⌘M. Any customized shortcut stays untouched,
+    /// and neither key steals a shortcut already used by another action or command.
+    @discardableResult
+    mutating func restoreRecorderShortcut(written: Set<String>) -> Bool {
+        guard written.contains("recordArea"), written.contains("voiceNote"),
+              shortcut("recordArea") == Shortcut(Settings.legacyV14RecordAreaShortcut),
+              shortcut("voiceNote") == Shortcut(Settings.legacyV14VoiceNoteShortcut),
+              let recDefault = Settings.defaultShortcuts["recordArea"], let recTarget = Shortcut(recDefault),
+              let micDefault = Settings.defaultShortcuts["voiceNote"], let micTarget = Shortcut(micDefault)
+        else { return false }
+        let recTaken = Settings.actions.contains {
+            $0 != "recordArea" && $0 != "voiceNote" && written.contains($0) && shortcut($0) == recTarget
+        } || commandHotkeys.keys.contains { Shortcut($0) == recTarget }
+        let micTaken = Settings.actions.contains {
+            $0 != "recordArea" && $0 != "voiceNote" && written.contains($0) && shortcut($0) == micTarget
+        } || commandHotkeys.keys.contains { Shortcut($0) == micTarget }
+        if !recTaken { shortcuts["recordArea"] = recDefault }
+        shortcuts["voiceNote"] = micTaken ? "" : micDefault
+        return true
     }
 
     /// An action the saved settings don't mention (`written` lists those they do) gets its default

@@ -101,8 +101,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return .terminateLater
     }
 
-    /// A voice note is cut off at quit: finish its file so it plays.
+    /// A voice note is cut off at quit: finish its file so it plays, and dismiss any open overlays.
     func applicationWillTerminate(_ notification: Notification) {
+        _ = Picker.cancelCurrent(reason: .systemEvent)
+        QuickVoiceNote.shared.dismiss()
+        Teleprompter.shared.close()
+        pastePicker.dismiss()
         VoiceRecorder.shared.stop()
     }
 
@@ -161,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// The config file, or settings migrated from before it existed. A broken file is reported and
     /// left alone, never overwritten, so a typo can't wipe someone's settings.
-    private static let voiceNoteMoveKey = "voiceNoteShortcutMoveDone"
+    private static let recorderRestoreKey = "recorderShortcutRestoreDone"
 
     private func loadConfig() -> Settings? {
         let url = Settings.configURL
@@ -170,17 +174,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return Settings.migrated(from: .standard)
         }
         do {
-            // The voice note shortcut move is decided on the first load after the upgrade only.
-            let pending = !UserDefaults.standard.bool(forKey: Self.voiceNoteMoveKey)
+            // The one-time shortcut restore from 0.14.0 (recordArea -> ⇧⌘R, voiceNote -> ⇧⌘M)
+            // runs on the first load after upgrading only.
+            let pending = !UserDefaults.standard.bool(forKey: Self.recorderRestoreKey)
             let (s, migrated) = try Settings.loadReporting(from: url, migrate: pending)
             configBroken = false
             if pending {
                 do {
                     if migrated { try s.writeVoiceNoteShortcuts(to: url) }
-                    UserDefaults.standard.set(true, forKey: Self.voiceNoteMoveKey)
+                    UserDefaults.standard.set(true, forKey: Self.recorderRestoreKey)
                 } catch {
                     Alerts.show("Yapshot couldn't update its config file",
-                                "It moved area recording to make room for voice notes but couldn't write that to "
+                                "It updated the default recording and voice note shortcuts but couldn't write that to "
                                 + "\((url.path as NSString).abbreviatingWithTildeInPath): \(error.localizedDescription)")
                 }
             }
@@ -352,6 +357,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Capture and open
 
     func capture(_ mode: CaptureMode) {
+        // Pressing a capture shortcut while the fullscreen picker is up cancels and closes it.
+        if Picker.cancelCurrent(reason: .hotkey) { return }
         guard !capturing else { return }
         // The picker would cover the screen being recorded, and be in the video.
         if isRecording, mode != .screen { return NSSound.beep() }
@@ -388,10 +395,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// A record shortcut: start recording; pressed again (any record shortcut), stop and save.
+    /// Pressing a record shortcut while the picker overlay is open dismisses the picker.
     /// Area: drag over part of the screen. Full screen: the screen with the pointer. App: click one of
     /// its windows; its log is saved too, and copied instead of the video.
     func toggleRecording(_ kind: RecordKind) {
         if isRecording { return stopRecording() }
+        if Picker.cancelCurrent(reason: .hotkey) { return }
         guard !capturing else { return }
         // The last recording is still writing its note: a pick now would only be refused after it.
         guard !Recording.isSaving else { return NSSound.beep() }
@@ -448,7 +457,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
-    @objc func stopRecording() { Recording.stop() }
+    @objc func stopRecording() {
+        _ = Picker.cancelCurrent(reason: .hotkey)
+        Recording.stop()
+    }
 
     /// Saved: copy it like a capture, and nothing more (no Finder window; Donovan asked for none). An
     /// app recording (⇧⌘D) copies its debug note: it pastes as text into a chat, an issue or a coding
@@ -589,11 +601,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(stop)
             menu.addItem(.separator())
         }
-        if VoiceRecorder.shared.isRecording {
-            let stop = NSMenuItem(title: "Stop Voice Note", action: #selector(stopVoiceNote), keyEquivalent: "")
+        if VoiceRecorder.shared.isRecording || QuickVoiceNote.shared.isVisible {
+            let stop = NSMenuItem(title: VoiceRecorder.shared.isRecording ? "Stop Voice Note" : "Dismiss Voice Note Badge",
+                                  action: #selector(stopVoiceNote), keyEquivalent: "")
             stop.target = self
             stop.image = NSImage(systemSymbolName: "mic.circle.fill", accessibilityDescription: nil)
-            stop.toolTip = "Saves it, transcribes it and copies the text"
+            stop.toolTip = "Stops the voice note and copies the audio file to the clipboard"
             menu.addItem(stop)
             menu.addItem(.separator())
         }

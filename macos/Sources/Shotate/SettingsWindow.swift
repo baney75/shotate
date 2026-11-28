@@ -353,7 +353,7 @@ final class ShortcutsPane: SettingsPane {
             note("Click a shortcut, then press the keys. Delete or the ✕ turns it off. These work from any app."
                  + (record.isEmpty ? "" : " Press any record shortcut again to stop and save. Recording an app "
                     + "copies what it logged while recording, ready to paste; the video and the log are saved together.")
-                 + " Press the voice note shortcut once to start recording your voice, and again to stop and copy the text."),
+                 + " Press the voice note shortcut once to start recording your voice, and again to stop and copy the audio file."),
             separator(),
             heading("Editor tool keys"),
             tools,
@@ -506,9 +506,8 @@ final class VoiceNotesPane: SettingsPane {
         return [
             form([("Save voice notes to:", folderRow), ("Quality:", quality), ("Channels:", stereoBox)]),
             separator(),
-            note("Each voice note is an audio file in this folder. Markers and transcripts are kept beside it in a "
-                 + "hidden .meta folder. Transcripts come from macOS speech recognition, which runs on this Mac when "
-                 + "it supports on-device recognition."),
+            note("Each voice note is an audio file in this folder. Markers are kept beside it in a hidden .meta "
+                 + "folder. Stopping a quick voice note copies the audio file to the clipboard."),
             open,
         ]
     }
@@ -615,7 +614,7 @@ final class AdvancedPane: SettingsPane {
             separator(),
             heading("AI agents"),
             note("Adds Yapshot's MCP server to Claude Code, Codex, Cursor and Claude Desktop, so they can send you a script "
-                 + "to read aloud and read your voice note transcripts. It runs on this Mac only. Each config file is backed up first."),
+                 + "to read aloud and list your voice notes. It runs on this Mac only. Each config file is backed up first."),
             connect,
             separator(),
             heading("Troubleshooting"),

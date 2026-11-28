@@ -77,10 +77,10 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | | |
 | --- | --- |
 | **Capture** | Area, window or full screen from a global shortcut, the menu bar, or `yapshot://` URLs |
-| **Record the screen** | On a Mac with macOS 15 or later: ⌥⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder and copied as a file. No Finder window opens. Video only: screen recordings never use the microphone |
-| **Voice notes** | On a Mac: ⇧⌘R from any app starts recording your voice, and pressing it again copies the text. **Voice Notes…** in the menu keeps them all. See [Voice notes](#voice-notes) |
+| **Record the screen** | On a Mac with macOS 15 or later: ⇧⌘R records an area you drag (Space picks a window), ⌃⇧⌘R the whole screen the pointer is on. A small bar shows the time and a Stop button, and a red outline marks a recorded area; neither is in the video. Press any record shortcut again, or click Stop, and the MP4 is saved to your screenshots folder and copied as a file. No Finder window opens. Video only: screen recordings never use the microphone |
+| **Voice notes** | On a Mac: ⇧⌘M from any app starts recording your voice, and pressing it again stops and copies the audio file to the clipboard. **Voice Notes…** in the menu keeps them all. See [Voice notes](#voice-notes) |
 | **Record an app for a demo and a bug report** | ⇧⌘D, then click a window: Yapshot records every window of that app (nothing else on screen) into a folder with the MP4, stills (first and last frames, and up to 6 more, one 0.6 s after each click, skipped when it would land within 0.8 s of an earlier still, so a click within 0.8 s of the previous click with a still, or in the first half second, gets none; with no clicks, a few evenly spaced ones), what the app wrote meanwhile to the system log and to its own log files, any crash report, and `debug.md`. When you stop, `debug.md` is copied: paste it into a coding agent or an issue and it has the errors, the app's log lines and the paths to the video and stills. The video is ready to share as a demo |
-| **Scripts from AI agents** | Claude Code, Codex, Cursor or Claude Desktop can send you a script over MCP (local only). It opens in a teleprompter that scrolls while you record a voice note, and the agent can read the transcript back. `yapshot mcp install` connects them. See [docs/agents.md](docs/agents.md#mcp-server) |
+| **Scripts from AI agents** | Claude Code, Codex, Cursor or Claude Desktop can send you a script over MCP (local only). It opens in a teleprompter that scrolls while you record a voice note, and the agent can list your saved recordings. `yapshot mcp install` connects them. See [docs/agents.md](docs/agents.md#mcp-server) |
 | **Driven by agents** | The `yapshot` command takes screenshots, records, annotates images for docs and exports GIFs and MP4s, printing JSON. Turn on **Let Agents Control Yapshot** in the menu first. Coding agents get a skill for it. See [docs/agents.md](docs/agents.md) |
 | **Annotate** | Arrow, pen, box, ellipse, highlight, text label, numbered step, crop |
 | **Redact for real** | Redaction draws a solid bar. Blur and pixelation can sometimes be reversed; this can't |
@@ -97,7 +97,7 @@ Captures are saved and copied the moment you take them, so closing the editor ne
 | **Retina-correct** | Captures keep their real size when pasted, instead of doubling |
 | **Out of the way** | A menu bar or tray icon, no Dock or taskbar clutter, no windows until you need one |
 | **Same everywhere** | One config file format, the same tools and keys on macOS, Windows and Linux |
-| **Private** | No analytics, no account. Your screenshots never leave your computer. The only network request is a daily update check, which you can turn off. (Transcribing a voice note on a Mac without on-device speech recognition uses Apple's speech service) |
+| **Private** | No analytics, no account. Your screenshots, recordings and voice notes never leave your computer. The only network request is a daily update check, which you can turn off |
 | **Easy updates** | Yapshot checks once a day and updates itself with one click from its menu. On a Mac, pick Stable or Nightly in Settings |
 
 ## Keyboard
@@ -123,34 +123,32 @@ Trash, Ctrl+Y also redoes). Tool letters can be changed in Settings or the
 
 ## Voice notes
 
-On a Mac, press ⇧⌘R in any app. A small badge at the top of the screen shows the time and your
-voice level, and the app you're in keeps the keyboard. Press ⇧⌘R again and Yapshot saves the
-recording, transcribes it and puts the text on the clipboard. If it finds no words, the audio file
-goes on the clipboard instead. Screen recording can run at the same time.
+On a Mac, press ⇧⌘M in any app. A small badge at the top of the screen shows the time, your voice
+level, and clickable Stop and Close buttons, and the app you're in keeps the keyboard. Press ⇧⌘M
+again (or click Stop) and Yapshot stops recording, saves the file, and puts the audio file on the
+clipboard. Press Esc or click the close button to dismiss the badge at any time. Screen recording
+can run at the same time.
 
 **Voice Notes…** in the menu bar menu opens the library: record (⌘R, with pause and ⌘B markers),
-search names and transcripts, play at any speed, transcribe, copy the text, rename, show in Finder,
-move to the Trash, or drag a note out as a file. Notes are plain audio files in `~/Music/Voice
-Notes`, with markers and transcripts in a hidden `.meta` folder beside them. Pick the folder, AAC,
-Apple Lossless or WAV, and stereo in **Settings › Voice Notes**. Quitting mid note saves it.
+search by name, play at any speed, copy the audio file, rename, show in Finder, move to the Trash,
+or drag a note out as a file. Notes are plain audio files in `~/Music/Voice Notes`, with markers
+in a hidden `.meta` folder beside them. Pick the folder, AAC, Apple Lossless or WAV, and stereo in
+**Settings › Voice Notes**. Quitting mid note saves it.
 
 **Scripts** in the menu bar menu (and the Voice Notes window) opens a script in the teleprompter: a
 floating panel in large white type that leaves the keyboard with the app you're in. Press Record
 and it scrolls as you read; hold it, scroll by hand, change the speed or the text size. The voice
-note saves its transcript as usual and remembers the script. Scripts are Markdown files in
-`Scripts/` inside the voice notes folder; AI agents send them over MCP (see
-[docs/agents.md](docs/agents.md#mcp-server)).
-
-Transcripts come from macOS speech recognition. When the Mac supports on-device recognition, it runs
-on the Mac; otherwise macOS sends the audio to Apple to transcribe it.
+note remembers the script it was read from. Scripts are Markdown files in `Scripts/` inside the
+voice notes folder; AI agents send them over MCP (see [docs/agents.md](docs/agents.md#mcp-server)).
 
 | Shortcut | Does |
 | --- | --- |
-| ⇧⌘R | Start a voice note; again, stop and copy its text |
-| ⌥⇧⌘R | Record an area of the screen (it was ⇧⌘R before voice notes) |
+| ⇧⌘R | Record an area of the screen (Space picks a window); again to stop |
+| ⇧⌘M | Start a voice note; again to stop and copy the audio file |
 
-A config file that still has `recordArea` on ⇧⌘R and no `voiceNote` moves recording to ⌥⇧⌘R once.
-A shortcut you chose yourself stays, and `voiceNote` starts off if its keys are taken.
+A config file from 0.14.0 that still has `recordArea` on ⌥⇧⌘R and `voiceNote` on ⇧⌘R migrates once
+back to ⇧⌘R for recording and ⇧⌘M for voice notes. Shortcuts you customized yourself stay, and
+neither key steals a shortcut already in use.
 
 ## Updates
 
@@ -179,8 +177,8 @@ desktop's screenshot portal, which may ask once; if your desktop has no portal b
 uses `grim`, `gnome-screenshot` or `spectacle` instead.
 
 On **macOS**, Yapshot needs one permission, **Screen Recording**, and the welcome window asks for it with
-one click. Voice notes add **Microphone** (only while a voice note you started records) and **Speech
-Recognition** (only when you transcribe one); macOS asks the first time you use them. If macOS ever shows the switch as on while Yapshot still can't capture, click **Allow…**
+one click. Voice notes add **Microphone** (only while a voice note you started records); macOS asks
+the first time you use it. If macOS ever shows the switch as on while Yapshot still can't capture, click **Allow…**
 again: Yapshot clears its own stale entry and asks fresh. It needs no Input Monitoring, and Accessibility only if you turn on the paste chooser, which types the paste for you. The global shortcut is
 registered with `RegisterEventHotKey`, which macOS allows without extra permission.
 
@@ -210,10 +208,10 @@ app's old names, carry over the first time Yapshot starts.
     "captureArea": "cmd+shift+s",
     "captureWindow": "ctrl+shift+2",
     "captureScreen": "cmd+ctrl+shift+s",
-    "recordArea": "cmd+option+shift+r",
+    "recordArea": "cmd+shift+r",
     "recordScreen": "cmd+ctrl+shift+r",
     "recordApp": "cmd+shift+d",
-    "voiceNote": "cmd+shift+r"
+    "voiceNote": "cmd+shift+m"
   },
   "voiceFolder": "~/Music/Voice Notes",
   "voiceQuality": "aac",

@@ -68,6 +68,14 @@ if [ "${1:-}" = "--install" ]; then
   cp -R "$APP" "$DEST"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$PWD/$APP" 2>/dev/null || true
+  # Remove any stale LaunchAgent that still targets Shotate.app or Snapmark.app (it would otherwise
+  # KeepAlive-loop once the old bundle is removed; Open at login uses SMAppService instead).
+  LEGACY_AGENT="$HOME/Library/LaunchAgents/com.baney.snapmark.plist"
+  if [ -f "$LEGACY_AGENT" ] && grep -Eq '(Shotate|Snapmark)\.app' "$LEGACY_AGENT" 2>/dev/null; then
+    launchctl bootout "gui/$(id -u)" "$LEGACY_AGENT" >/dev/null 2>&1 || launchctl unload -w "$LEGACY_AGENT" >/dev/null 2>&1 || true
+    rm -f "$LEGACY_AGENT"
+    echo "removed stale LaunchAgent $LEGACY_AGENT"
+  fi
   # The old app goes only once Yapshot.app is in place, so a failed copy leaves a working app.
   for LEGACY in "$HOME/Applications/Shotate.app" "/Applications/Shotate.app" \
                 "$HOME/Applications/Snapmark.app" "/Applications/Snapmark.app"; do

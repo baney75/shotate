@@ -1,25 +1,53 @@
 // Full-screen area picker. Rust captures the monitor first and shows it here frozen, so menus and
 // tooltips stay put while you choose. Drag to select; Space switches to picking a whole window;
-// Enter takes the full screen; Esc cancels. Rects go back in physical pixels of this monitor.
+// Enter takes the full screen; Esc, right-click, or the Cancel button closes the overlay.
+// Rects go back in physical pixels of this monitor.
 import { api } from "./api";
-
-type R = { x: number; y: number; w: number; h: number };
+import { createOverlayDismiss, loadOverlayOrDismiss, type OverlayRect as R } from "./core/overlay";
 
 export async function startOverlay(root: HTMLElement) {
-  const info = await api.overlayInfo();
-  const pixels = new Uint8ClampedArray(await api.overlayPixels());
-  const img = await createImageBitmap(new ImageData(pixels, info.width, info.height));
-  root.innerHTML = `<div class="overlay"><canvas></canvas><div class="hint"></div></div>`;
+  root.innerHTML = `<div class="overlay"><canvas></canvas><div class="hint"><span class="hint-text"></span><button type="button" class="overlay-close" aria-label="Cancel">Cancel</button></div></div>`;
   const canvas = root.querySelector("canvas")!;
-  const hint = root.querySelector<HTMLElement>(".hint")!;
+  const hintText = root.querySelector<HTMLElement>(".hint-text")!;
+  const closeBtn = root.querySelector<HTMLButtonElement>(".overlay-close")!;
+
+  let scale = 1;
+  const dismiss = createOverlayDismiss((rect) => api.finishCapture(rect));
+  const finish = (r: R | null) =>
+    dismiss.finish(r && { x: Math.round(r.x * scale), y: Math.round(r.y * scale), w: Math.round(r.w * scale), h: Math.round(r.h * scale) });
+
+  // Register Escape and the Close button BEFORE awaiting any IPC so a slow or failed load can never strand the overlay.
+  const onEarlyKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") void finish(null);
+  };
+  window.addEventListener("keydown", onEarlyKey);
+  closeBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+  closeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    void finish(null);
+  });
+
+  const loaded = await loadOverlayOrDismiss(
+    async () => {
+      const info = await api.overlayInfo();
+      const pixels = new Uint8ClampedArray(await api.overlayPixels());
+      const img = await createImageBitmap(new ImageData(pixels, info.width, info.height));
+      return { info, img };
+    },
+    () => finish(null),
+  );
+  if (!loaded || dismiss.isDone) return;
+  const { info, img } = loaded;
+
   let windowMode = info.mode === "window";
   let start: { x: number; y: number } | null = null;
   let sel: R | null = null;
   let hover: R | null = null;
-  const s = info.scale; // physical pixels per CSS pixel
+  scale = info.scale; // physical pixels per CSS pixel
+  const s = scale;
 
   const setHint = () => {
-    hint.textContent = windowMode ? "Click a window · Space: drag an area · Esc: cancel"
+    hintText.textContent = windowMode ? "Click a window · Space: drag an area · Esc: cancel"
       : "Drag to capture · Space: pick a window · Enter: full screen · Esc: cancel";
   };
 
@@ -57,9 +85,6 @@ export async function startOverlay(root: HTMLElement) {
     info.windows.map((w) => ({ x: w.x / s, y: w.y / s, w: w.w / s, h: w.h / s }))
       .find((w) => x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) ?? null;
 
-  const finish = (r: R | null) =>
-    api.finishCapture(r && { x: Math.round(r.x * s), y: Math.round(r.y * s), w: Math.round(r.w * s), h: Math.round(r.h * s) });
-
   canvas.addEventListener("pointerdown", (e) => {
     if (e.button === 2) return void finish(null);
     if (windowMode) { if (hover) void finish(hover); return; }
@@ -82,6 +107,7 @@ export async function startOverlay(root: HTMLElement) {
     else { sel = null; draw(); }
   });
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  window.removeEventListener("keydown", onEarlyKey);
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") void finish(null);
     if (e.key === "Enter") void finish({ x: 0, y: 0, w: innerWidth, h: innerHeight });

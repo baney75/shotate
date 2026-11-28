@@ -68,21 +68,12 @@ struct MCPTools: MCPToolHandler {
             let f = ISO8601DateFormatter()
             let notes = VoiceNotes.library(in: voice, limit: limit) { (try? AVAudioPlayer(contentsOf: $0))?.duration }
             return MCPServer.json(["folder": voice.path, "voiceNotes": notes.map { n -> [String: Any] in
-                var o: [String: Any] = ["name": n.name, "file": n.url.lastPathComponent, "date": f.string(from: n.date),
-                                        "hasTranscript": n.meta.transcript != nil]
+                var o: [String: Any] = ["name": n.name, "file": n.url.lastPathComponent, "path": n.url.path,
+                                        "date": f.string(from: n.date)]
                 if let d = n.duration { o["duration"] = (d * 10).rounded() / 10 }
                 if let s = n.meta.script { o["script"] = s }
                 return o
             }])
-        case "get_transcript":
-            let n = try VoiceNotes.entry(MCPServer.string(a, "name"), in: voice)
-            guard let t = n.meta.transcript else {
-                throw AgentError("\u{201C}\(n.name)\u{201D} has no transcript yet. The user can transcribe it in Yapshot's Voice Notes window.")
-            }
-            var o: [String: Any] = ["name": n.name, "transcript": t,
-                                    "markers": n.meta.markers.map { ["time": $0.time, "label": $0.label] as [String: Any] }]
-            if let s = n.meta.script { o["script"] = s }
-            return MCPServer.json(o)
         case "status":
             let s = settings
             let app = AgentCLI.ping()

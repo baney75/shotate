@@ -40,7 +40,7 @@ final class MCPTests: XCTestCase {
         let tools = try XCTUnwrap((r["result"] as? [String: Any])?["tools"] as? [[String: Any]])
         XCTAssertEqual(tools.compactMap { $0["name"] as? String },
                        ["send_script", "list_scripts", "read_script", "delete_script", "list_voice_notes",
-                        "get_transcript", "status", "capture"])
+                        "status", "capture"])
         for t in tools {
             XCTAssertEqual((t["inputSchema"] as? [String: Any])?["type"] as? String, "object")
             XCTAssertFalse((t["description"] as? String ?? "").isEmpty)
@@ -135,25 +135,24 @@ final class MCPTests: XCTestCase {
         try FileManager.default.setAttributes([.creationDate: Date(timeIntervalSince1970: 1000)], ofItemAtPath: a.path)
         try FileManager.default.setAttributes([.creationDate: Date(timeIntervalSince1970: 2000)], ofItemAtPath: b.path)
         try Data("not audio".utf8).write(to: voice.appendingPathComponent("notes.txt"))
-        let meta = VoiceMeta(transcript: "Ship it.", duration: 12.5, script: "Launch video")
+        let meta = VoiceMeta(duration: 12.5, script: "Launch video")
         try FileManager.default.createDirectory(at: VoiceNotes.sidecarURL(for: a).deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(meta).write(to: VoiceNotes.sidecarURL(for: a))
         let lib = VoiceNotes.library(in: voice) { _ in 3 }
         XCTAssertEqual(lib.map(\.name), ["Later", "Standup"])
         XCTAssertEqual(lib[0].duration, 3)
-        XCTAssertNil(lib[0].meta.transcript)
         XCTAssertEqual(lib[1].duration, 12.5)
         XCTAssertEqual(lib[1].meta.script, "Launch video")
-        XCTAssertEqual(try VoiceNotes.entry("Standup", in: voice).meta.transcript, "Ship it.")
+        XCTAssertEqual(try VoiceNotes.entry("Standup", in: voice).meta.script, "Launch video")
         XCTAssertEqual(try VoiceNotes.entry("Standup.m4a", in: voice).name, "Standup")
         XCTAssertThrowsError(try VoiceNotes.entry("../Standup", in: voice))
         XCTAssertThrowsError(try VoiceNotes.entry("Nope", in: voice))
     }
 
-    /// Sidecars written before `script` existed still read.
+    /// Sidecars written before `script` existed (or with a legacy `transcript` key) still decode.
     func testOldSidecarDecodes() throws {
         let m = try JSONDecoder().decode(VoiceMeta.self, from: Data(#"{"markers":[],"transcript":"hi"}"#.utf8))
-        XCTAssertEqual(m.transcript, "hi")
+        XCTAssertTrue(m.markers.isEmpty)
         XCTAssertNil(m.script)
     }
 

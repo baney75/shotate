@@ -127,25 +127,24 @@ final class UISnapshots {
         }
     }
 
-    /// The library with three notes in a scratch folder: silent audio files with markers and transcripts.
+    /// The library with three notes in a scratch folder: silent audio files with markers.
     private func voiceNotes() {
         let dir = scratch.appendingPathComponent("Voice Notes", isDirectory: true)
         try? FileManager.default.removeItem(at: dir)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let notes: [(String, Double, String?, [VoiceMarker])] = [
-            ("Standup notes", 94, "Ship the voice notes split today. Check the recording bar in light and dark, "
-                + "then ask for review on all three branches.", [VoiceMarker(time: 21, label: "Marker 1"),
-                                                                 VoiceMarker(time: 63, label: "Marker 2")]),
-            ("Bug repro for the paste chooser", 37, nil, []),
-            ("Voice Note 2026-11-24 at 09.12.40", 312, "Call the printer shop about the order.", []),
+        let notes: [(String, Double, [VoiceMarker])] = [
+            ("Standup notes", 94, [VoiceMarker(time: 21, label: "Marker 1"),
+                                   VoiceMarker(time: 63, label: "Marker 2")]),
+            ("Bug repro for the paste chooser", 37, []),
+            ("Voice Note 2026-11-24 at 09.12.40", 312, []),
         ]
         let store = VoiceStore.shared
-        for (i, (name, duration, transcript, markers)) in notes.enumerated() {
+        for (i, (name, duration, markers)) in notes.enumerated() {
             let url = dir.appendingPathComponent(name).appendingPathExtension("wav")
             try? Self.silentWAV(seconds: duration).write(to: url)
             try? FileManager.default.setAttributes([.creationDate: Date().addingTimeInterval(Double(-i) * 86_400)],
                                                    ofItemAtPath: url.path)
-            store.saveMeta(VoiceMeta(markers: markers, transcript: transcript, duration: duration), for: url)
+            store.saveMeta(VoiceMeta(markers: markers, duration: duration), for: url)
         }
         store.setFolder(dir)
         store.reload()
@@ -170,11 +169,10 @@ final class UISnapshots {
         QuickVoiceNote.shared.shortcut = Settings().shortcut("voiceNote")?.displayString
         let levels: [Float] = (0..<18).map { Float(0.25 + 0.6 * abs(sin(Double($0) * 0.9))) }
         let states: [(QuickVoiceNote.Phase, String)] = [
-            (.recording, "voice-badge-recording"), (.transcribing, "voice-badge-transcribing"),
-            (.copied("Ship the voice notes split today. Check the recording bar in light and dark."), "voice-badge-copied"),
-            (.failed("No speech found. The audio file is on the clipboard."), "voice-badge-failed"),
-            (.failed("Speech recognition is off for Yapshot. Turn it on in System Settings > Privacy & Security > "
-                     + "Speech Recognition. The audio file is on the clipboard."), "voice-badge-failed-long"),
+            (.recording, "voice-badge-recording"),
+            (.copied("Voice Note 2026-11-28 at 08.00.00.m4a"), "voice-badge-copied"),
+            (.failed("Recording didn't start. Check that a microphone is connected."), "voice-badge-failed"),
+            (.failed(VoiceRecorder.deniedText), "voice-badge-failed-long"),
         ]
         for (phase, name) in states {
             let p = NSPanel(contentRect: NSRect(origin: .zero, size: QuickVoiceBadge.size),
@@ -199,7 +197,7 @@ final class UISnapshots {
 
             Add an arrow, a box or a numbered step, then drag the image straight into a document or a chat.
 
-            When you need to explain something out loud, press Shift-Command-R and just talk. Yapshot writes it down for you.
+            When you need to explain something out loud, press Shift-Command-M to record a quick voice note.
             """)
         for (elapsed, name) in [(nil, "teleprompter"), (83.0, "teleprompter-recording")] as [(Double?, String)] {
             let p = t.makePanel(sampleElapsed: elapsed)
